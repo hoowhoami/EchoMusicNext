@@ -395,6 +395,7 @@ ApplicationWindow {
     QVERIFY(manager.install(key));
     QTRY_VERIFY(!manager.busy());
     QVERIFY(notice.last()[1].toBool());
+    QVERIFY(notice.last()[0].toString().contains("插件包内清单与作者发布清单不一致"));
     QCOMPARE(host.runtime.record(installation).value("version").toString(), "1.0.0");
     QCOMPARE(host.runtime.state(installation), PluginRuntime::Active);
     manager.shutdown();

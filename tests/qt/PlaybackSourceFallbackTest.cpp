@@ -647,9 +647,85 @@ private slots:
     void catalogRefreshIsBounded_data()
     {
         QTest::addColumn<QString>("failure");
-        for (const auto *name : {"request-failed", "same-hash", "same-hash-uppercase",
-                                 "invalid-hash", "no-url", "replacement-also-missing"})
+        for (const auto *name :
+             {"request-failed", "invalid-hash", "no-url", "replacement-also-missing"})
             QTest::newRow(name) << QString(name);
+    }
+    void removedCatalogRecoversAuthorizedStandardSource_data()
+    {
+        QTest::addColumn<QString>("responseHash");
+        QTest::addColumn<bool>("preloading");
+        QTest::addColumn<bool>("effect");
+        for (const auto &hash : {hashA, hashA.toUpper(), QString()})
+            for (bool preload : {false, true})
+                for (bool effect : {false, true})
+                    QTest::newRow(qPrintable(QString("%1-%2-%3")
+                                                 .arg(hash.isEmpty() ? "absent" : hash)
+                                                 .arg(preload)
+                                                 .arg(effect)))
+                        << hash << preload << effect;
+    }
+    void removedCatalogRecoversAuthorizedStandardSource()
+    {
+        QFETCH(QString, responseHash);
+        QFETCH(bool, preloading);
+        QFETCH(bool, effect);
+        Fixture f;
+        PlaybackSourceRequest request(f.api, f.membership);
+        QSignalSpy resolved(&request, &PlaybackSourceRequest::resolved);
+        QSignalSpy failed(&request, &PlaybackSourceRequest::failed);
+        auto track = PlaybackTrack::fromDomain(
+            {{"id", "27602112"}, {"hash", hashA}, {"album_id", "528463"}});
+        QCOMPARE(track.songId, 27602112ULL); // Search MixSongID survives into the tracker request.
+        request.resolve(track, ApiClient::PlaybackQuality::HiRes,
+                        effect ? ApiClient::SoundEffect::Piano : ApiClient::SoundEffect::None, {},
+                        false, true, {}, {}, false, false, preloading);
+        const auto rights = ApiClientTestAccess::pending(f.api, "privilege_lite");
+        QVERIFY(rights);
+        const QJsonObject missing{{"hash", hashA},
+                                  {"song_id", 0},
+                                  {"album_id", "0"},
+                                  {"resource_error", 6},
+                                  {"variants", QJsonArray{}}};
+        ApiClientTestAccess::finish(f.api, rights, QJsonArray{missing});
+        const auto locator = ApiClientTestAccess::pending(f.api, "song_url_auth_merge");
+        QVERIFY(locator);
+        QCOMPARE(ApiClientTestAccess::query(f.api, locator).value("song_id").toInteger(), 27602112);
+        QCOMPARE(ApiClientTestAccess::query(f.api, locator).value("album_id").toInteger(), 528463);
+        auto candidate = source("https://example.invalid/recovered");
+        candidate["hash"] = responseHash;
+        candidate["backup_urls"] = QJsonArray{"https://example.invalid/backup"};
+        candidate["loudness"] = -10.5;
+        candidate["peak"] = 0.9;
+        candidate["gain"] = 1.2;
+        ApiClientTestAccess::finish(f.api, locator, candidate);
+        if (effect) {
+            QVERIFY(resolved.isEmpty());
+            const auto pending = ApiClientTestAccess::pending(f.api, "song_url_auth_merge");
+            QVERIFY(pending);
+            QCOMPARE(ApiClientTestAccess::query(f.api, pending).value("effect").toString(),
+                     QString("piano"));
+            ApiClientTestAccess::fail(f.api, pending);
+        }
+        QCOMPARE(resolved.size(), 1);
+        QVERIFY(failed.isEmpty());
+        const auto actual = resolved[0][2].toJsonObject();
+        QCOMPARE(actual.value("urls"), candidate.value("urls"));
+        QCOMPARE(actual.value("backup_urls"), candidate.value("backup_urls"));
+        QCOMPARE(actual.value("loudness").toDouble(), -10.5);
+        QCOMPARE(actual.value("peak").toDouble(), 0.9);
+        QCOMPARE(actual.value("gain").toDouble(), 1.2);
+        QCOMPARE(actual.value("effect").toString(), QString("none"));
+        QCOMPARE(resolved[0][4].toString(), QString("standard"));
+        QCOMPARE(qvariant_cast<PlaybackTrack>(resolved[0][0]).stableKey(), track.stableKey());
+        QCOMPARE(resolved[0][1].toJsonObject(), missing); // No fabricated quality rights.
+        QVERIFY(!ApiClientTestAccess::pending(f.api, "privilege_lite"));
+        QVERIFY(!ApiClientTestAccess::pending(f.api, "song_url_auth_merge"));
+        QVERIFY(request.continueAfterFailure());
+        QCOMPARE(failed.size(), 1);
+        QCOMPARE(resolved.size(), 1);
+        QVERIFY(!ApiClientTestAccess::pending(
+            f.api, "song_url_auth_merge")); // A used locator is never retried.
     }
     void catalogRefreshIsBounded()
     {
@@ -671,10 +747,7 @@ private slots:
             ApiClientTestAccess::fail(f.api, id);
         } else {
             auto candidate = source("https://example.invalid/locator");
-            candidate["hash"] = failure == "same-hash"             ? hashA
-                                : failure == "same-hash-uppercase" ? hashA.toUpper()
-                                : failure == "invalid-hash"        ? QString("not-a-hash")
-                                                                   : hashB;
+            candidate["hash"] = failure == "invalid-hash" ? QString("not-a-hash") : hashB;
             if (failure == "no-url")
                 candidate["urls"] = QJsonArray{};
             ApiClientTestAccess::finish(f.api, id, candidate);
@@ -695,6 +768,79 @@ private slots:
                      QJsonDocument(ApiClientTestAccess::query(f.api, ApiClientTestAccess::pending(
                                                                          f.api, "privilege_lite")))
                          .toJson()));
+    }
+    void recoveredSourceUsesEffectAndTransformLifecycle_data()
+    {
+        QTest::addColumn<QString>("mode");
+        for (const auto *mode :
+             {"effect-success", "transform-reject", "cancel-transform", "account-transform"})
+            QTest::newRow(mode) << QString(mode);
+    }
+    void recoveredSourceUsesEffectAndTransformLifecycle()
+    {
+        QFETCH(QString, mode);
+        Fixture f;
+        PlaybackSourceExtensions extensions(nullptr);
+        PlaybackSourceRequest request(f.api, f.membership, nullptr, nullptr, &extensions);
+        PlaybackSourceExtensions::Reply reply;
+        QVariantMap transformed;
+        PlaybackSourceExtensions::Resolver resolver;
+        resolver.key = "test.recovery";
+        resolver.revision = "1";
+        resolver.transform = true;
+        resolver.stages = {"catalog"};
+        resolver.valid = [] { return true; };
+        resolver.invoke = [&](const QString &method, const QVariantMap &args, QObject *,
+                              PlaybackSourceExtensions::Reply done) {
+            QCOMPARE(method, QString("transform"));
+            transformed = args.value("source").toMap();
+            reply = std::move(done);
+        };
+        resolver.report = [](const QString &) {};
+        QVERIFY(extensions.add(resolver));
+        QSignalSpy resolved(&request, &PlaybackSourceRequest::resolved);
+        QSignalSpy failed(&request, &PlaybackSourceRequest::failed);
+        PlaybackTrack track;
+        track.id = "123";
+        track.songId = 123;
+        track.hash = hashA;
+        const bool effect = mode == "effect-success";
+        request.resolve(track, ApiClient::PlaybackQuality::Standard,
+                        effect ? ApiClient::SoundEffect::Piano : ApiClient::SoundEffect::None,
+                        {{"hash", hashA}, {"resource_error", 6}, {"variants", QJsonArray{}}});
+        QTRY_VERIFY(ApiClientTestAccess::pending(f.api, "song_url_auth_merge"));
+        auto candidate = source("https://example.invalid/standard");
+        candidate["hash"] = hashA;
+        ApiClientTestAccess::finish(
+            f.api, ApiClientTestAccess::pending(f.api, "song_url_auth_merge"), candidate);
+        if (effect) {
+            const auto pending = ApiClientTestAccess::pending(f.api, "song_url_auth_merge");
+            QVERIFY(pending);
+            ApiClientTestAccess::finish(f.api, pending, source("https://example.invalid/piano"));
+        }
+        QTRY_VERIFY(bool(reply));
+        QCOMPARE(transformed.value("quality").toString(), QString("standard"));
+        QCOMPARE(transformed.value("effect").toString(),
+                 effect ? QString("piano") : QString("none"));
+        if (mode == "cancel-transform")
+            request.cancel();
+        if (mode == "account-transform")
+            QVERIFY(f.api.setAccount(900002, "another-fixture"));
+        reply(true, mode == "transform-reject" ? QVariant(false) : QVariant());
+        if (effect) {
+            QTRY_COMPARE(resolved.size(), 1);
+            QCOMPARE(resolved[0][2].toJsonObject().value("urls").toArray().first().toString(),
+                     QString("https://example.invalid/piano"));
+            QVERIFY(failed.isEmpty());
+        } else if (mode == "transform-reject") {
+            QTRY_COMPARE(failed.size(), 1);
+            QVERIFY(resolved.isEmpty());
+        } else {
+            QTest::qWait(10);
+            QVERIFY(resolved.isEmpty());
+            QVERIFY(failed.isEmpty());
+        }
+        QVERIFY(!ApiClientTestAccess::pending(f.api, "song_url_auth_merge"));
     }
     void catalogRefreshCancellation_data()
     {

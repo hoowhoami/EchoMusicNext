@@ -6,6 +6,7 @@
 #include <QBuffer>
 #include <QFutureWatcher>
 #include <QImageReader>
+#include <limits>
 namespace
 {
 EchoPluginContext *sessionPlugin(Host &host)
@@ -45,6 +46,14 @@ Item {
     }
 })");
     write(path + "/Broken.qml", "invalid qml");
+    write(path + "/Slow.qml", R"(import QtQuick
+import EchoMusic.PluginSdk
+Item {
+    required property EchoPluginContext plugin
+    required property EchoPluginDialog dialog
+    implicitHeight: 900
+    Repeater { model: 3000; Item { width: 1; height: 1 } }
+})");
     host.runtime.importDirectory(path);
     if (!QTest::qWaitFor(
             [&] {
@@ -177,6 +186,105 @@ void PluginRuntimeTest::pluginClipboardWritesAndScopeCancellation()
     QTRY_VERIFY(!decode);
     QCOMPARE(clipboard->text(), "keep clipboard on cancellation");
 }
+void PluginRuntimeTest::pluginDialogReservedHeightLifecycle()
+{
+    Host host;
+    auto window = ecosystemWindow(host, R"(import QtQuick.Controls.Basic
+ApplicationWindow { width: 900; height: 700; visible: true })");
+    auto *mainWindow = qobject_cast<QQuickWindow *>(window.get());
+    QVERIFY(mainWindow);
+    host.mainWindow = mainWindow;
+    auto *scope = sessionPlugin(host);
+    QVERIFY(scope);
+    for (const QVariant &height : {QVariant(159), QVariant(2049), QVariant("invalid"),
+                                   QVariant(std::numeric_limits<double>::infinity()),
+                                   QVariant(std::numeric_limits<double>::quiet_NaN())})
+        QCOMPARE(
+            scope->ui()->showDialog({{"component", "Panel.qml"}, {"height", height}})->errorCode(),
+            "InvalidArgument");
+    auto *open =
+        scope->ui()->showDialog({{"component", "Panel.qml"}, {"width", 640}, {"height", 480}});
+    QTRY_VERIFY(open->finished());
+    QVERIFY2(open->state() == EchoPluginOperation::Succeeded, qPrintable(open->errorMessage()));
+    auto *handle = open->result().value<EchoPluginDialog *>();
+    QVERIFY(handle);
+    QPointer<QObject> popup = handle->findChild<QObject *>("pluginDialog");
+    auto *panel = handle->findChild<QQuickItem *>("sessionUiPanel");
+    QVERIFY(popup && panel);
+    QCOMPARE(popup->property("height").toReal(), 480);
+    panel->setImplicitHeight(900);
+    QTest::qWait(50);
+    QCOMPARE(popup->property("height").toReal(), 480);
+    for (int step = 0; step < 5; ++step)
+        host.shellSettings.zoomIn();
+    QCOMPARE(host.shellSettings.uiScale(), 1.25);
+    mainWindow->resize(900, 360);
+    QTRY_COMPARE(popup->property("height").toReal(), 256);
+    mainWindow->resize(900, 700);
+    QTRY_COMPARE(popup->property("height").toReal(), 480);
+    handle->close();
+    QTRY_VERIFY(popup.isNull());
+    host.shellSettings.resetZoom();
+
+    auto *natural = scope->ui()->showDialog({{"component", "Panel.qml"}});
+    QTRY_VERIFY(natural->finished());
+    QVERIFY(natural->state() == EchoPluginOperation::Succeeded);
+    auto *naturalHandle = natural->result().value<EchoPluginDialog *>();
+    QPointer<QObject> naturalPopup = naturalHandle->findChild<QObject *>("pluginDialog");
+    auto *naturalPanel = naturalHandle->findChild<QQuickItem *>("sessionUiPanel");
+    QVERIFY(naturalPopup && naturalPanel);
+    const auto naturalHeight = naturalPopup->property("height").toReal();
+    naturalPanel->setImplicitHeight(naturalPanel->implicitHeight() + 20);
+    QTRY_COMPARE(naturalPopup->property("height").toReal(), naturalHeight + 20);
+    naturalHandle->close();
+    QTRY_VERIFY(naturalPopup.isNull());
+
+    for (int action = 0; action < 3; ++action) {
+        EchoPluginOperation *pending = nullptr;
+        QPointer<QObject> loadingPopup;
+        bool shellPainted = false, readyAtFirstPaint = true;
+        qreal firstHeight = 0;
+        const auto frameConnection =
+            connect(mainWindow, &QQuickWindow::frameSwapped, mainWindow, [&] {
+                if (shellPainted)
+                    return;
+                loadingPopup = scope->findChild<QObject *>("pluginDialog");
+                if (!loadingPopup || !loadingPopup->property("visible").toBool())
+                    return;
+                shellPainted = true;
+                readyAtFirstPaint = loadingPopup->property("bodyReady").toBool();
+                firstHeight = loadingPopup->property("height").toReal();
+                if (action == 0)
+                    pending->cancel();
+                else if (action == 1)
+                    mainWindow->hide();
+                else
+                    for (auto *dialog : scope->findChildren<EchoPluginDialog *>())
+                        if (dialog->active())
+                            dialog->close();
+            });
+        pending =
+            scope->ui()->showDialog({{"component", "Slow.qml"}, {"width", 640}, {"height", 480}});
+        QTRY_VERIFY(shellPainted);
+        QObject::disconnect(frameConnection);
+        QVERIFY(!readyAtFirstPaint);
+        QCOMPARE(firstHeight, 480);
+        QTRY_VERIFY(loadingPopup.isNull());
+        QCOMPARE(pending->state(), EchoPluginOperation::Canceled);
+        mainWindow->show();
+        QTest::qWait(50);
+        QVERIFY(!scope->findChild<QObject *>("pluginDialog"));
+    }
+    auto *last =
+        scope->ui()->showDialog({{"component", "Panel.qml"}, {"width", 640}, {"height", 480}});
+    QTRY_VERIFY(last->finished());
+    auto *lastHandle = last->result().value<EchoPluginDialog *>();
+    QPointer<QObject> lastPopup = lastHandle->findChild<QObject *>("pluginDialog");
+    QVERIFY(lastPopup);
+    QVERIFY(host.runtime.setEnabled(host.runtime.installationForId("session-ui"), false));
+    QTRY_VERIFY(lastPopup.isNull());
+}
+
 void PluginRuntimeTest::pluginMainWindowDialogsLifecycle()
 {
     Host host;

@@ -133,6 +133,10 @@ void PluginManager::extractLocal(const QString &archive, const QVariantMap &entr
         const auto package = PluginPackage::inspectDirectory(candidate);
         if (!package.error.isEmpty())
             return {{}, package.error};
+        if (!entry.isEmpty() && package.manifest != entry.value("manifest").toMap())
+            return {{},
+                    tr("插件包内清单与作者发布清单不一致，已停止安装。请刷新插件列表；若仍失败，请"
+                       "联系插件作者。")};
         return {candidate, {}};
     }));
 }

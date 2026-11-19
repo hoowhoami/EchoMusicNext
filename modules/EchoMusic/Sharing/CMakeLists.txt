@@ -10,6 +10,8 @@ qt_add_qml_module(
     SOURCES
     ShareResolveService.h
     ShareResolveService.cpp
+    ShareSongRecovery.h
+    ShareSongRecovery.cpp
     QML_FILES
     ShareResolvePage.qml
 )

@@ -319,6 +319,7 @@ Popup {
                 entry: Theme.store.extensions.skin
                 placement: "playback"
                 resourceActive: page.presentationActive
+                opacity: motion.hostOpacity
             }
             Item {
                 id: nativePlaybackContents

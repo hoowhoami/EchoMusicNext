@@ -7,6 +7,7 @@
 #include <QJsonArray>
 #include <QQmlEngine>
 #include <utility>
+#include <algorithm>
 
 namespace EchoMusic
 {
@@ -114,6 +115,7 @@ void ShareResolveService::cancel()
         m_api.cancel(id);
     m_roomPending = 0;
     m_roomDetail = {};
+    m_song.reset();
 }
 void ShareResolveService::fail(const QString &reason)
 {
@@ -234,17 +236,9 @@ void ShareResolveService::accept(quint64 id, const QByteArray &bytes)
             return;
         }
         const auto resource = list.first().toObject();
-        // Mediastore can return a row with status=1 for a missing audio.
-        // Its resource error carries the business result independently.
-        if (resource.value("resource_error").toInt() == 6) {
-            fail("not-found");
-            return;
-        }
         const auto primary = resource.value("primary").toObject();
         PlaybackTrack track;
-        track.hash = resource.value("hash").toString();
-        if (track.hash.isEmpty())
-            track.hash = m_target->id;
+        track.hash = m_target->id;
         track.songId = resource.value("song_id").toVariant().toULongLong();
         if (!track.songId)
             track.songId = m_target->query.value("albumAudioId").toULongLong();
@@ -253,10 +247,14 @@ void ShareResolveService::accept(quint64 id, const QByteArray &bytes)
         if (!track.albumId)
             track.albumId = m_target->query.value("albumId").toULongLong();
         track.title = resource.value("display_name").toString();
+        if (track.title.isEmpty())
+            track.title = m_target->query.value("title");
         track.artist = resource.value("artist_text").toString();
+        if (track.artist.isEmpty())
+            track.artist = m_target->query.value("artist");
         track.album = resource.value("album_title").toString();
         track.cover = primary.value("cover_url").toString();
-        track.durationMs = quint64(primary.value("duration_ms").toInteger());
+        track.durationMs = quint64(std::max(qint64(0), primary.value("duration_ms").toInteger()));
         track.catalogPrivilege = quint32(primary.value("privilege").toInt());
         track.catalogMetadata = {{"resource_privileges", resource},
                                  {"catalog_privilege", primary.value("privilege").isDouble()
@@ -267,11 +265,30 @@ void ShareResolveService::accept(quint64 id, const QByteArray &bytes)
                                                              : QJsonValue(QJsonValue::Null)}};
         if (!resource.value("language").isNull() && !resource.value("language").isUndefined())
             track.catalogMetadata.insert("language", resource.value("language"));
-        m_spinnerTimer.stop();
-        if (!m_shell.openSongDetails(track, true))
-            fail("load-failed");
+        m_song.emplace();
+        m_song->track = track;
+        m_song->removed = resource.value("resource_error").toInt() == 6;
+        if (m_song->removed || !track.songId || track.title.isEmpty())
+            recoverSong();
+        else
+            finishSong();
         break;
     }
+    case Kind::SongLyrics:
+        if (m_song) {
+            m_song->readCandidates(document.array());
+            requestSongAlbum();
+        }
+        break;
+    case Kind::SongAlbum:
+        if (m_song) {
+            const auto result = m_song->readPage(document.object());
+            if (result == ShareSongRecovery::PageResult::More)
+                requestSongAlbum();
+            else
+                finishSong(result == ShareSongRecovery::PageResult::Complete);
+        }
+        break;
     case Kind::Playlist:
         if (document.array().isEmpty())
             fail("not-found");
@@ -303,6 +320,50 @@ void ShareResolveService::accept(quint64 id, const QByteArray &bytes)
         break;
     }
 }
+void ShareResolveService::recoverSong()
+{
+    const auto &track = m_song->track;
+    // Even a supplied title can lack the identity or timing needed to recover
+    // a removed resource. Search by the exact original hash, never by names.
+    const auto id = m_api.lyricCandidates(track.hash, track.songId, track.durationMs, true);
+    if (id)
+        watch(id, Kind::SongLyrics);
+    else {
+        m_song->readCandidates({});
+        requestSongAlbum();
+    }
+}
+void ShareResolveService::requestSongAlbum()
+{
+    if (!m_song)
+        return;
+    if (m_song->track.songId || !m_song->track.albumId) {
+        finishSong();
+        return;
+    }
+    const auto id =
+        m_api.albumSongs(m_song->track.albumId, ++m_song->page, ShareSongRecovery::PageSize);
+    if (id)
+        watch(id, Kind::SongAlbum);
+    else
+        finishSong();
+}
+void ShareResolveService::finishSong(bool complete)
+{
+    if (!m_song)
+        return;
+    if (complete)
+        m_song->applyMatch();
+    if (m_song->removed && !m_song->track.songId) {
+        fail("not-found");
+        return;
+    }
+    // Navigation synchronously retires this share and its recovery state.
+    const auto track = m_song->track;
+    m_spinnerTimer.stop();
+    if (!m_shell.openSongDetails(track, true))
+        fail("load-failed");
+}
 void ShareResolveService::finishRoom()
 {
     if (m_roomPending || !m_target)
@@ -320,6 +381,15 @@ void ShareResolveService::reject(quint64 id, const QByteArray &bytes)
     if (!active() || pending.generation != m_generation ||
         pending.session != m_api.sessionRevision())
         return;
+    if (pending.kind == Kind::SongLyrics && m_song) {
+        m_song->readCandidates({});
+        requestSongAlbum();
+        return;
+    }
+    if (pending.kind == Kind::SongAlbum && m_song && !m_song->removed) {
+        finishSong();
+        return;
+    }
     const auto error = QJsonDocument::fromJson(bytes).object();
     const auto code = error.value("code").toVariant().toInt();
     const auto message = error.value("message").toString();

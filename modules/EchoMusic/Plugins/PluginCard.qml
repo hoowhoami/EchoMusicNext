@@ -512,12 +512,13 @@ Rectangle {
                 y: 11
                 spacing: card.width < 340 ? 6 : 8
                 PluginActionButton {
+                    objectName: "pluginCardSettings"
                     tooltipText: card.marketplace ? "" : card.record.settingsAvailable ? qsTr("设置") : !card.record.compatible ? card.record.error || qsTr("当前环境无法加载插件设置") : !card.record.enabled ? qsTr("启用插件后可读取设置项") : card.manager.runtime.safeMode ? qsTr("安全模式下不会加载插件设置") : !card.record.active ? qsTr("插件运行后可读取设置项") : qsTr("该插件没有提供设置项")
                     iconOnly: !card.marketplace || card.width < 340
                     text: card.marketplace ? qsTr("分享") : qsTr("设置")
                     glyph: card.marketplace ? "share" : "settings"
                     foreground: !card.marketplace && !card.record.settingsAvailable ? Theme.withAlpha(Theme.secondaryText, 0.78) : colors.text
-                    enabled: !card.busy && (card.marketplace || !!card.record.settingsAvailable)
+                    enabled: card.marketplace ? !card.busy : !card.record.busy && !!card.record.settingsAvailable
                     Accessible.description: tooltipText
                     onClicked: card.marketplace ? card.manager.share(card.record.key) : card.settingsRequested(card.record.installationId)
                 }
@@ -527,7 +528,7 @@ Rectangle {
                     glyph: "database"
                     objectName: "pluginCardData"
                     text: qsTr("插件数据")
-                    enabled: !card.busy && !!card.record.installationId
+                    enabled: !card.record.busy && !!card.record.installationId
                     onClicked: card.dataRequested(card.record.installationId)
                 }
                 PluginActionButton {
@@ -535,7 +536,7 @@ Rectangle {
                     iconOnly: true
                     glyph: "folder-open"
                     text: qsTr("打开插件目录")
-                    enabled: !card.busy
+                    enabled: !card.record.busy
                     onClicked: card.manager.runtime.openPluginDirectory(card.record.installationId)
                 }
                 EchoIconButton {
@@ -574,7 +575,7 @@ Rectangle {
                     glyph: card.managingInstalled ? "adjustments-horizontal" : card.record.updateAvailable ? "refresh" : "arrow-bar-to-down"
                     loading: !!card.record.busy
                     text: card.managingInstalled ? qsTr("管理") : card.record.updateAvailable ? qsTr("更新") : qsTr("安装")
-                    enabled: !card.busy && (card.managingInstalled || !!card.record.compatible)
+                    enabled: card.managingInstalled || !card.busy && !!card.record.compatible
                     onClicked: card.managingInstalled ? card.manageRequested(card.record.id) : card.manager.install(card.record.key)
                 }
                 EchoSwitch {

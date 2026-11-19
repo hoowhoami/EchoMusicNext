@@ -50,6 +50,7 @@ void PlaybackSourceRequest::cancel()
         m_api.cancel(id);
     m_cloudPending = {};
     m_catalogLoudness = {};
+    m_recoveredCatalogSource = {};
     m_kind.clear();
     m_roomResolved = false;
     m_active = m_waitingPrivileges = m_hasPlan = false;
@@ -167,8 +168,8 @@ void PlaybackSourceRequest::tryStart()
 bool PlaybackSourceRequest::refreshMissingCatalogResource()
 {
     // A removed file can still be mapped by the authorized tracker using the
-    // retained album audio ID. This is resource discovery, not an adopted SD
-    // source: query its current rights and run the ordinary quality plan again.
+    // retained album audio ID. A replacement hash needs fresh rights; an
+    // unchanged hash with authorized URLs is a standard-quality fallback.
     // Other rights failures must not turn into this extra request.
     if (m_catalogRefreshTried || m_privileges.value("resource_error").toInt() != 6 ||
         !m_privileges.value("variants").isArray() ||
@@ -222,12 +223,21 @@ void PlaybackSourceRequest::requestSource()
 {
     while (++m_candidateIndex < m_candidates.size()) {
         const auto &candidate = m_candidates[m_candidateIndex];
+        if (candidate.effect == ApiClient::SoundEffect::None &&
+            !m_recoveredCatalogSource.isEmpty()) {
+            publish(std::exchange(m_recoveredCatalogSource, {}), "catalog", "standard");
+            return;
+        }
         m_sourceRequest =
             m_api.playbackSource(candidate.hash, m_track.albumId, m_track.songId, candidate.quality,
                                  {}, {}, candidate.effect, candidate.originPage);
         if (m_sourceRequest)
             return;
         m_lastError = tr("无法发起播放地址请求");
+    }
+    if (!m_recoveredCatalogSource.isEmpty()) {
+        publish(std::exchange(m_recoveredCatalogSource, {}), "catalog", "standard");
+        return;
     }
     afterCatalog();
 }
@@ -240,14 +250,28 @@ void PlaybackSourceRequest::succeed(quint64 id, const QByteArray &bytes)
         const auto source = QJsonDocument::fromJson(bytes).object();
         const auto hash = source.value("hash").toString();
         static const QRegularExpression validHash(QStringLiteral("^[0-9a-fA-F]{32}$"));
-        if (usableUrls(source).isEmpty() || !validHash.match(hash).hasMatch() ||
-            hash.compare(m_catalogHash, Qt::CaseInsensitive) == 0) {
+        if (usableUrls(source).isEmpty() ||
+            (!hash.isEmpty() && !validHash.match(hash).hasMatch())) {
             logCatalogRefresh(
                 "locator-no-replacement", id,
                 {{"url_count", usableUrls(source).size()},
                  {"valid_hash", validHash.match(hash).hasMatch()},
                  {"same_hash", hash.compare(m_catalogHash, Qt::CaseInsensitive) == 0}});
             failCatalogRefresh(tr("播放地址响应不完整"));
+            return;
+        }
+        if (hash.isEmpty() || hash.compare(m_catalogHash, Qt::CaseInsensitive) == 0) {
+            // The empty selector is normalized to 128 by the authorized tracker.
+            // Keep the complete ephemeral source (backup URLs and loudness), but
+            // let selected effect candidates run first. Never invent new rights.
+            m_recoveredCatalogSource = source;
+            m_recoveredCatalogSource.insert("quality", "standard");
+            m_recoveredCatalogSource.insert("effect", "none");
+            for (const auto &key : {"loudness", "peak", "gain"})
+                if (!source.value(key).isNull() && !source.value(key).isUndefined())
+                    m_catalogLoudness[key] = source.value(key);
+            logCatalogRefresh("locator-recovered", id, {{"url_count", usableUrls(source).size()}});
+            tryStart();
             return;
         }
         // Preserve the playlist/queue identity. Only this resolver's catalog

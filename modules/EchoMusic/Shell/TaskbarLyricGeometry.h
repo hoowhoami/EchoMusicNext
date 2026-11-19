@@ -82,9 +82,8 @@ inline constexpr qreal kTwoLineMinArea = 26;
 /// reappears and takes its share of the area back.
 inline qreal lyricFontSizeCap(qreal stripHeight)
 {
-    return stripHeight - 8 < kTwoLineMinArea
-        ? qMax(11., (stripHeight - 8) / 1.4)
-        : qMax(11., (stripHeight - 10) / 2.3);
+    return stripHeight - 8 < kTwoLineMinArea ? qMax(11., (stripHeight - 8) / 1.4)
+                                             : qMax(11., (stripHeight - 10) / 2.3);
 }
 } // namespace TaskbarLyricGeometry
 } // namespace EchoMusic

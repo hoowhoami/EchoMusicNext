@@ -620,6 +620,7 @@ Item {
         hostItem: page
         sourceComponent: PluginDataDialog {
             runtime: page.manager.runtime
+            mutationBlocked: page.manager.busy
         }
     }
     EchoPopupLoader {

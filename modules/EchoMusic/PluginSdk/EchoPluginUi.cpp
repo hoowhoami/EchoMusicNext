@@ -35,7 +35,7 @@ EchoPluginOperation *EchoPluginUi::showDialog(const QVariantMap &options)
     if (op->finished())
         return op;
     for (auto it = options.begin(); it != options.end(); ++it)
-        if (!QStringList{"component", "width", "title", "modal", "closeOnMask"}.contains(
+        if (!QStringList{"component", "width", "height", "title", "modal", "closeOnMask"}.contains(
                 it.key())) {
             op->fail("InvalidArgument", "Unknown dialog option");
             return op;
@@ -52,8 +52,13 @@ EchoPluginOperation *EchoPluginUi::showDialog(const QVariantMap &options)
     const auto path = m_scope.package().resolve(options.value("component").toString());
     bool widthValid = false;
     const double width = options.value("width", 400).toDouble(&widthValid);
+    bool heightValid = false;
+    const double height = options.value("height").toDouble(&heightValid);
     if (path.isEmpty() || !path.endsWith(".qml") || !widthValid || !std::isfinite(width) ||
-        width < 160 || width > 2048 || options.value("title").toString().size() > 256) {
+        width < 160 || width > 2048 ||
+        (options.contains("height") &&
+         (!heightValid || !std::isfinite(height) || height < 160 || height > 2048)) ||
+        options.value("title").toString().size() > 256) {
         op->fail("InvalidArgument", "Invalid package component or dialog dimensions");
         return op;
     }
@@ -70,6 +75,8 @@ EchoPluginOperation *EchoPluginUi::showDialog(const QVariantMap &options)
                            {"title", options.value("title", m_scope.package().name)},
                            {"modal", options.value("modal", true)},
                            {"closeOnMask", options.value("closeOnMask", true)}};
+    if (options.contains("height"))
+        definition.insert("height", height);
     auto *dialog = new EchoPluginDialog(m_scope, op);
     op->start();
     // Defer creation so activation, cancellation and signal connections settle first.

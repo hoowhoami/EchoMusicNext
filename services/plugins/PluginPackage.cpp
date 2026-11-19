@@ -193,6 +193,7 @@ QStringList PluginPackage::supportedFeatures()
                          "ui.presentationVisibility",
                          "kugou.authSnapshot",
                          "ui.dialogs",
+                         "ui.dialogs.height",
                          "clipboard.write"};
 #ifdef ECHO_HAS_ICU_SEGMENTATION
     features.append("text.segmentation");

@@ -1460,12 +1460,28 @@ ApplicationWindow {
     // its visual delegate after the callback/clear sequence.
     QTRY_VERIFY(visual(window->contentItem(), "pluginCard-test.runtime"));
     card = visual(window->contentItem(), "pluginCard-test.runtime");
-    QVERIFY(
-        QMetaObject::invokeMethod(card, "settingsRequested", Q_ARG(QString, host.installation())));
+    // A marketplace download must not block another installed plugin's settings.
+    manager.m_busy = true;
+    emit manager.changed();
+    auto *settingsButton = visual(card, "pluginCardSettings");
+    auto *dataButton = visual(card, "pluginCardData");
+    QVERIFY(settingsButton && settingsButton->isEnabled());
+    QVERIFY(dataButton && dataButton->isEnabled());
+    QVERIFY(QMetaObject::invokeMethod(dataButton, "clicked"));
+    QPointer<QObject> dataDialog;
+    QTRY_VERIFY((dataDialog = root->findChild<QObject *>("pluginDataDialog")));
+    QQuickItem *clearData = nullptr;
+    QTRY_VERIFY((clearData = visual(window->contentItem(), "pluginClearData-test.runtime")));
+    QVERIFY(!clearData->isEnabled());
+    QVERIFY(QMetaObject::invokeMethod(dataDialog, "close"));
+    QTRY_VERIFY(!dataDialog);
+    QVERIFY(QMetaObject::invokeMethod(settingsButton, "clicked"));
     QTRY_VERIFY(visual(window->contentItem(), "actualPluginSettings"));
     QPointer<QObject> dialog = root->findChild<QObject *>("pluginSettingsDialog");
     QVERIFY(dialog);
     QVERIFY(dialog->property("visible").toBool());
+    manager.m_busy = false;
+    emit manager.changed();
     QVERIFY(host.router.navigate("search"));
     QTRY_VERIFY(!dialog);
     QVERIFY(host.router.navigate("plugin-management"));

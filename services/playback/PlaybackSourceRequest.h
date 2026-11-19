@@ -85,7 +85,7 @@ private:
     QMap<int, QStringList> m_videoResults;
     quint64 m_loudnessRequest = 0;
     bool m_normalize = false;
-    QJsonObject m_cloudPending, m_catalogLoudness;
+    QJsonObject m_cloudPending, m_catalogLoudness, m_recoveredCatalogSource;
     QStringList m_mvHashes;
     QJsonArray m_mvUrls;
     ApiClient &m_api;

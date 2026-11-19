@@ -1,6 +1,7 @@
 #pragma once
 #include "ApiClient.h"
 #include "ShareTarget.h"
+#include "ShareSongRecovery.h"
 #include "SharingCommands.h"
 #include "RouteController.h"
 #include <QHash>
@@ -59,6 +60,8 @@ private:
     enum class Kind
     {
         Song,
+        SongLyrics,
+        SongAlbum,
         Playlist,
         Artist,
         Album,
@@ -77,6 +80,9 @@ private:
     void reject(quint64, const QByteArray &);
     void fail(const QString &reason);
     void finishRoom();
+    void recoverSong();
+    void requestSongAlbum();
+    void finishSong(bool complete = false);
     void resolved(const QString &route, const QVariantMap &query, const QString &id = {});
     bool active() const;
     ApiClient &m_api;
@@ -87,6 +93,7 @@ private:
     std::function<bool(const ShareTarget &)> m_pluginOpener;
     QHash<quint64, Pending> m_pending;
     std::optional<ShareTarget> m_target;
+    std::optional<ShareSongRecovery> m_song;
     quint64 m_generation = 0;
     QTimer m_spinnerTimer;
     QString m_reason = "invalid", m_lastClipboardText, m_error;

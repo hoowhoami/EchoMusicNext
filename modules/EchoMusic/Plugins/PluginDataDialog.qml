@@ -10,6 +10,7 @@ EchoDialog {
     id: dialog
     objectName: "pluginDataDialog"
     required property PluginRuntime runtime
+    property bool mutationBlocked: false
     // Empty selection is the separate archive of uninstalled/source-replaced data.
     property string installationId: ""
     readonly property var entries: runtime.dataEntries.filter(entry => installationId.length > 0 ? !entry.retained && entry.key === installationId : entry.retained)
@@ -95,7 +96,7 @@ EchoDialog {
                             text: row.modelData.retained ? qsTr("删除保留数据") : qsTr("清空插件数据")
                             colors: Theme.floating
                             foreground: hovered ? Theme.floating.dangerText : Theme.floatingSecondaryText
-                            enabled: !dialog.runtime.loading
+                            enabled: !dialog.mutationBlocked && !dialog.runtime.loading
                             onClicked: {
                                 dialog.pending = row.modelData;
                                 confirmation.open();
@@ -127,7 +128,7 @@ EchoDialog {
                         objectName: "pluginConfirmClearData"
                         text: qsTr("清除")
                         danger: true
-                        enabled: !dialog.runtime.loading && dialog.pendingCurrent
+                        enabled: !dialog.mutationBlocked && !dialog.runtime.loading && dialog.pendingCurrent
                         onClicked: if (dialog.pendingCurrent && dialog.runtime.clearPluginData(dialog.pending.key))
                             confirm.close()
                     }

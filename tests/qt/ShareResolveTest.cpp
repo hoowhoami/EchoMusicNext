@@ -247,6 +247,86 @@ private slots:
         qInfo() << "Live share/detail command native playback" << quality << "->"
                 << playback.resolvedQuality() << "position" << playback.clockPosition();
     }
+    void liveRemovedSharePlayback()
+    {
+        if (qEnvironmentVariable("ECHO_LIVE_SHARE_PLAYBACK") != "1")
+            QSKIP("Opt-in selected account; stdin credentials only");
+        const QString quality = "hi_res";
+        const std::string input((std::istreambuf_iterator<char>(std::cin)),
+                                std::istreambuf_iterator<char>());
+        const auto identity = QJsonDocument::fromJson(QByteArray::fromStdString(input)).object();
+        DeviceIdentity device{identity.value("mid").toString(),
+                              identity.value("dfid").toString(),
+                              identity.value("guid").toString(),
+                              identity.value("mac").toString(),
+                              "EchoMusicNext",
+                              identity.value("uuid").toString(),
+                              "-"};
+        QTemporaryDir dir;
+        SettingsStore settings(dir.filePath("settings.ini"));
+        settings.setValue("playback/defaultQuality", quality);
+        settings.setValue("playback/compatibilityMode", true);
+        settings.setValue("playback/volume", 0);
+        settings.setValue("playerEngine/audioSamplerate", "48000");
+        settings.setValue("playback/transitionMode", "none");
+        settings.setValue("playback/mvAudioFallbackEnabled", false);
+        ApiClient api(device);
+        NetworkPreferences network(settings, api);
+        const auto previous = QNetworkProxy::applicationProxy();
+        const auto restore = qScopeGuard([&] { QNetworkProxy::setApplicationProxy(previous); });
+        network.installApplicationTransport();
+        QVERIFY(api.setAccount(quint64(identity.value("userid").toInteger()),
+                               identity.value("token").toString(),
+                               identity.value("t1").toString()));
+        AccountService account(api);
+        PlaybackService playback(api, settings, nullptr, dir.filePath("playback.sqlite"), &network);
+        SharingCommands commands(account);
+        RouteController router;
+        ShellController shell(settings, router);
+        WindowController window(settings, false);
+        DetailsService details(api, playback, router, true);
+        ShareResolveService shares(api, commands, router, shell, window);
+        shell.attachPlayback(playback);
+        details.attachShell(shell);
+        details.registerRoutes(router);
+        shares.registerRoutes(router);
+        QSignalSpy sourceFailures(&playback, &PlaybackService::sourceOperationFailed);
+        QSignalSpy playbackClosed(&playback, &PlaybackService::closed);
+        QSignalSpy apiClosed(&api, &ApiClient::closed);
+        const auto cleanup = qScopeGuard([&] {
+            shares.shutdown();
+            details.shutdown();
+            router.shutdown();
+            shell.shutdown();
+            window.shutdown();
+            playback.shutdown();
+            api.shutdown();
+            QVERIFY2(QTest::qWaitFor(
+                         [&] { return !playbackClosed.isEmpty() && !apiClosed.isEmpty(); }, 15000),
+                     "Live share probe did not drain playback and API before teardown");
+        });
+        QVERIFY(shares.openUrl(shareWebUrl(
+            {ShareResource::Song, "7898F6BEEB0C7FF6EA33B9F96C0977D3", {{"albumId", "528463"}}})));
+        QTRY_VERIFY_WITH_TIMEOUT(router.current() && router.current()->name() == "song-detail",
+                                 30000);
+        auto *detail = details.songFor(router.current());
+        QVERIFY(detail);
+        QTRY_VERIFY_WITH_TIMEOUT(!detail->loading(), 30000);
+        QCOMPARE(detail->songs()->count(), 1);
+        const auto track = detail->songs()->track("27602112");
+        QVERIFY(track);
+        QVERIFY(detail->songs()->catalogPlayable("27602112"));
+        QCOMPARE(track->hash.toUpper(), QString("7898F6BEEB0C7FF6EA33B9F96C0977D3"));
+        QCOMPARE(track->title, QStringLiteral("平淡日子里的刺"));
+        detail->actions()->play();
+        QCOMPARE(playback.trackId(), QString("27602112"));
+        QTRY_VERIFY_WITH_TIMEOUT(playback.playing() || !playback.errorMessage().isEmpty(), 30000);
+        QVERIFY2(playback.errorMessage().isEmpty(), qPrintable(playback.errorMessage()));
+        QTRY_VERIFY_WITH_TIMEOUT(playback.clockPosition() > 2000, 10000);
+        QCOMPARE(sourceFailures.size(), 0);
+        qInfo() << "Live share/detail command native playback" << quality << "->"
+                << playback.resolvedQuality() << "position" << playback.clockPosition();
+    }
     void sharedLegacySongReachesPlaybackOnlyWithMatchingFreeFacts_data()
     {
         QTest::addColumn<QString>("action");
@@ -437,6 +517,11 @@ private slots:
                              {"display_name", ""},
                              {"resource_error", 6},
                              {"resource_message", "Allow: the audio is not found."}}});
+            ShareResolveServiceTestAccess::acceptList(
+                f.shares, ShareResolveServiceTestAccess::request(f.shares), {});
+            ShareResolveServiceTestAccess::accept(
+                f.shares, ShareResolveServiceTestAccess::request(f.shares),
+                {{"page", QJsonObject{{"items", QJsonArray{}}, {"total", 0}}}});
         } else {
             QVERIFY(f.open(resource, "999999999"));
             const auto request = ShareResolveServiceTestAccess::request(f.shares);
@@ -515,6 +600,9 @@ Window {
         ShareResolveServiceTestAccess::acceptList(
             f.shares, ShareResolveServiceTestAccess::request(f.shares),
             {QJsonObject{{"hash", hash}, {"song_id", QJsonValue::Null}, {"display_name", ""}}});
+        ShareResolveServiceTestAccess::reject(
+            f.shares, ShareResolveServiceTestAccess::request(f.shares),
+            {{"kind", "network"}, {"message", "optional lyric lookup failed"}});
         QCOMPARE(f.router.current()->name(), QString("song-detail"));
         QCOMPARE(f.router.current()->resourceId(), hash);
         auto *detail = f.details.songFor(f.router.current());
@@ -522,6 +610,182 @@ Window {
         QCOMPARE(detail->songs()->count(), 1);
         QVERIFY(detail->songs()->track(hash));
         QVERIFY(detail->errorMessage().isEmpty());
+        QCOMPARE(f.playback.queue()->rowCount(), 0);
+    }
+    void removedShareRecoversIdentityAcrossAlbumPages_data()
+    {
+        QTest::addColumn<QString>("knownTitle");
+        QTest::newRow("missing-title-and-id") << QString();
+        QTest::newRow("known-title-missing-id") << QStringLiteral("平淡日子里的刺");
+        QTest::newRow("singer-prefixed-title-missing-id")
+            << QStringLiteral("宋冬野 - 平淡日子里的刺");
+    }
+    void removedShareRecoversIdentityAcrossAlbumPages()
+    {
+        QFETCH(QString, knownTitle);
+        Fixture f;
+        const QString hash(32, 'a');
+        QSignalSpy handoff(&f.shell, &ShellController::songDetailOpening);
+        QVERIFY(f.open(ShareResource::Song, hash, {{"albumId", "528463"}}));
+        const QJsonObject missing{{"hash", hash},         {"song_id", 0},
+                                  {"album_id", "528463"}, {"display_name", knownTitle},
+                                  {"resource_error", 6},  {"variants", QJsonArray{}}};
+        ShareResolveServiceTestAccess::acceptList(
+            f.shares, ShareResolveServiceTestAccess::request(f.shares), {missing});
+        QVERIFY(handoff.isEmpty());
+        ShareResolveServiceTestAccess::acceptList(
+            f.shares, ShareResolveServiceTestAccess::request(f.shares),
+            {QJsonObject{{"title", "平淡日子里的刺"},
+                         {"artist", "宋冬野"},
+                         {"duration_ms", 226000},
+                         {"access_key", "ephemeral"}},
+             QJsonObject{
+                 {"title", "平淡日子里的刺"}, {"artist", "宋冬野"}, {"duration_ms", 226768}}});
+        QJsonArray first;
+        for (int index = 0; index < 30; ++index)
+            first.append(QJsonObject{
+                {"song", QJsonObject{{"id", QString::number(index + 1)}, {"title", "其他曲目"}}}});
+        ShareResolveServiceTestAccess::accept(
+            f.shares, ShareResolveServiceTestAccess::request(f.shares),
+            {{"page", QJsonObject{{"items", first}, {"total", 61}}}});
+        QVERIFY(handoff.isEmpty());
+        QJsonArray second;
+        for (int index = 30; index < 60; ++index)
+            second.append(QJsonObject{
+                {"song", QJsonObject{{"id", QString::number(index + 1)}, {"title", "其他曲目"}}}});
+        ShareResolveServiceTestAccess::accept(
+            f.shares, ShareResolveServiceTestAccess::request(f.shares),
+            {{"page", QJsonObject{{"items", second}, {"total", 61}}}});
+        QVERIFY(handoff.isEmpty());
+        const QJsonObject song{
+            {"id", "27602112"},
+            {"hash", QString(32, 'b')},
+            {"album_id", "528463"},
+            {"title", "平淡日子里的刺"},
+            {"duration_ms", 228257},
+            {"artists", QJsonArray{QJsonObject{{"id", 158783}, {"name", "宋冬野"}}}}};
+        ShareResolveServiceTestAccess::accept(
+            f.shares, ShareResolveServiceTestAccess::request(f.shares),
+            {{"page",
+              QJsonObject{{"items", QJsonArray{QJsonObject{{"song", song}}}}, {"total", 61}}}});
+        QCOMPARE(handoff.size(), 1);
+        const auto track = qvariant_cast<PlaybackTrack>(handoff[0][0]);
+        QCOMPARE(track.hash, hash); // Original share/audio identity remains the locator input.
+        QCOMPARE(track.songId, 27602112ULL);
+        QCOMPARE(track.title, knownTitle.isEmpty() ? QStringLiteral("平淡日子里的刺") : knownTitle);
+        QCOMPARE(track.artist, QStringLiteral("宋冬野"));
+        QCOMPARE(track.durationMs, 228257ULL);
+        QCOMPARE(track.toCatalog().value("duration_ms").toInteger(), 228257);
+        QCOMPARE(track.catalogMetadata.value("resource_privileges").toObject(), missing);
+        QVERIFY(!track.catalogMetadata.contains("access_key"));
+        QCOMPARE(f.router.current()->name(), QString("song-detail"));
+        QCOMPARE(f.playback.queue()->rowCount(), 0);
+        QCOMPARE(ShareResolveServiceTestAccess::pending(f.shares), 0);
+    }
+    void recoveryRequiresUnambiguousIdentity_data()
+    {
+        QTest::addColumn<QString>("scenario");
+        QTest::addColumn<bool>("matched");
+        for (const auto *scenario :
+             {"missing-duration", "missing-artist", "wrong-artist", "wrong-version", "far-duration",
+              "ambiguous", "ambiguous-exact", "partial-pages"})
+            QTest::newRow(scenario) << QString(scenario) << false;
+        for (const auto *scenario : {"matching", "exact-hash", "variant-hash", "duplicate-same-id"})
+            QTest::newRow(scenario) << QString(scenario) << true;
+    }
+    void recoveryRequiresUnambiguousIdentity()
+    {
+        QFETCH(QString, scenario);
+        QFETCH(bool, matched);
+        ShareSongRecovery recovery;
+        recovery.track.hash = QString(32, 'a');
+        recovery.track.albumId = 42;
+        recovery.readCandidates(
+            {QJsonObject{{"title", "Song (Live)"}, {"artist", "Singer"}, {"duration_ms", 200000}}});
+        QJsonObject song{{"id", "123"},
+                         {"album_id", "42"},
+                         {"hash", QString(32, 'b')},
+                         {"title", "Song (Live)"},
+                         {"duration_ms", 201000},
+                         {"artists", QJsonArray{QJsonObject{{"name", "Singer"}}}}};
+        if (scenario == "missing-duration")
+            song.remove("duration_ms");
+        if (scenario == "missing-artist")
+            song.remove("artists");
+        if (scenario == "wrong-artist")
+            song["artists"] = QJsonArray{QJsonObject{{"name", "Other"}}};
+        if (scenario == "wrong-version")
+            song["title"] = "Song";
+        if (scenario == "far-duration")
+            song["duration_ms"] = 204000;
+        QJsonObject row{{"song", song}};
+        if (scenario.contains("exact")) {
+            song["hash"] = recovery.track.hash.toUpper();
+            song["title"] = "Different label";
+            row["song"] = song;
+        }
+        if (scenario == "variant-hash")
+            row["metadata"] =
+                QJsonObject{{"resources", QJsonArray{QJsonObject{{"hash", recovery.track.hash}}}}};
+        QJsonArray rows{row};
+        if (scenario == "ambiguous" || scenario == "ambiguous-exact") {
+            song["id"] = "124";
+            rows.append(QJsonObject{{"song", song}});
+        }
+        if (scenario == "duplicate-same-id")
+            rows.append(row);
+        recovery.page = 1;
+        const auto result = recovery.readPage(
+            {{"page", QJsonObject{{"items", rows},
+                                  {"total", scenario == "partial-pages" ? 100 : rows.size()}}}});
+        if (scenario == "partial-pages") {
+            QCOMPARE(result, ShareSongRecovery::PageResult::More);
+            QCOMPARE(recovery.readPage({{"page", QJsonObject{{"items", rows}, {"total", 100}}}}),
+                     ShareSongRecovery::PageResult::Incomplete);
+        } else {
+            QCOMPARE(result, ShareSongRecovery::PageResult::Complete);
+            recovery.applyMatch();
+        }
+        QCOMPARE(recovery.track.songId, matched ? 123ULL : 0ULL);
+        QCOMPARE(recovery.track.hash, QString(32, 'a'));
+    }
+    void recoveryCallbacksRetireWithTheirShare_data()
+    {
+        QTest::addColumn<bool>("albumStage");
+        QTest::addColumn<QString>("action");
+        for (bool album : {false, true})
+            for (const auto &action :
+                 {QString("leave"), QString("replace"), QString("account"), QString("shutdown")})
+                QTest::newRow(qPrintable(action + (album ? "-album" : "-lyrics")))
+                    << album << action;
+    }
+    void recoveryCallbacksRetireWithTheirShare()
+    {
+        QFETCH(bool, albumStage);
+        QFETCH(QString, action);
+        Fixture f;
+        QSignalSpy handoff(&f.shell, &ShellController::songDetailOpening);
+        QVERIFY(f.open(ShareResource::Song, QString(32, 'a'), {{"albumId", "42"}}));
+        ShareResolveServiceTestAccess::acceptList(
+            f.shares, ShareResolveServiceTestAccess::request(f.shares),
+            {QJsonObject{{"hash", QString(32, 'a')}, {"resource_error", 6}}});
+        if (albumStage)
+            ShareResolveServiceTestAccess::acceptList(
+                f.shares, ShareResolveServiceTestAccess::request(f.shares), {});
+        const auto old = ShareResolveServiceTestAccess::request(f.shares);
+        QVERIFY(old);
+        if (action == "leave")
+            f.router.navigate("home");
+        if (action == "replace")
+            QVERIFY(f.open(ShareResource::Album, "960399"));
+        if (action == "account")
+            QVERIFY(f.api.setAccount(900002, "other-fixture"));
+        if (action == "shutdown")
+            f.shares.shutdown();
+        ShareResolveServiceTestAccess::acceptList(f.shares, old, {QJsonObject{{"title", "stale"}}});
+        QVERIFY(handoff.isEmpty());
+        const auto expected = action == "account" || action == "replace" ? 1 : 0;
+        QCOMPARE(ShareResolveServiceTestAccess::pending(f.shares), expected);
         QCOMPARE(f.playback.queue()->rowCount(), 0);
     }
     void closedRoomsCancelTheirOtherResponseAndDoNotOpenThePage()
