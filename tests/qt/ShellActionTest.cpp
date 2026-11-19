@@ -570,6 +570,45 @@ private slots:
         QCOMPARE(closes.size(), 1);
         QCOMPARE(model.count(), 2);
     }
+    void detailUpdatesRetainRowsAndRefreshCallbacks()
+    {
+        TaskCenterModel model;
+        QObject owner;
+        auto registration = task("progress");
+        auto &content = registration.content;
+        int calls = 0;
+        content.items = {{"first", "第一项", "1.0 → 1.1", {}, "等待", {}},
+                         {"second", "第二项", "1.0 → 1.1", {}, "等待", {}}};
+        content.items[0].actions = {
+            {"run", "重试", TaskAction::Ghost, true, false, [&] { calls = 1; }}};
+        const auto handle = model.registerTask(owner, registration);
+        auto *details =
+            model.index(0).data(TaskCenterModel::DetailsRole).value<TaskDetailsModel *>();
+        QAbstractItemModelTester tester(details,
+                                        QAbstractItemModelTester::FailureReportingMode::QtTest);
+        QSignalSpy resets(details, &QAbstractItemModel::modelReset);
+        QSignalSpy changes(details, &QAbstractItemModel::dataChanged);
+        QPersistentModelIndex row(details->index(0));
+        content.percent = 75;
+        content.items[1].statusLabel = "更新中…";
+        content.items[0].actions[0].invoke = [&] { calls = 2; };
+        QVERIFY(model.update(handle, content));
+        QCOMPARE(resets.count(), 0);
+        QVERIFY(row.isValid());
+        QCOMPARE(changes.count(), 1);
+        QCOMPARE(changes.first()[0].value<QModelIndex>().row(), 1);
+        QCOMPARE(changes.first()[2].value<QList<int>>(), QList<int>{TaskDetailsModel::StatusRole});
+        QVERIFY(model.invokeAction(handle.id, QString::number(handle.generation), "run", "first"));
+        QCOMPARE(calls, 2);
+        changes.clear();
+        QVERIFY(model.update(handle, content));
+        QCOMPARE(changes.count(), 0);
+        QCOMPARE(resets.count(), 0);
+        content.items.swapItemsAt(0, 1);
+        QVERIFY(model.update(handle, content));
+        QCOMPARE(resets.count(), 1);
+        QCOMPARE(details->index(0).data(TaskDetailsModel::IdRole).toString(), QString("second"));
+    }
     void retentionExpiryAndOwnerTeardown()
     {
         TaskCenterModel model;

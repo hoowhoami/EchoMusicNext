@@ -9,6 +9,7 @@ private slots:
     void pluginCatalogRecyclingRetainsScrollGeometry_data();
     void pluginCatalogRecyclingRetainsScrollGeometry();
     void pluginCardPresentationStates();
+    void taskProgressPreservesExpandedDialogGeometry();
     void platformManifestValidationAndDependencies();
     void platformInstallationUpdateAndStartup();
     void platformCatalogCacheAndProductionCard();

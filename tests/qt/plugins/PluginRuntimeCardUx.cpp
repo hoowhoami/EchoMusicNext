@@ -586,3 +586,100 @@ Window { id:win; required property PluginManager manager; property var record:({
     QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
     manager.shutdown();
 }
+
+void PluginRuntimeTest::taskProgressPreservesExpandedDialogGeometry()
+{
+    Host host;
+    host.theme.setMotionEnabled(false);
+    auto *tasks = host.shell.tasks();
+    QObject owner;
+    TaskCenterModel::Registration registration;
+    registration.id = "plugin-progress";
+    registration.status = TaskCenterModel::Running;
+    auto &content = registration.content;
+    content.name = "插件更新";
+    content.icon = "puzzle";
+    content.percent = 0;
+    content.statusLabel = "更新中 0/4";
+    for (int i = 0; i < 4; ++i)
+        content.items.append(
+            {QString::number(i), "插件 " + QString::number(i), "1.0.1 → 1.0.2", {}, "更新中…", {}});
+    const auto handle = tasks->registerTask(owner, registration);
+    QQmlComponent component(&host.engine);
+    component.setData(R"(
+import QtQuick
+import QtQuick.Controls.Basic
+import EchoMusic.Shell
+import EchoMusic.Controls
+import EchoMusic.Theme
+ApplicationWindow {
+ id: win
+ required property TaskCenterModel tasks
+ property real uiScale: 1
+ width: 1000; height: 940; visible: true; color: Theme.main
+ EchoPopupLoader {
+  hostItem: win.contentItem
+  sourceComponent: TaskCenterDialog { objectName: "progressDialog"; service: win.tasks; uiScale: win.uiScale }
+  Component.onCompleted: open()
+ }
+})",
+                      QUrl("qrc:/task-progress-geometry.qml"));
+    for (auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+        host.theme.setMode(mode);
+        for (double scale : {1., 1.25}) {
+            std::unique_ptr<QObject> root(component.createWithInitialProperties(
+                {{"tasks", QVariant::fromValue(tasks)}, {"uiScale", scale}}));
+            QVERIFY2(root, qPrintable(component.errorString()));
+            auto *window = qobject_cast<QQuickWindow *>(root.get());
+            QVERIFY(window && QTest::qWaitForWindowExposed(window));
+            QPointer<QObject> dialog;
+            QTRY_VERIFY((dialog = root->findChild<QObject *>("progressDialog")));
+            Test::FrameSpy frames(window);
+            QTRY_VERIFY(dialog->property("opened").toBool());
+            auto *details =
+                tasks->index(0).data(TaskCenterModel::DetailsRole).value<TaskDetailsModel *>();
+            QVERIFY(details);
+            details->setExpanded(true);
+            QPointer<QQuickItem> view;
+            QTRY_VERIFY((view = visual(window->contentItem(), "taskCenterDetails")));
+            QTRY_COMPARE(view->property("count").toInt(), 4);
+            QTRY_VERIFY(view && view->property("measuredExtent").toReal() >= 0);
+            QTRY_COMPARE(view->height(), view->implicitHeight());
+            auto *taskList = visual(window->contentItem(), "taskCenterList");
+            QVERIFY(taskList);
+            QTRY_VERIFY(taskList->property("measuredExtent").toReal() >= 0);
+            window->update();
+            QVERIFY(frames.wait());
+            QPointer<QQuickItem> row = visual(view, "taskCenterDetailRow");
+            QVERIFY(row);
+            const qreal height = dialog->property("height").toReal();
+            const qreal viewHeight = view->height();
+            QSignalSpy heightChanges(dialog, SIGNAL(heightChanged()));
+            QSignalSpy detailHeightChanges(view, &QQuickItem::heightChanged);
+            QSignalSpy resets(details, &QAbstractItemModel::modelReset);
+            for (int step = 0; step < 24; ++step) {
+                content.percent = step * 100. / 23;
+                content.statusLabel = QString("更新中 %1/4").arg(step % 5);
+                content.items[step % 4].statusLabel = step % 2 ? "已更新" : "更新中…";
+                QVERIFY(tasks->update(handle, content));
+                window->update();
+                QVERIFY(frames.wait());
+                QVERIFY2(row, "Progress publication destroyed an existing detail delegate");
+                QCOMPARE(resets.count(), 0);
+                QCOMPARE(dialog->property("height").toReal(), height);
+                QCOMPARE(view->height(), viewHeight);
+            }
+            QCOMPARE(heightChanges.count(), 0);
+            QCOMPARE(detailHeightChanges.count(), 0);
+            const auto captures = qEnvironmentVariable("ECHO_TASK_PROGRESS_CAPTURES");
+            if (!captures.isEmpty()) {
+                QVERIFY(QDir().mkpath(captures));
+                QVERIFY(window->grabWindow().save(
+                    captures + QString("/progress-%1-%2.png").arg(int(mode)).arg(scale)));
+            }
+            QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
+            QTRY_VERIFY(!dialog);
+            root.reset();
+        }
+    }
+}

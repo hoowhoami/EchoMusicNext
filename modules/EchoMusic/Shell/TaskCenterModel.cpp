@@ -91,6 +91,34 @@ QVariant TaskDetailsModel::data(const QModelIndex &index, int role) const
 }
 void TaskDetailsModel::replace(QList<TaskDetail> items)
 {
+    bool sameOrder = items.size() == m_items.size();
+    for (qsizetype row = 0; sameOrder && row < items.size(); ++row)
+        sameOrder = items.at(row).id == m_items.at(row).id;
+    if (sameOrder) {
+        QList<QList<int>> changes(items.size());
+        for (qsizetype row = 0; row < items.size(); ++row) {
+            const auto &before = m_items.at(row);
+            const auto &after = items.at(row);
+            auto &roles = changes[row];
+            if (before.name != after.name)
+                roles.append(NameRole);
+            if (before.description != after.description)
+                roles.append(DescriptionRole);
+            if (before.error != after.error)
+                roles.append(ErrorRole);
+            if (before.statusLabel != after.statusLabel)
+                roles.append(StatusRole);
+            if (actionData(before.actions) != actionData(after.actions))
+                roles.append(ActionsRole);
+        }
+        // Refresh callbacks even when their visible action descriptors match.
+        // Existing delegates and their measured heights survive progress updates.
+        m_items = std::move(items);
+        for (qsizetype row = 0; row < changes.size(); ++row)
+            if (!changes[row].isEmpty())
+                emit dataChanged(index(int(row)), index(int(row)), changes[row]);
+        return;
+    }
     const auto previous = count();
     beginResetModel();
     m_items = std::move(items);

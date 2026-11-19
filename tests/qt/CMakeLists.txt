@@ -1181,7 +1181,7 @@ add_test(
         marketplaceNetworkFailureDetailsUi managementPageUsesProductionModelsAndDialogs
         marketplaceInstallsActualPackageAndRejectsTampering
         pluginCardStateChangesPreserveDelegateAndScroll pluginCardPresentationStates
-        pluginCatalogRecyclingRetainsScrollGeometry
+        pluginCatalogRecyclingRetainsScrollGeometry taskProgressPreservesExpandedDialogGeometry
 )
 add_test(
     NAME plugin-archive-download
