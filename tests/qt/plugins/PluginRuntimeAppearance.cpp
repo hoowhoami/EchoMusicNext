@@ -792,7 +792,7 @@ void PluginRuntimeTest::playbackPresentationAndFloatingSdk()
     QTRY_COMPARE(mode->state(), EchoPluginOperation::Succeeded);
     QCOMPARE(host.playback.playMode(), PlaybackService::Shuffle);
     QCOMPARE(player->snapshot().value("playMode").toInt(), 2);
-    QVERIFY(player->lyricSnapshot().contains("lines"));
+    QVERIFY(player->lyricSnapshot().property("lines").isObject());
     QVERIFY(player->snapshot().contains("revision"));
     auto *windows = scope->windows();
     QVERIFY(windows->snapshot().value("available").toBool());

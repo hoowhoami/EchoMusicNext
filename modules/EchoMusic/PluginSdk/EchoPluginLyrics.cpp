@@ -19,11 +19,9 @@ EchoPluginLyrics::EchoPluginLyrics(EchoPluginContext &scope) : QObject(&scope), 
     connect(scope.host().playback.lyricSource(), &LyricSourceController::changed, this,
             &EchoPluginLyrics::changed);
 }
-QVariantMap EchoPluginLyrics::snapshot() const
+QJSValue EchoPluginLyrics::snapshot() const
 {
-    auto result = information();
-    result["lines"] = m_scope.player()->lyricSnapshot().value("lines");
-    return result;
+    return m_scope.player()->lyricSnapshotWithInfo(information());
 }
 QVariantMap EchoPluginLyrics::information() const
 {
@@ -149,27 +147,9 @@ EchoPluginRegistration *EchoPluginLyrics::onSnapshot(const QString &id, const QJ
                 if (!documentChanged && *previous == value)
                     return;
                 if (documentChanged) {
-                    // Keep the immutable document outside the line-change payload.
-                    // The cache belongs to this subscription, not a global store;
-                    // disposing its lease releases the JS graph and old documents.
-                    auto prepareDocument = m_scope.engine().evaluate(QStringLiteral(
-                        "(function(json){"
-                        "var mutations={copyWithin:true,fill:true,pop:true,push:true,reverse:true,"
-                        "shift:true,sort:true,splice:true,unshift:true};"
-                        "var deny=function(){throw new TypeError('Lyric document is read-only');};"
-                        "function readonly(v){if(v===null||typeof v!=='object')return v;"
-                        "Object.keys(v).forEach(function(k){v[k]=readonly(v[k]);});"
-                        "Object.freeze(v);var array=Array.isArray(v);"
-                        "return new Proxy(v,{get:function(t,k,r){"
-                        "if(array&&mutations[k]===true)return deny;return Reflect.get(t,k,r);},"
-                        "set:deny,defineProperty:deny,deleteProperty:deny,setPrototypeOf:deny});}"
-                        "return readonly(JSON.parse(json));})"));
-                    // Materialize plain JS data once. Qt 6.12 array mutators can
-                    // bypass Object.freeze; proxies also reject borrowed writes.
-                    const auto encoded =
-                        QJsonDocument::fromVariant(m_scope.player()->lyricSnapshot().value("lines"))
-                            .toJson(QJsonDocument::Compact);
-                    *lines = prepareDocument.call({QJSValue(QString::fromUtf8(encoded))});
+                    // Each lease retains its own immutable JS graph. Native row
+                    // projection is temporary, so disposal leaves no shared cache.
+                    *lines = m_scope.player()->createLyricDocument();
                     if (lines->isError()) {
                         emit m_scope.callbackFailed("Unable to prepare read-only lyric snapshot");
                         return;

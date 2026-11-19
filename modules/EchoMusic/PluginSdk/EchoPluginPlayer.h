@@ -63,7 +63,11 @@ public:
     Q_INVOKABLE double samplePosition() const;
     QVariantMap lyricsInfo() const;
     QString revision() const;
-    Q_INVOKABLE QVariantMap lyricSnapshot() const;
+    Q_INVOKABLE QJSValue lyricSnapshot() const;
+    /// Script-facing snapshots share immutable rows in this context's engine.
+    QJSValue lyricSnapshotWithInfo(const QVariantMap &information) const;
+    /// Subscription leases own their JS document independently of legacy reads.
+    QJSValue createLyricDocument() const;
     Q_INVOKABLE EchoMusic::EchoPluginOperation *control(const QString &action,
                                                         const QVariantMap &arguments = {});
     Q_INVOKABLE EchoMusic::EchoPluginRegistration *
@@ -112,6 +116,8 @@ signals:
 private:
     EchoPluginOperation *command(std::function<void()> invoke);
     void publishStateEvents();
+    void invalidateLyricDocument();
+    mutable QJSValue m_lyricLines;
     QVariantMap m_previous;
     QPointer<QObject> m_library;
     QMetaObject::Connection m_libraryConnection;

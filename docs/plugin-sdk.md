@@ -86,7 +86,7 @@
 
 共享`EchoPluginLyricsView.secondaryColor`默认读取全局歌词副行颜色；`player.lyricsInfo.secondaryColor`为空表示沿用视图默认，`secondaryFollowCoverColor`为true时使用当前封面取色。作者可显式绑定`secondaryColor`自定义共享视图的译文/音译颜色，主歌词`playedColor/unplayedColor`保持独立。
 
-`lyrics.onSnapshot`在同一歌词文档内复用只读的`lines`及嵌套数据，换行只更新当前行等轻量信息；歌词内容、过滤或偏移变化后发布新的行数组。需要改写数据时先自行复制，避免在每次回调中深度遍历不变的整首歌词。订阅释放后宿主回收其缓存，调用者显式保留的旧快照继续保持原值。
+`lyrics.snapshot`、`player.lyricSnapshot()`与`lyrics.onSnapshot`在同一歌词文档内复用只读的`lines`及嵌套数据，换行只更新当前行等轻量信息；内容、过滤或偏移变化后使用新行数组。需要改写数据时先复制，避免每次读取/回调都深度遍历整首歌词。直接读取缓存归scope，订阅缓存归各自租约，停用/dispose分别释放宿主引用；调用者显式保留的旧快照保持原值。字段及作者TS调用方式不变，Qt返回原生JS值的元对象契约已通过真实宿主导出同步。
 
 音源解析/转换（playback.audioSource）与多队列（playback.queues）已接入正常播放、预加载及宿主队列目录。作者用法见[音源与队列](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/audio-sources-and-queues.md)。
 

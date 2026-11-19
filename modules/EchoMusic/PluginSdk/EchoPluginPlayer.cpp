@@ -1,4 +1,5 @@
 #include "EchoPluginPlayer.h"
+#include <QJsonDocument>
 #include "EchoPluginContext.h"
 #include "PlaybackService.h"
 #include "EchoPluginViewContext.h"
@@ -55,6 +56,9 @@ EchoPluginPlayer::EchoPluginPlayer(EchoPluginContext &scope, PlaybackService &ho
             emit eventOccurred("clock", snapshot());
     });
     connect(this, &EchoPluginPlayer::changed, this, &EchoPluginPlayer::snapshotChanged);
+    connect(&scope, &EchoPluginContext::activeChanged, this,
+            &EchoPluginPlayer::invalidateLyricDocument);
+    connect(&scope, &EchoPluginContext::activeChanged, this, &EchoPluginPlayer::lyricChanged);
     connect(&scope, &EchoPluginContext::activeChanged, this, &EchoPluginPlayer::clockChanged);
     connect(&scope, &EchoPluginContext::activeChanged, this, &EchoPluginPlayer::snapshotChanged);
     m_previous = snapshot();
@@ -64,7 +68,10 @@ EchoPluginPlayer::EchoPluginPlayer(EchoPluginContext &scope, PlaybackService &ho
         publishStateEvents();
         emit changed();
     });
-    connect(host.lyrics(), &LyricModel::changed, this, &EchoPluginPlayer::lyricChanged);
+    connect(host.lyrics(), &LyricModel::changed, this, [this] {
+        invalidateLyricDocument();
+        emit lyricChanged();
+    });
     connect(host.lyrics(), &LyricModel::currentChanged, this, &EchoPluginPlayer::lyricChanged);
     connect(host.lyricAppearance(), &LyricAppearance::changed, this,
             &EchoPluginPlayer::lyricChanged);
@@ -231,16 +238,57 @@ QVariantMap EchoPluginPlayer::lyricsInfo() const
          {"currentLine", lyrics->lineAt(lyrics->currentIndex())}});
     return result;
 }
-QVariantMap EchoPluginPlayer::lyricSnapshot() const
+void EchoPluginPlayer::invalidateLyricDocument()
 {
-    auto result = lyricsInfo();
-    QVariantList lines;
+    m_lyricLines = {};
+}
+QJSValue EchoPluginPlayer::createLyricDocument() const
+{
+    if (!m_scope.active())
+        return {};
+    QVariantList rows;
     auto *model = m_host.lyrics();
+    rows.reserve(model->rowCount());
     for (int i = 0; i < model->rowCount(); ++i)
-        lines << model->lineAt(i);
-    result.insert("lines", lines);
-    result.insert("revision", revision());
+        rows << model->lineAt(i);
+    // Plain JS arrays preserve identity across reads. Qt's QVariant wrappers
+    // would otherwise project every nested row/word again on each access.
+    auto prepareDocument = m_scope.engine().evaluate(
+        QStringLiteral("(function(json){"
+                       "var mutations={copyWithin:true,fill:true,pop:true,push:true,reverse:true,"
+                       "shift:true,sort:true,splice:true,unshift:true};"
+                       "var deny=function(){throw new TypeError('Lyric document is read-only');};"
+                       "function readonly(v){if(v===null||typeof v!=='object')return v;"
+                       "Object.keys(v).forEach(function(k){v[k]=readonly(v[k]);});"
+                       "Object.freeze(v);var array=Array.isArray(v);"
+                       "return new Proxy(v,{get:function(t,k,r){"
+                       "if(array&&mutations[k]===true)return deny;return Reflect.get(t,k,r);},"
+                       "set:deny,defineProperty:deny,deleteProperty:deny,setPrototypeOf:deny});}"
+                       "return readonly(JSON.parse(json));})"));
+    const auto encoded = QJsonDocument::fromVariant(rows).toJson(QJsonDocument::Compact);
+    return prepareDocument.call({QJSValue(QString::fromUtf8(encoded))});
+}
+QJSValue EchoPluginPlayer::lyricSnapshotWithInfo(const QVariantMap &information) const
+{
+    if (!m_scope.active())
+        return m_scope.engine().newObject();
+    // Qt's isArray() does not recognize the read-only Proxy; undefined is
+    // the explicit invalidation marker, while JS Array.isArray stays true.
+    if (m_lyricLines.isUndefined())
+        m_lyricLines = createLyricDocument();
+    if (m_lyricLines.isError())
+        return m_lyricLines;
+    auto result = m_scope.engine().newObject();
+    for (auto it = information.cbegin(); it != information.cend(); ++it)
+        result.setProperty(it.key(), m_scope.engine().toScriptValue(it.value()));
+    result.setProperty("lines", m_lyricLines);
     return result;
+}
+QJSValue EchoPluginPlayer::lyricSnapshot() const
+{
+    auto information = lyricsInfo();
+    information.insert("revision", revision());
+    return lyricSnapshotWithInfo(information);
 }
 QVariantMap EchoPluginPlayer::clock() const
 {

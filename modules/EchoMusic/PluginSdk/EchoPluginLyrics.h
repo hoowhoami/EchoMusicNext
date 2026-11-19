@@ -13,11 +13,11 @@ class EchoPluginLyrics final : public QObject
     Q_OBJECT
     QML_ELEMENT
     QML_UNCREATABLE("Owned by EchoPluginContext")
-    Q_PROPERTY(QVariantMap snapshot READ snapshot NOTIFY changed)
+    Q_PROPERTY(QJSValue snapshot READ snapshot NOTIFY changed)
     Q_PROPERTY(EchoMusic::EchoPluginReadModel *model READ model CONSTANT)
 public:
     explicit EchoPluginLyrics(EchoPluginContext &scope);
-    QVariantMap snapshot() const;
+    QJSValue snapshot() const;
     EchoPluginReadModel *model() const;
     Q_INVOKABLE EchoMusic::EchoPluginRegistration *registerResolver(const QString &id,
                                                                     const QJSValue &definition);

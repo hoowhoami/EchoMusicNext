@@ -75,15 +75,44 @@ void PluginRuntimeTest::lyricSnapshotsShareDocumentsAcrossLineChanges()
                           {"text", "word"}, {"start_ms", i * 100}, {"duration_ms", 100}}}}});
     QJsonObject document{{"lines", lines}, {"offset_ms", 0}};
     QVERIFY(host.playback.lyrics()->replace(document));
+    host.engine.globalObject().setProperty("legacyLyrics", host.engine.newQObject(scope->lyrics()));
+    host.engine.globalObject().setProperty("legacyPlayer", host.engine.newQObject(scope->player()));
+    const auto firstLegacy = host.engine.evaluate("legacyLyrics.snapshot");
+    QVERIFY2(!firstLegacy.isError(), qPrintable(firstLegacy.toString()));
+    const auto firstLines = firstLegacy.property("lines");
+    QVERIFY2(firstLines.isObject(), qPrintable(firstLegacy.toString()));
+    QVERIFY(host.engine.evaluate("Array.isArray(legacyLyrics.snapshot.lines)").toBool());
+    QCOMPARE(firstLines.property("length").toInt(), 1000);
+    const auto firstWord = firstLines.property(0).property("words").property(0);
     QElapsedTimer timer;
     timer.start();
     for (int i = 0; i < 100; ++i) {
         host.playback.lyrics()->setPosition(i * 100);
-        const auto legacy = host.engine.toScriptValue(scope->lyrics()->snapshot());
-        QCOMPARE(legacy.property("lines").property("length").toInt(), 1000);
+        const auto legacy = host.engine.evaluate("legacyLyrics.snapshot");
+        const auto player = host.engine.evaluate("legacyPlayer.lyricSnapshot()");
+        QCOMPARE(legacy.property("currentIndex").toInt(), i);
+        QCOMPARE(player.property("currentIndex").toInt(), i);
+        QVERIFY(legacy.property("lines").strictlyEquals(firstLines));
+        QVERIFY(player.property("lines").strictlyEquals(firstLines));
+        QVERIFY(legacy.property("lines").property(0).property("words").property(0).strictlyEquals(
+            firstWord));
         QCoreApplication::processEvents();
     }
-    const auto fullProjectionMs = timer.elapsed();
+    const auto legacyProjectionMs = timer.elapsed();
+    // Mutations through either old entry must not poison the shared document.
+    const auto legacyMutation = host.engine.evaluate(R"((function(){
+      var v=legacyLyrics.snapshot, p=legacyPlayer.lyricSnapshot(), caught=0;
+      try{v.lines.push({});}catch(e){++caught;}
+      try{p.lines[0].words[0].text='changed';}catch(e){}
+      try{Array.prototype.push.call(p.lines,{});}catch(e){++caught;}
+      try{delete v.lines[0];}catch(e){}
+      v.currentIndex=-999;
+      return caught===2 && legacyLyrics.snapshot.currentIndex===99 &&
+        p.lines.length===1000 && v.lines[0].lineText==='line 0' &&
+        p.lines[0].words[0].text==='word';
+    })())");
+    QVERIFY2(!legacyMutation.isError(), qPrintable(legacyMutation.toString()));
+    QVERIFY(legacyMutation.toBool());
     host.engine.collectGarbage();
     host.engine.evaluate(R"(
       var cachedLyricCalls=0,cachedLyricReuses=0,cachedLyricDocuments=0,cachedLyricLast=null,cachedLyricFirst=null;
@@ -132,16 +161,25 @@ void PluginRuntimeTest::lyricSnapshotsShareDocumentsAcrossLineChanges()
                  .property("text")
                  .toString(),
              "word");
-    qInfo() << "100 line changes / 1000 rows, full projection ms:" << fullProjectionMs
+    qInfo() << "100 line changes / 1000 rows, cached legacy reads ms:" << legacyProjectionMs
             << "leased projection ms:" << subscriptionMs;
     host.playback.lyrics()->setFilter(true, "^line 0$");
     QTRY_COMPARE(global.property("cachedLyricDocuments").toInt(), 2);
     QVERIFY(global.property("cachedLyricLast").property(0).property("filtered").toBool());
     QVERIFY(!global.property("cachedLyricFirst").property(0).property("filtered").toBool());
+    const auto filteredLegacy = host.engine.evaluate("legacyLyrics.snapshot").property("lines");
+    QVERIFY(!filteredLegacy.strictlyEquals(firstLines));
+    QVERIFY(filteredLegacy.property(0).property("filtered").toBool());
+    QVERIFY(!firstLines.property(0).property("filtered").toBool());
     document["offset_ms"] = 125;
     QVERIFY(host.playback.lyrics()->replace(document));
     QTRY_COMPARE(global.property("cachedLyricDocuments").toInt(), 3);
     QCOMPARE(global.property("cachedLyricLast").property(0).property("startMs").toInt(), 125);
+    const auto offsetLegacy =
+        host.engine.evaluate("legacyPlayer.lyricSnapshot()").property("lines");
+    QVERIFY(!offsetLegacy.strictlyEquals(filteredLegacy));
+    QCOMPARE(offsetLegacy.property(0).property("startMs").toInt(), 125);
+    QCOMPARE(firstLines.property(0).property("startMs").toInt(), 0);
     lease->dispose();
     const auto calls = global.property("cachedLyricCalls").toInt();
     host.playback.lyrics()->setPosition(1000);
@@ -154,6 +192,27 @@ void PluginRuntimeTest::lyricSnapshotsShareDocumentsAcrossLineChanges()
     QVERIFY(reopened);
     QTRY_VERIFY(global.property("cachedLyricCalls").toInt() > calls);
     QVERIFY(global.property("cachedLyricImmutable").toBool());
+    auto replacement = document;
+    auto replacementLines = lines;
+    auto replacementFirst = replacementLines[0].toObject();
+    replacementFirst["text"] = "replacement";
+    replacementLines[0] = replacementFirst;
+    replacement["lines"] = replacementLines;
+    QVERIFY(host.playback.lyrics()->replace(replacement));
+    const auto replaced = scope->player()->lyricSnapshot().property("lines");
+    QVERIFY(!replaced.strictlyEquals(offsetLegacy));
+    QCOMPARE(replaced.property(0).property("lineText").toString(), "replacement");
+    QCOMPARE(firstLines.property(0).property("lineText").toString(), "line 0");
+    host.playback.lyrics()->clear();
+    QCOMPARE(scope->lyrics()->snapshot().property("lines").property("length").toInt(), 0);
+    QVERIFY(host.playback.lyrics()->replace(document));
+    const auto beforeRetirement = scope->lyrics()->snapshot().property("lines");
+    scope->beginRetire();
+    QVERIFY(scope->lyrics()->snapshot().property("lines").isUndefined());
+    QVERIFY(scope->player()->lyricSnapshot().property("lines").isUndefined());
+    host.engine.collectGarbage();
+    QCOMPARE(beforeRetirement.property("length").toInt(), 1000);
+    QCOMPARE(firstLines.property(0).property("lineText").toString(), "line 0");
 }
 void PluginRuntimeTest::lyricResolversFormatsAndManualPriority()
 {
@@ -174,7 +233,7 @@ void PluginRuntimeTest::lyricResolversFormatsAndManualPriority()
     host.playback.ensureLyrics();
     QTRY_COMPARE(firstLine(host.playback.lyrics()), "LRC");
     QCOMPARE(source->currentId(), "plugin/lyric-formats/main");
-    QCOMPARE(scope->lyrics()->snapshot().value("source").toString(), "Plugin lyrics");
+    QCOMPARE(scope->lyrics()->snapshot().property("source").toString(), "Plugin lyrics");
     QVERIFY(host.playback.lyrics()->hasTranslation());
     QVERIFY(host.playback.lyrics()->hasRomanization());
     for (const auto &format : {"krc", "yrc"}) {
