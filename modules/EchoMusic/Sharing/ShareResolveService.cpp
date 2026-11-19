@@ -254,7 +254,8 @@ void ShareResolveService::accept(quint64 id, const QByteArray &bytes)
             track.artist = m_target->query.value("artist");
         track.album = resource.value("album_title").toString();
         track.cover = primary.value("cover_url").toString();
-        track.durationMs = quint64(std::max(qint64(0), primary.value("duration_ms").toInteger()));
+        // Windows headers can define max as a function-like macro.
+        track.durationMs = quint64((std::max)(qint64(0), primary.value("duration_ms").toInteger()));
         track.catalogPrivilege = quint32(primary.value("privilege").toInt());
         track.catalogMetadata = {{"resource_privileges", resource},
                                  {"catalog_privilege", primary.value("privilege").isDouble()
