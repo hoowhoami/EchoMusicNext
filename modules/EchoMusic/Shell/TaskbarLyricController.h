@@ -46,6 +46,11 @@ class TaskbarLyricController final : public QObject
     /// must follow it: the toolkit's own size is stale for a window that is
     /// mounted into the taskbar by hand.
     Q_PROPERTY(qreal stripHeight READ stripHeight NOTIFY stateChanged)
+    /// The largest lyric font size the strip's current height can carry. The
+    /// formula lives in the geometry namespace so the line-count boundary
+    /// stays unit tested: a small taskbar renders a single line, which must
+    /// not clamp the user's size to the 11px floor.
+    Q_PROPERTY(qreal lyricFontSizeCap READ lyricFontSizeCap NOTIFY stateChanged)
     /// Pointer over the visible strip. Tracked natively: the control buttons
     /// grab the mouse, which would otherwise steal a QML hover and make the
     /// strip oscillate between expanded and collapsed.
@@ -102,6 +107,10 @@ public:
     qreal stripHeight() const
     {
         return m_stripHeight;
+    }
+    qreal lyricFontSizeCap() const
+    {
+        return TaskbarLyricGeometry::lyricFontSizeCap(m_stripHeight);
     }
     bool hovered() const
     {

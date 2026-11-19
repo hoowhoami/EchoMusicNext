@@ -36,6 +36,7 @@ private slots:
     void autoHugsTheAreaItLandedIn();
     void fixedPinsToTheTaskbarEdges();
     void draggedClampsInsideTheTaskbar();
+    void lyricFontSizeCapFollowsTheLineCount();
     void physicalLayoutConvertsToDip();
 };
 
@@ -184,6 +185,26 @@ void TaskbarLyricGeometryTest::draggedClampsInsideTheTaskbar()
     const auto rightAnchored = geometry::resolveDragged(layout, geometry::Side::Right, 400, 300);
     QVERIFY(rightAnchored.has_value());
     QVERIFY(rightAnchored->side == geometry::Side::Right);
+}
+
+void TaskbarLyricGeometryTest::lyricFontSizeCapFollowsTheLineCount()
+{
+    // A small taskbar (Windows small buttons land near 30px) drops the second
+    // line, and the lone line owns the whole lyric area: the default 14 must
+    // survive instead of clamping onto the 11px floor of the two-line split.
+    QVERIFY(geometry::lyricFontSizeCap(30) >= 14);
+    QCOMPARE(geometry::lyricFontSizeCap(30), 22.0 / 1.4);
+    QCOMPARE(geometry::lyricFontSizeCap(28), 20.0 / 1.4);
+
+    // The boundary is the pair's second-line gate: from a 26px lyric area up
+    // both lines show and the strip splits between them again, so the cap
+    // drops there on purpose - the reappearing second line takes its share.
+    QCOMPARE(geometry::lyricFontSizeCap(33), 25.0 / 1.4);
+    QCOMPARE(geometry::lyricFontSizeCap(34), 11.0);
+    QCOMPARE(geometry::lyricFontSizeCap(44), 34.0 / 2.3);
+
+    // Degenerate heights stay on the 11px floor instead of going negative.
+    QCOMPARE(geometry::lyricFontSizeCap(0), 11.0);
 }
 
 void TaskbarLyricGeometryTest::physicalLayoutConvertsToDip()

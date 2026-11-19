@@ -25,6 +25,10 @@ Window {
     readonly property int maxWidth: controller.maxWidth
     readonly property int infoOffset: controller.infoOffset
     readonly property int fontSize: controller.fontSize
+    // 字号上限由几何层按行数计算：歌词区放不下副行时整条单行，上限用整块
+    // 高度而不是仍按两行分摊——否则用户字号会被钳在 11px 地板，字号设置
+    // 在小任务栏上失效。
+    readonly property real lyricFontSize: Math.min(fontSize, controller.lyricFontSizeCap)
     readonly property bool showTranslation: controller.showTranslation
     readonly property bool wordByWord: controller.wordByWord
     // A narrow strip keeps the cover and the control buttons; the song info
@@ -168,7 +172,7 @@ Window {
                 anchorRight: window.anchorRight
                 accentColor: window.accentText
                 baseColor: window.fg
-                fontSize: Math.min(window.fontSize, Math.max(11, (window.stripHeight - 10) / 2.3))
+                fontSize: window.lyricFontSize
                 onNaturalWidth: function (value) {
                     group.pairWidth(true, value);
                 }
@@ -190,7 +194,7 @@ Window {
                 anchorRight: window.anchorRight
                 accentColor: group.payload && group.payload.secondaryIsLyric ? window.secondaryInk : window.muted
                 baseColor: group.payload && group.payload.secondaryIsLyric ? window.secondaryInk : window.muted
-                fontSize: Math.min(window.fontSize, Math.max(11, (window.stripHeight - 10) / 2.3)) * 0.82
+                fontSize: window.lyricFontSize * 0.82
                 onNaturalWidth: function (value) {
                     group.pairWidth(false, value);
                 }
