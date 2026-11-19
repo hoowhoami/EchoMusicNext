@@ -131,12 +131,28 @@ jobs:
         uses: mozilla-actions/sccache-action@v0.0.11
         with:
           version: 'v0.16.0'
+      - name: Restore pinned word-only ICU
+        id: icu-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: build/icu4c-78.3
+          key: icu-word-78.3-${{ matrix.runner }}-${{ matrix.arch }}-${{ hashFiles('scripts/install-icu.py', 'scripts/icu_windows.py', 'scripts/icu_word_data.py') }}
+      - name: Build and validate native ICU word-break libraries
+        run: |
+          python scripts/install-icu.py --jobs 4
+          python scripts/install-icu.py --check
+      - name: Save validated ICU prefix
+        if: steps.icu-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: build/icu4c-78.3
+          key: ${{ steps.icu-cache.outputs.cache-primary-key }}
       - name: Configure
         shell: bash
         env:
           CMAKE_C_COMPILER_LAUNCHER: sccache
           CMAKE_CXX_COMPILER_LAUNCHER: sccache
-        run: python scripts/build.py --preset release --configure-only --distribution --no-tests --no-ffi-check
+        run: python scripts/build.py --preset release --configure-only --distribution --no-tests --no-ffi-check --icu-root build/icu4c-78.3
       - name: Build
         run: cmake --build --preset release
       - name: Prepare deployment materials

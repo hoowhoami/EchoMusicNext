@@ -5,6 +5,7 @@ import { verifyStage } from './verify-stage.mjs';
 import { collectLicenses } from './licenses.mjs';
 import { verifyQtDeployment } from './qt-licenses.mjs';
 import { thinMacosBinaries } from './macos-architecture.mjs';
+import { deployIcu, verifyIcuDeployment } from './icu.mjs';
 import {
   root,
   matrix,
@@ -68,6 +69,7 @@ const licenseDirectory =
     ? path.join(stage, 'EchoMusicNext.app/Contents/Resources/licenses')
     : path.join(stage, 'share/echomusicnext/licenses');
 collectLicenses(licenseDirectory, qt, version);
+const icuFiles = deployIcu(build, stage, platform, arch, licenseDirectory);
 if (platform === 'macOS') {
   // Filter before macdeployqt follows optional database-client dependencies.
   keepSqliteDriver(path.join(qt, 'plugins/sqldrivers'), 'libqsqlite.dylib');
@@ -106,6 +108,7 @@ if (platform === 'macOS') {
   ]);
   run('codesign', ['--verify', '--deep', '--strict', app]);
   verifyQtDeployment(stage, licenseDirectory);
+  verifyIcuDeployment(icuFiles);
   verifyStage(stage, platform, arch, { smoke });
   fs.symlinkSync('/Applications', path.join(stage, 'Applications'));
   run('hdiutil', [
@@ -147,6 +150,7 @@ if (platform === 'macOS') {
     path.join(sqlite, 'qsqlite.dll'),
   );
   verifyQtDeployment(stage, licenseDirectory);
+  verifyIcuDeployment(icuFiles);
   verifyStage(stage, platform, arch, { smoke });
   const redist = path.join(root, `build/release-tools/vc_redist.${arch}.exe`);
   const redistVersion = JSON.parse(
@@ -237,6 +241,7 @@ if (platform === 'macOS') {
   );
   if (!fs.existsSync(name('appimage'))) throw new Error('AppImage output missing');
   verifyQtDeployment(stage, licenseDirectory);
+  verifyIcuDeployment(icuFiles);
   verifyStage(stage, platform, arch, { smoke });
   const osArch = arch === 'x64' ? 'x86_64' : 'aarch64';
   const match = /^([0-9.]+)(?:-(.*))?$/.exec(version.split('+')[0]);

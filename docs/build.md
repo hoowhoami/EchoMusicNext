@@ -10,7 +10,7 @@
 
 目标系统基线为 Windows 10 1809+ x64 / Windows 11 x64、ARM64，macOS 14.4+ Intel、Apple Silicon，以及 Linux x64 的 Ubuntu 22.04+ / glibc 2.35+、Linux ARM64 的 Ubuntu 24.04+ / glibc 2.39+（X11 / Wayland）。这些是构建与适配目标，不代表全部组合已完成实机验证。
 
-需要插件的 ICU 词语分段能力时，先按[插件文本构建说明](plugin-text.md)提供 ICU4C 78.x。POSIX 可运行 `python3.12 scripts/install-icu.py` 构建固定源码静态库，再运行 `python3.12 scripts/build.py --preset release --icu-root build/icu4c-78.3`。该前缀仅保留分词数据和静态库，不包含整套 ICU 数据；直接使用 CMake 时将安装目录传给 `ICU_ROOT`。没有兼容库时宿主不导出 `text.segmentation`，必需它的插件会由兼容检查明确拒绝。
+官方六平台构建均包含 ICU 78.3 的词语分段能力。先按[插件文本构建说明](plugin-text.md)运行 `python3.12 scripts/install-icu.py`，再运行 `python3.12 scripts/build.py --preset release --icu-root build/icu4c-78.3`；Windows 在目标架构的 MSVC 开发环境中使用 `python`。该前缀仅保留分词数据及所需库：macOS/Linux 静态链接，Windows 部署三个 ICU DLL。正式发布配置缺少兼容 ICU 时直接失败；普通开发构建仍可省略，但不能运行必需 `text.segmentation` 的插件。
 
 ## 安装 Qt SDK
 
@@ -159,6 +159,8 @@ node tools/release/package.mjs --qt=/path/to/Qt/6.12.0/kit
 ```
 
 默认打包只检查文件与部署依赖，不自动启动 GUI。需要本地启动验证时，在打包命令末尾显式添加 `--smoke-test`；该检查保留应用内部 30 秒期限及外层 50 秒启动/排空预算，失败仍会停止打包。它不属于发布 CI 的自动步骤。
+
+打包校验实际链接的固定 ICU 库和分词数据回执，并包含 ICU 许可证；Windows 额外复制并检查目标架构的 `icuuc78.dll`、`icuin78.dll`、`icudt78.dll`。缺失、摘要或架构不匹配会中止打包。
 
 输出位于 `build/packages/`。使用其它构建目录时可传 `--build=build/your-build`；输出目录可用 `--out=build/your-packages` 指定。目录均需位于项目 `build/` 下。Node.js 仅用于开发、打包与检查，不随应用运行。
 

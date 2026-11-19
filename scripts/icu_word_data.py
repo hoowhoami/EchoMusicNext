@@ -39,7 +39,7 @@ def word_resource(text):
     return re.sub(r"(?ms)^    boundaries\{\n.*?^    }\n", boundaries, text)
 
 
-def create_word_data(source, tools, output):
+def create_word_data(source, tools, output, environment=None):
     source, tools, output = source.resolve(), tools.resolve(), output.resolve()
     output.mkdir(parents=True, exist_ok=False)
 
@@ -56,7 +56,9 @@ def create_word_data(source, tools, output):
         raise RuntimeError(f"Missing matching ICU tool: {name}")
 
     def run(arguments):
-        return subprocess.check_output([str(value) for value in arguments], text=True)
+        return subprocess.check_output(
+            [str(value) for value in arguments], text=True, encoding="utf-8", env=environment
+        )
 
     inventory = run([tool("icupkg"), "-l", source]).splitlines()
     selected = [name for name in inventory if name.startswith("brkitr/") or name in EXTRA_DATA]
@@ -66,7 +68,7 @@ def create_word_data(source, tools, output):
     if not WORD_RULES.issubset(rules):
         raise RuntimeError("ICU word rule files are incomplete")
     listed = output / "extract.txt"
-    listed.write_text("\n".join(selected) + "\n")
+    listed.write_text("\n".join(selected) + "\n", encoding="utf-8")
     items = output / "items"
     items.mkdir()
     run([tool("icupkg"), "-x", listed, "-d", items, source])
@@ -85,13 +87,15 @@ def create_word_data(source, tools, output):
         filtered = word_resource(original)
         if filtered == original:
             continue
-        textfile.write_text(filtered)
+        textfile.write_text(filtered, encoding="utf-8")
         run([tool("genrb"), "-k", "-e", "UTF-8", "-d", items / "brkitr", textfile])
         rewritten.append(resource.name)
     for resource in (items / "brkitr").glob("*.brk"):
         if resource.name not in WORD_RULES:
             resource.unlink()
-    final = sorted(str(path.relative_to(items)) for path in items.rglob("*") if path.is_file())
+    final = sorted(
+        path.relative_to(items).as_posix() for path in items.rglob("*") if path.is_file()
+    )
     # The package must preserve every source dictionary byte-for-byte.
     for name, expected in immutable.items():
         if sha256(items / name) != expected:
@@ -101,7 +105,7 @@ def create_word_data(source, tools, output):
     }:
         raise RuntimeError("Not all original script dictionaries were retained")
     listed = output / "items.txt"
-    listed.write_text("\n".join(final) + "\n")
+    listed.write_text("\n".join(final) + "\n", encoding="utf-8")
     package = output / source.name
     # Normal dependency validation is intentional. Do not use --ignore-deps.
     run([tool("icupkg"), "-s", items, "-a", listed, "new", package])
@@ -117,7 +121,7 @@ def create_word_data(source, tools, output):
         "immutableDependencies": immutable,
         "rewrittenResources": rewritten,
     }
-    (output / "word-data.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    (output / "word-data.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     return manifest
 
 

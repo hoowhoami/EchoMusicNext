@@ -1,6 +1,6 @@
-"""Build pinned static ICU with only word-break data, without changing the system.
+"""Build pinned ICU with only word-break data, without changing the system.
 
-POSIX development helper. Windows may supply an ICU MSVC build via ICU_ROOT.
+POSIX uses static libraries; Windows uses target-native MSVC DLLs.
 The archive is official ICU source; its SHA-256 is checked before extraction.
 """
 
@@ -26,19 +26,42 @@ SHA256 = "3a2e7a47604ba702f345878308e6fefeca612ee895cf4a5f222e7955fabfe0c0"
 URL = f"https://github.com/unicode-org/icu/releases/download/release-{VERSION}/icu4c-{VERSION}-sources.tgz"
 
 
+def download_source():
+    download = ROOT / f"build/icu4c-{VERSION}-src"
+    download.mkdir(parents=True, exist_ok=True)
+    archive = download / f"icu4c-{VERSION}-sources.tgz"
+    if not archive.is_file():
+        print(f"Downloading ICU {VERSION}", flush=True)
+        pending = archive.with_suffix(".download")
+        urllib.request.urlretrieve(URL, pending)
+        pending.replace(archive)
+    if hashlib.sha256(archive.read_bytes()).hexdigest() != SHA256:
+        raise RuntimeError(f"ICU archive SHA-256 mismatch: {archive}")
+    source = download / "icu/source"
+    if not source.is_dir():
+        with tarfile.open(archive) as package:
+            package.extractall(download, filter="data")
+    return source
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--jobs", type=int, default=4)
     parser.add_argument("--macos-minimum", default="14.4")
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
-    if os.name != "posix":
-        parser.error("Use an ICU MSVC build and pass its installation as ICU_ROOT on Windows.")
     if not 1 <= args.jobs <= 32:
         parser.error("--jobs must be between 1 and 32")
+    if os.name == "nt":
+        from icu_windows import install_windows
+
+        install_windows(ROOT, VERSION, SHA256, download_source, args)
+        return
     prefix = ROOT / f"build/icu4c-{VERSION}"
     marker = prefix / "echo-source.json"
     environment = dict(os.environ)
+    for key in ("CFLAGS", "CXXFLAGS"):
+        environment[key] = f"{environment.get(key, '-O2')} -fPIC"
     if sys.platform == "darwin":
         environment["MACOSX_DEPLOYMENT_TARGET"] = args.macos_minimum
         for key in ("CFLAGS", "CXXFLAGS"):
@@ -84,6 +107,8 @@ def main():
             "lib/libicui18n.a",
             "lib/libicudata.a",
             "word-data.json",
+            "include/unicode/uvernum.h",
+            "LICENSE",
         }
         complete = set(receipt.get("files", {})) == expected_files and all(
             (prefix / name).is_file()
@@ -98,18 +123,7 @@ def main():
     if complete:
         print(f"ICU {VERSION} already built: {prefix}")
         return
-    download = ROOT / f"build/icu4c-{VERSION}-src"
-    download.mkdir(parents=True, exist_ok=True)
-    archive = download / f"icu4c-{VERSION}-sources.tgz"
-    if not archive.is_file():
-        print(f"Downloading ICU {VERSION}", flush=True)
-        urllib.request.urlretrieve(URL, archive)
-    if hashlib.sha256(archive.read_bytes()).hexdigest() != SHA256:
-        raise SystemExit(f"ICU archive SHA-256 mismatch: {archive}")
-    source = download / "icu/source"
-    if not source.is_dir():
-        with tarfile.open(archive) as package:
-            package.extractall(download, filter="data")
+    source = download_source()
     build = ROOT / f"build/icu4c-{VERSION}-build"
     build_marker = build / "echo-source.json"
     # configure does not invalidate already compiled objects after flags/architecture change.
@@ -193,6 +207,8 @@ def main():
                     "lib/libicui18n.a",
                     "lib/libicudata.a",
                     "word-data.json",
+                    "include/unicode/uvernum.h",
+                    "LICENSE",
                 )
             },
         }
