@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import platform
+import re
 import subprocess
 import sys
 
@@ -83,6 +84,17 @@ def validate_sdk(prefix, *, runtime_patch=True):
     ]
     if missing:
         raise RuntimeError(f"Incomplete Qt SDK at {prefix}: {', '.join(missing)}")
+    # The SQL package imports every installed driver target, even when the app
+    # only uses SQLite. A pruned binary with an intact target breaks configure.
+    for target in (prefix / "lib/cmake/Qt6Sql").glob("*Targets-*.cmake"):
+        for relative in re.findall(
+            r'\$\{_IMPORT_PREFIX\}/(plugins/sqldrivers/[^";]+)',
+            target.read_text(encoding="utf-8"),
+        ):
+            if not (prefix / relative).is_file():
+                raise RuntimeError(
+                    f"Incomplete Qt SDK at {prefix}: {relative} is missing ({target.name})"
+                )
     if sys.platform == "win32" and prefix == official_prefix().resolve():
         # Qt core bundles only gif/ico/jpeg/svg; WebP comes from the optional
         # qtimageformats module. The music service serves covers as WebP, so a

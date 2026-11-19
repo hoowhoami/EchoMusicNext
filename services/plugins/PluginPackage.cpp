@@ -1,5 +1,6 @@
 #include <cmath>
 #include "PluginPackage.h"
+#include "PluginFileCapture_p.h"
 #include "echo_ffi.h"
 #include <QCryptographicHash>
 #include <QDir>
@@ -20,6 +21,31 @@
 
 namespace EchoMusic
 {
+PluginPackageDetail::FileCapture PluginPackageDetail::captureFile(QIODevice &file, qint64 remaining)
+{
+    const auto size = file.size();
+    if (file.isSequential() || size < 0)
+        return {{}, QStringLiteral("Cannot determine package file size during capture")};
+    if (size > remaining)
+        return {{}, QStringLiteral("Package exceeds the 128 MiB total capture byte limit")};
+    QByteArray data(qsizetype(size), Qt::Uninitialized);
+    qint64 received = 0;
+    while (received < size) {
+        const auto count = file.read(data.data() + received, size - received);
+        if (count < 0)
+            return {{}, QStringLiteral("Cannot read package file during capture")};
+        if (count == 0)
+            return {{}, QStringLiteral("Package file was truncated during capture")};
+        received += count;
+    }
+    char extra;
+    const auto trailing = file.read(&extra, 1);
+    if (trailing < 0)
+        return {{}, QStringLiteral("Cannot read package file during capture")};
+    if (trailing > 0)
+        return {{}, QStringLiteral("Package file changed during capture: file grew")};
+    return {std::move(data), {}};
+}
 QString PluginPackage::extractArchive(const QString &archive, const QString &destination)
 {
     if (!QDir().mkpath(destination))
@@ -547,10 +573,16 @@ PluginPackage PluginPackage::importDirectory(const QString &source, const QStrin
         QFile file(result.root + '/' + relative);
         if (!file.open(QIODevice::ReadOnly))
             return fail("Cannot read package file: " + relative);
-        const auto data = file.read(128 * 1024 * 1024 - capturedBytes + 1);
+        const auto capture =
+            PluginPackageDetail::captureFile(file, 128ll * 1024 * 1024 - capturedBytes);
+        if (!capture.error.isEmpty())
+            return fail(capture.error + ": " + relative);
+        const auto &data = capture.bytes;
         capturedBytes += data.size();
-        if (capturedBytes > 128 * 1024 * 1024 || !file.atEnd())
-            return fail("Package changed or exceeded its byte limit during capture");
+        if (capturedBytes > 128 * 1024 * 1024)
+            return fail("Package exceeds the 128 MiB total capture byte limit");
+        if (!file.atEnd())
+            return fail("Package file changed during capture: " + relative);
         if (relative == "manifest.json" && data != manifestBytes)
             return fail("Manifest changed during capture; retry import");
         if (QFileInfo(relative).fileName() == "qmldir" &&

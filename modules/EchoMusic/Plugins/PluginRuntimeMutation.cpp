@@ -1,6 +1,7 @@
 #include "PluginRuntime.h"
 #include "ThemeStore.h"
 #include "PluginRuntimeHelpers_p.h"
+#include "PluginImportResult_p.h"
 namespace EchoMusic
 {
 using namespace PluginRuntimeDetail;
@@ -77,9 +78,10 @@ bool PluginRuntime::installDirectory(const QString &directory, const QVariantMap
     auto *watcher = new QFutureWatcher<PluginPackage>(this);
     connect(watcher, &QFutureWatcher<PluginPackage>::finished, this,
             [this, watcher, existing, installation, installationOrigin, expected, directory,
-             externalSource = !sourceLease, requestedEnabled] {
+             externalSource = !sourceLease, requestedEnabled, id = descriptor.id] {
                 --m_imports;
-                auto package = watcher->result();
+                auto package = importedPackage(id, "PluginRuntime::installDirectory completion",
+                                               [&] { return watcher->result(); });
                 watcher->deleteLater();
                 if (m_closing || !package.error.isEmpty() ||
                     (!expected.isEmpty() && package.manifest != expected)) {
@@ -150,14 +152,16 @@ bool PluginRuntime::installDirectory(const QString &directory, const QVariantMap
         QtConcurrent::run([root = m_root, id = descriptor.id, directory,
                            images = PluginPaths(m_root).images(), installation, sourceLease] {
             Q_UNUSED(sourceLease)
-            const auto error = PluginInstallTransaction::recover(root, id);
-            if (!error.isEmpty()) {
-                PluginPackage failed;
-                failed.id = id;
-                failed.error = error;
-                return failed;
-            }
-            return PluginPackage::importDirectory(directory, images, installation);
+            return importedPackage(id, "PluginRuntime::installDirectory worker", [&] {
+                const auto error = PluginInstallTransaction::recover(root, id);
+                if (!error.isEmpty()) {
+                    PluginPackage failed;
+                    failed.id = id;
+                    failed.error = error;
+                    return failed;
+                }
+                return PluginPackage::importDirectory(directory, images, installation);
+            });
         }));
     return true;
 }

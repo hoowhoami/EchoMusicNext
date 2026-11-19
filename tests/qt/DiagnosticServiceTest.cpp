@@ -356,8 +356,15 @@ private slots:
                             false);
         QVERIFY(!service.errorString().isEmpty());
     }
+    void actualCrashExportsDumpAndAttachmentAfterOriginalLogRemoval_data()
+    {
+        QTest::addColumn<QString>("mode");
+        QTest::newRow("fatal-log") << QStringLiteral("fatal-logged");
+        QTest::newRow("nested-cpp-context") << QStringLiteral("cpp-context");
+    }
     void actualCrashExportsDumpAndAttachmentAfterOriginalLogRemoval()
     {
+        QFETCH(QString, mode);
         QTemporaryDir temporary;
         const auto logs = temporary.filePath("logs");
         QProcess probe;
@@ -365,7 +372,7 @@ private slots:
 #ifdef Q_OS_WIN
         executable += ".exe";
 #endif
-        probe.start(executable, {"fatal-logged", logs});
+        probe.start(executable, {mode, logs});
         QVERIFY(probe.waitForFinished(25000));
         QVERIFY(probe.exitCode() != 0 || probe.exitStatus() == QProcess::CrashExit);
         DiagnosticService service(logs);
@@ -391,6 +398,18 @@ private slots:
         QVERIFY(unpack(zip, target));
         QVERIFY(validManifest(target));
         QVERIFY(read(target + "/crash/report.dmp").startsWith("MDMP"));
+        const auto summary = QJsonDocument::fromJson(read(target + "/crash/summary.json")).object();
+        const auto exception = summary.value("exception").toObject();
+        QVERIFY(exception.contains("thread"));
+        QVERIFY(exception.contains("exceptionParameters"));
+        QVERIFY(!exception.value("modules").toArray().isEmpty());
+        if (mode == "cpp-context") {
+            const auto bytes = QJsonDocument(exception.value("cppExceptions").toArray()).toJson();
+            QVERIFY(bytes.contains("plugin.import.worker"));
+            QVERIFY(bytes.contains("QUnhandledException"));
+            QVERIFY(bytes.contains("controlled worker failure"));
+            QVERIFY(!bytes.contains("do-not-store"));
+        }
         QVERIFY(!QDir(target + "/logs").entryList({"attached-*.log"}, QDir::Files).isEmpty());
         for (const auto &name : QDir(target + "/logs").entryList(QDir::Files))
             QVERIFY(!read(target + "/logs/" + name).contains("do-not-store"));

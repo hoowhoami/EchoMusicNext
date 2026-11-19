@@ -20,6 +20,9 @@
 #include <QLockFile>
 #include <QSysInfo>
 #include <QTimeZone>
+#include <QException>
+#include <QThread>
+#include <typeinfo>
 #include <client/crashpad_client.h>
 #include <client/crash_report_database.h>
 #include <client/settings.h>
@@ -35,6 +38,9 @@
 #include <sys/stat.h>
 #ifdef Q_OS_MACOS
 #include <mach-o/dyld.h>
+#include <pthread.h>
+#elif defined(Q_OS_LINUX)
+#include <sys/syscall.h>
 #endif
 #endif
 
@@ -98,7 +104,68 @@ QString hex(uint64_t value)
 {
     return QStringLiteral("0x%1").arg(value, 0, 16);
 }
+QString moduleName(const std::string &path)
+{
+    return QString::fromStdString(path).replace('\\', '/').section('/', -1);
+}
+quint64 nativeThreadId()
+{
+#ifdef Q_OS_WIN
+    return GetCurrentThreadId();
+#elif defined(Q_OS_MACOS)
+    uint64_t id = 0;
+    pthread_threadid_np(nullptr, &id);
+    return id;
+#elif defined(Q_OS_LINUX)
+    return quint64(syscall(SYS_gettid));
+#else
+    return quintptr(QThread::currentThreadId());
+#endif
+}
 } // namespace
+QJsonObject CrashDiagnostics::exceptionDetails(const char *context, std::exception_ptr exception)
+{
+    QJsonArray chain;
+    for (int depth = 0; exception && depth < 8; ++depth) {
+        std::exception_ptr nested;
+        try {
+            std::rethrow_exception(exception);
+        } catch (const QUnhandledException &error) {
+            chain.append(QJsonObject{{"type", "QUnhandledException"}});
+            nested = error.exception();
+        } catch (const std::exception &error) {
+            chain.append(QJsonObject{
+                {"type", QString::fromLatin1(typeid(error).name()).left(256)},
+                {"message", safeLogMessage(QString::fromUtf8(error.what()).left(512))}});
+            if (const auto *inner = dynamic_cast<const std::nested_exception *>(&error))
+                nested = inner->nested_ptr();
+        } catch (...) {
+            chain.append(QJsonObject{{"type", "unknown_non_std_exception"}});
+        }
+        if (nested == exception)
+            break;
+        exception = nested;
+    }
+    return {{"event", "cpp_exception"},
+            {"context", QString::fromLatin1(context).left(256)},
+            {"thread", hex(nativeThreadId())},
+            {"qtThread", hex(quintptr(QThread::currentThreadId()))},
+            {"timestamp", QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
+            {"chain", chain}};
+}
+void CrashDiagnostics::recordException(const char *context, std::exception_ptr exception) noexcept
+{
+    try {
+        auto bytes =
+            QJsonDocument(exceptionDetails(context, exception)).toJson(QJsonDocument::Compact);
+        qWarning().noquote() << "C++ exception:" << QString::fromUtf8(bytes);
+        bytes.append('\n');
+        emergencyWrite(bytes.constData(), size_t(bytes.size()));
+    } catch (...) {
+        constexpr char failure[] = "{\"event\":\"cpp_exception_capture_failed\"}\n";
+        emergencyWrite(failure, sizeof(failure) - 1);
+    }
+}
 struct CrashDiagnostics::State
 {
     QString report;
@@ -190,9 +257,20 @@ QJsonObject CrashDiagnostics::summarizeDump(const QString &path)
     for (const auto &[key, value] : snapshot.AnnotationsSimpleMap())
         annotations.insert(QString::fromStdString(key), QString::fromStdString(value));
     result.insert("build", annotations);
+    QJsonArray modules;
     for (const auto *module : snapshot.Modules()) {
+        crashpad::UUID moduleUuid;
+        uint32_t moduleAge = 0;
+        module->UUIDAndAge(&moduleUuid, &moduleAge);
+        modules.append(QJsonObject{{"name", moduleName(module->Name())},
+                                   {"base", hex(module->Address())},
+                                   {"size", qint64(module->Size())},
+                                   {"timestamp", hex(quint64(module->Timestamp()))},
+                                   {"debugId", QString::fromStdString(moduleUuid.ToString())},
+                                   {"debugAge", int(moduleAge)},
+                                   {"debugFile", moduleName(module->DebugFileName())}});
         if (ip >= module->Address() && ip - module->Address() < module->Size()) {
-            result.insert("module", QFileInfo(QString::fromStdString(module->Name())).fileName());
+            result.insert("module", moduleName(module->Name()));
             result.insert("moduleOffset", hex(ip - module->Address()));
             result.insert("moduleBase", hex(module->Address()));
             uint16_t major = 0, minor = 0, build = 0, revision = 0;
@@ -210,9 +288,9 @@ QJsonObject CrashDiagnostics::summarizeDump(const QString &path)
                                         QByteArray(reinterpret_cast<const char *>(buildId.data()),
                                                    qsizetype(buildId.size()))
                                             .toHex()));
-            break;
         }
     }
+    result.insert("modules", modules);
     return result;
 }
 CrashDiagnostics::CrashDiagnostics(const QString &directory) : m_state(std::make_unique<State>())
@@ -307,7 +385,10 @@ CrashDiagnostics::CrashDiagnostics(const QString &directory) : m_state(std::make
             output.write(bytes);
             output.write("\n");
             output.flush();
-            m_state->summaries.append(QString::fromUtf8(bytes));
+            auto logSummary = json;
+            logSummary.remove("modules");
+            m_state->summaries.append(
+                QString::fromUtf8(QJsonDocument(logSummary).toJson(QJsonDocument::Compact)));
         }
     }
     QLockFile diagnosticsGate(root.filePath("diagnostics.lock"));

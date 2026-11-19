@@ -21,6 +21,25 @@
 #include <QFileInfo>
 #include <QIcon>
 
+namespace
+{
+class DiagnosticApplication final : public QApplication
+{
+public:
+    using QApplication::QApplication;
+    bool notify(QObject *receiver, QEvent *event) override
+    {
+        try {
+            return QApplication::notify(receiver, event);
+        } catch (...) {
+            EchoMusic::CrashDiagnostics::recordException("QApplication::notify",
+                                                         std::current_exception());
+            throw;
+        }
+    }
+};
+} // namespace
+
 int main(int argc, char *argv[])
 {
     // This process only waits for normal teardown and relaunches. It must not
@@ -51,7 +70,7 @@ int main(int argc, char *argv[])
     // D3D redirection policy belongs to the attached main HWND. A process
     // switch would also disable raster backing stores for widget dialogs.
     // Qt Widgets supplies native tray menus; the application UI stays Qt Quick.
-    QApplication app(argc, argv);
+    DiagnosticApplication app(argc, argv);
     EchoMusic::ApplicationTranslations translations;
     translations.load(QLocale::system());
     EchoMusic::ApplicationUrlHandler urlHandler;

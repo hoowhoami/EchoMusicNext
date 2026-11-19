@@ -19,6 +19,7 @@
 #include <QDateTime>
 #include <QCryptographicHash>
 #include "PluginManagerHelpers_p.h"
+#include "PluginArchiveDownload_p.h"
 namespace EchoMusic
 {
 using namespace PluginManagerDetail;
@@ -114,9 +115,14 @@ void PluginManager::shutdown()
         m_tasks->remove(m_updateTask);
     m_updateTask = {};
     ++m_generation;
+    if (m_archiveDownload)
+        m_archiveDownload->cancel();
     const auto replies = m_replies;
     for (auto *reply : replies)
         reply->abort();
+    m_archiveDownload.clear();
+    // Extraction/import workers retain their own staging lease until drained.
+    m_staging.clear();
     m_updateQueue.clear();
     m_localQueue.clear();
 }

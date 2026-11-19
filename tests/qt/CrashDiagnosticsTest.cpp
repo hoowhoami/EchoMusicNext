@@ -5,6 +5,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
+#include <QJsonArray>
 #include <QProcess>
 #include <QTemporaryDir>
 #include <QRegularExpression>
@@ -43,7 +44,7 @@ private slots:
     {
         QTest::addColumn<QString>("mode");
         for (const auto *name : {"fatal", "early-fatal", "late-fatal", "terminate", "abort",
-                                 "access", "worker", "startup", "teardown"})
+                                 "access", "worker", "startup", "teardown", "cpp-context"})
             QTest::newRow(name) << QString::fromLatin1(name);
     }
     void fatalArtifactsSurviveWithoutEventLoop()
@@ -59,6 +60,12 @@ private slots:
         QVERIFY(bytes.contains("session_started"));
         QVERIFY(bytes.contains("build="));
         QVERIFY(!bytes.contains("do-not-store"));
+        if (mode == "cpp-context") {
+            QVERIFY(bytes.contains("cpp_exception"));
+            QVERIFY(bytes.contains("QUnhandledException"));
+            QVERIFY(bytes.contains("controlled worker failure"));
+            QVERIFY(bytes.contains("plugin.import.worker"));
+        }
         if (mode.endsWith("fatal")) {
             QVERIFY(bytes.contains("qt_fatal_message"));
             QVERIFY(bytes.contains("redacted"));
@@ -98,6 +105,8 @@ private slots:
         QVERIFY(summary["capturedStackBytes"].toInteger() > 0);
         QVERIFY(summary["instructionPointer"].toString() != "0x0");
         QVERIFY(summary["build"].toObject().contains("buildId"));
+        QVERIFY(!summary["modules"].toArray().isEmpty());
+        QVERIFY(summary.contains("exceptionParameters"));
         const auto runLog = summary["build"].toObject().value("runLog").toString();
         QVERIFY(QRegularExpression(
                     R"(^echomusicnext-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}-\d{3}-\d+\.log$)")

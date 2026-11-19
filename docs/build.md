@@ -160,6 +160,8 @@ node tools/release/package.mjs --qt=/path/to/Qt/6.12.0/kit
 
 默认打包只检查文件与部署依赖，不自动启动 GUI。需要本地启动验证时，在打包命令末尾显式添加 `--smoke-test`；该检查保留应用内部 30 秒期限及外层 50 秒启动/排空预算，失败仍会停止打包。它不属于发布 CI 的自动步骤。
 
+macOS/Linux 的部署工具使用独立的插件目录视图，只包含 SQLite 驱动；原 Qt SDK 的驱动与 CMake 配置保持完整，可继续开发构建。
+
 打包校验实际链接的固定 ICU 库和分词数据回执，并包含 ICU 许可证；Windows 额外复制并检查目标架构的 `icuuc78.dll`、`icuin78.dll`、`icudt78.dll`。缺失、摘要或架构不匹配会中止打包。
 
 输出位于 `build/packages/`。使用其它构建目录时可传 `--build=build/your-build`；输出目录可用 `--out=build/your-packages` 指定。目录均需位于项目 `build/` 下。Node.js 仅用于开发、打包与检查，不随应用运行。

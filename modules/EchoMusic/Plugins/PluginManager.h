@@ -13,6 +13,7 @@ namespace EchoMusic
 {
 class NetworkPreferences;
 class SharingCommands;
+class PluginArchiveDownload;
 /// GUI-thread source/catalog owner. Requests carry catalog generations; cache
 /// fallback never turns a failed refresh into success. ZIP capture/extraction and
 /// immutable installation run on workers, with retirement/rollback in Runtime.
@@ -178,9 +179,11 @@ private:
     using ResponseValidator = std::function<QString(const QByteArray &)>;
     void getAttempt(const QUrl &url, const QUrl &origin, qint64 limit, Completion complete,
                     const QByteArray &body, int timeout, bool fallback, ResponseValidator validate,
-                    bool fresh, const QVariantList &attempts = {}, const QString &requestId = {});
+                    bool fresh, const QVariantList &attempts = {}, const QString &requestId = {},
+                    QSharedPointer<PluginArchiveDownload> archive = {});
     void get(const QUrl &url, qint64 limit, Completion complete, const QByteArray &body = {},
-             int timeout = 30000, ResponseValidator validate = {}, bool fresh = false);
+             int timeout = 30000, ResponseValidator validate = {}, bool fresh = false,
+             QSharedPointer<PluginArchiveDownload> archive = {});
     void fetchSource(QVariantMap source, quint64 generation,
                      std::function<void(QVariantMap, QVariantList)> complete, bool fresh = true,
                      bool installedOnly = false);
@@ -207,7 +210,6 @@ private:
     void startupNetworkChanged();
     bool catalogCheckSucceeded() const;
     void resolveShared();
-    void installArchive(const QByteArray &bytes, const QVariantMap &entry);
     void extractLocal(const QString &archive, const QVariantMap &entry);
     static QVariantMap normalizeSource(const QString &url, const QString &name);
     static bool safePath(const QString &path);
@@ -235,6 +237,7 @@ private:
     int m_localTotal = 0, m_localDone = 0;
     bool m_localBatch = false, m_localFailed = false;
     QSharedPointer<QTemporaryDir> m_staging;
+    QSharedPointer<PluginArchiveDownload> m_archiveDownload;
     quint64 m_generation = 0;
     bool m_catalogLoading = false, m_busy = false, m_loaded = false, m_closing = false;
     bool m_catalogComplete = true;

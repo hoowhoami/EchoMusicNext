@@ -3,6 +3,7 @@
 #include <QStringList>
 #include <memory>
 #include <QJsonObject>
+#include <exception>
 
 namespace EchoMusic
 {
@@ -26,6 +27,9 @@ public:
     static void recordQtFatal(const QString &message);
     // Only for an already-sanitized Qt fatal message, outside a signal handler.
     static void recordFatalMessage(const QByteArray &message) noexcept;
+    // Called while C++ exception objects are still alive, outside signal handlers.
+    static QJsonObject exceptionDetails(const char *context, std::exception_ptr exception);
+    static void recordException(const char *context, std::exception_ptr exception) noexcept;
 
 private:
     struct State;

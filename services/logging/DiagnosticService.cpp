@@ -224,6 +224,14 @@ DiagnosticExportResult createPackage(const QString &directory, DiagnosticRecord 
     if (!current && !record.hasDump && !captured.contains("crash/report.dmp"))
         limitations.append(QObject::tr("无崩溃转储，无法提供崩溃线程堆栈；"
                                        "无法确定转储是未生成、采集失败还是已被清理"));
+    if (record.kind == "native_crash" &&
+        record.exception.value("exceptionCode").toString() == "0xe06d7363" &&
+        record.exception.value("cppExceptions").toArray().isEmpty())
+        limitations.append(QObject::tr(
+            "本次未采集到 C++ 原始异常类型、原因和任务来源；转储中的外层异常不能替代这些信息"));
+    if (record.kind == "native_crash" && record.exception.value("modules").toArray().isEmpty())
+        limitations.append(
+            QObject::tr("此记录未导出完整模块标识；精确栈解析仍需匹配构建的符号或原生模块"));
     if (!writeFile(staging + "/context.json", QJsonDocument(context).toJson()) ||
         !writeFile(staging + "/crash/summary.json", QJsonDocument(event).toJson()))
         return {QObject::tr("无法写入诊断摘要"), false};

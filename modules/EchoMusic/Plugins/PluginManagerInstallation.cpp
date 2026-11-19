@@ -20,6 +20,7 @@
 #include <QCryptographicHash>
 #include <QLoggingCategory>
 #include "PluginManagerHelpers_p.h"
+#include "PluginArchiveDownload_p.h"
 
 namespace EchoMusic
 {
@@ -55,42 +56,24 @@ bool PluginManager::install(const QString &key)
     if (m_installWasUpdate)
         beginUpdate(e, current);
     rebuild();
-    get(
-        QUrl(e.value("artifactUrl").toString()), 128 * 1024 * 1024,
-        [this, e](QByteArray bytes, QString error, QVariantMap) {
-            if (!error.isEmpty())
-                finishInstall(false, error);
-            else
-                installArchive(bytes, e);
-        },
-        {}, 30000,
-        [e](const QByteArray &bytes) -> QString {
-            return QString::fromLatin1(
-                       QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex()) !=
-                           e.value("sha256").toString()
-                       ? tr("下载的插件文件与作者发布记录不一致，已停止安装。请刷新插件列表后重试；"
-                            "若仍失败，请联系插件作者。")
-                       : QString();
-        },
-        true);
-    return true;
-}
-void PluginManager::installArchive(const QByteArray &bytes, const QVariantMap &entry)
-{
-    // The download validator checks the author publication checksum before accepting either
-    // mirror or origin bytes, so a failed mirror can retry before staging starts.
     m_staging = QSharedPointer<QTemporaryDir>::create();
     if (!m_staging->isValid()) {
         finishInstall(false, tr("无法创建安装暂存目录"));
-        return;
+        return true;
     }
-    QFile file(m_staging->path() + "/package.echomod");
-    if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size()) {
-        finishInstall(false, tr("无法写入插件包"));
-        return;
-    }
-    file.close();
-    extractLocal(file.fileName(), entry);
+    const auto archive = m_staging->path() + "/package.echomod";
+    m_archiveDownload =
+        QSharedPointer<PluginArchiveDownload>::create(archive, e.value("sha256").toString());
+    get(
+        QUrl(e.value("artifactUrl").toString()), 128 * 1024 * 1024,
+        [this, e, archive](QByteArray, QString error, QVariantMap) {
+            if (!error.isEmpty())
+                finishInstall(false, error);
+            else
+                extractLocal(archive, e);
+        },
+        {}, 30000, {}, true, m_archiveDownload);
+    return true;
 }
 void PluginManager::extractLocal(const QString &archive, const QVariantMap &entry)
 {
@@ -233,6 +216,7 @@ void PluginManager::finishInstall(bool success, const QString &error)
         reportInstallation(selected, success);
     m_busy = false;
     m_installingKey.clear();
+    m_archiveDownload.clear();
     m_staging.clear();
     m_pendingPluginId.clear();
     m_pendingInstallation.clear();

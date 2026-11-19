@@ -3,6 +3,7 @@ add_library(
     PluginDatabaseWorker.h
     PluginDatabaseWorker.cpp
     PluginPackage.h
+    PluginFileCapture_p.h
     PluginPackage.cpp
     PluginPaths.h
     PluginPaths.cpp

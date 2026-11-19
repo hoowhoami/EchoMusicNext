@@ -26,6 +26,7 @@
 #include <QElapsedTimer>
 #include <QUuid>
 #include "PluginManagerHelpers_p.h"
+#include "PluginArchiveDownload_p.h"
 
 namespace EchoMusic
 {
@@ -96,22 +97,28 @@ QUrl PluginManager::iconRequestUrl(const QUrl &source, bool origin) const
     return m_resolveUrl ? m_resolveUrl(target) : target;
 }
 void PluginManager::get(const QUrl &url, qint64 limit, Completion complete, const QByteArray &body,
-                        int timeout, ResponseValidator validate, bool fresh)
+                        int timeout, ResponseValidator validate, bool fresh,
+                        QSharedPointer<PluginArchiveDownload> archive)
 {
     const auto origin = fresh && body.isEmpty() ? freshGithubContentUrl(url) : url;
     const auto target = body.isEmpty() && m_networkPreferences
                             ? m_networkPreferences->acceleratedGithubUrl(origin)
                             : origin;
     getAttempt(target, origin, limit, std::move(complete), body, timeout, target != origin,
-               std::move(validate), fresh);
+               std::move(validate), fresh, {}, {}, std::move(archive));
 }
 void PluginManager::getAttempt(const QUrl &url, const QUrl &origin, qint64 limit,
                                Completion complete, const QByteArray &body, int timeout,
                                bool fallback, ResponseValidator validate, bool fresh,
-                               const QVariantList &attempts, const QString &logicalRequestId)
+                               const QVariantList &attempts, const QString &logicalRequestId,
+                               QSharedPointer<PluginArchiveDownload> archive)
 {
     if (m_closing)
         return;
+    if (archive && !archive->begin()) {
+        complete({}, archive->error(), PluginNetworkFailure::storage(archive->error(), url));
+        return;
+    }
     const auto requestId = logicalRequestId.isEmpty()
                                ? QUuid::createUuid().toString(QUuid::WithoutBraces)
                                : logicalRequestId;
@@ -138,83 +145,133 @@ void PluginManager::getAttempt(const QUrl &url, const QUrl &origin, qint64 limit
     if (!body.isEmpty())
         request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     auto *reply = body.isEmpty() ? m_network.get(request) : m_network.post(request, body);
+    if (archive)
+        reply->setReadBufferSize(PluginArchiveDownload::ChunkBytes);
     m_replies.insert(reply);
-    auto bytes = std::make_shared<QByteArray>();
+    // Catalog/metadata responses retain their small byte budget. Archive bytes
+    // go directly to the transaction's file and never accumulate in this array.
+    auto bytes = archive ? std::shared_ptr<QByteArray>() : std::make_shared<QByteArray>();
     auto tooLarge = std::make_shared<bool>(false);
-    connect(reply, &QIODevice::readyRead, this, [reply, bytes, limit, tooLarge] {
+    const auto receive = [reply, bytes, limit, tooLarge, archive] {
+        if (*tooLarge)
+            return false;
+        if (archive) {
+            const auto status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            if (status >= 300 && status < 400)
+                return true; // Qt owns redirect bodies; they are not archive bytes.
+            const auto ok = archive->receive(*reply, limit);
+            *tooLarge = archive->limited();
+            return ok;
+        }
         bytes->append(reply->read(limit - bytes->size() + 1));
-        if (bytes->size() > limit) {
-            *tooLarge = true;
+        *tooLarge = bytes->size() > limit;
+        return !*tooLarge;
+    };
+    connect(reply, &QIODevice::readyRead, this, [this, reply, archive, receive] {
+        if (!m_closing && !receive()) {
+            if (archive)
+                archive->cancel();
             reply->abort();
         }
     });
-    connect(
-        reply, &QNetworkReply::finished, this,
-        [this, reply, bytes, limit, tooLarge, complete = std::move(complete), origin, body, timeout,
-         fallback, validate = std::move(validate), fresh, attempts, requestId, elapsed] {
-            m_replies.remove(reply);
-            if (reply->isOpen())
-                bytes->append(reply->read(limit - bytes->size() + 1));
+    if (archive)
+        connect(reply, &QNetworkReply::metaDataChanged, this, [reply, limit, tooLarge, archive] {
             const auto status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-            QVariantMap failure;
-            if (*tooLarge || bytes->size() > limit || reply->error() != QNetworkReply::NoError ||
-                status != 200) {
-                const auto *network = QNetworkInformation::instance();
-                const bool offline = network && network->reachability() ==
-                                                    QNetworkInformation::Reachability::Disconnected;
-                failure = PluginNetworkFailure::classify(
-                    reply->error(), status, reply->url(), reply->errorString(),
-                    *tooLarge || bytes->size() > limit,
-                    reply->rawHeader("X-RateLimit-Remaining") == "0" ||
-                        !reply->rawHeader("Retry-After").trimmed().isEmpty(),
-                    offline);
-            } else if (validate) {
-                const auto error = validate(*bytes);
-                if (!error.isEmpty()) {
-                    failure = PluginNetworkFailure::content(error, reply->url());
-                    failure["title"] = error;
-                }
-            }
-            if (!failure.isEmpty()) {
-                failure["host"] = reply->url().host();
-                if (reply->url() != origin)
-                    failure["originUrl"] = PluginNetworkFailure::address(origin);
-            }
-            const auto error = failure.value("title").toString();
-            const auto diagnostic =
-                QStringLiteral("request finished request=%1 url=%2 status=%3 bytes=%4 "
-                               "elapsed_ms=%5 attempt=%6 fallback=%7")
-                    .arg(requestId,
-                         safeLogField(PluginNetworkFailure::address(reply->url().adjusted(
-                                          QUrl::RemoveQuery | QUrl::RemoveFragment)),
-                                      1024))
-                    .arg(status)
-                    .arg(bytes->size())
-                    .arg(elapsed.elapsed())
-                    .arg(attempts.size() + 1)
-                    .arg(!m_closing && fallback && !error.isEmpty());
-            if (!m_closing && !error.isEmpty())
-                qCWarning(pluginMarketplaceLog).noquote().nospace()
-                    << diagnostic << " category=" << failure.value("category").toString()
-                    << " error=" << safeLogField(error, 512)
-                    << " detail=" << safeLogField(failure.value("message").toString(), 512);
-            else
-                qCDebug(pluginMarketplaceLog).noquote() << diagnostic;
-            reply->deleteLater();
-            if (!m_closing && fallback && !error.isEmpty()) {
-                auto previous = attempts;
-                previous.append(failure);
-                getAttempt(origin, origin, limit, std::move(complete), body, timeout, false,
-                           std::move(validate), fresh, previous, requestId);
-            } else if (!m_closing) {
-                if (!failure.isEmpty() && !attempts.isEmpty()) {
-                    auto history = attempts;
-                    history.append(failure);
-                    failure["attempts"] = history;
-                }
-                complete(*bytes, error, failure);
+            bool ok = false;
+            const auto length = reply->rawHeader("Content-Length").toLongLong(&ok);
+            if (status == 200 && ok && length > limit) {
+                *tooLarge = true;
+                archive->cancel();
+                reply->abort();
             }
         });
+    connect(reply, &QNetworkReply::finished, this,
+            [this, reply, bytes, limit, tooLarge, complete = std::move(complete), origin, body,
+             timeout, fallback, validate = std::move(validate), fresh, attempts, requestId, elapsed,
+             archive, receive] {
+                m_replies.remove(reply);
+                if (!m_closing && reply->isOpen() &&
+                    reply->error() != QNetworkReply::OperationCanceledError)
+                    receive();
+                const auto status =
+                    reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+                QVariantMap failure;
+                const auto count = archive ? archive->received() : bytes->size();
+                if (archive && archive->storageFailed()) {
+                    failure = PluginNetworkFailure::storage(archive->error(), reply->url());
+                } else if (*tooLarge || count > limit || reply->error() != QNetworkReply::NoError ||
+                           status != 200) {
+                    const auto *network = QNetworkInformation::instance();
+                    const bool offline =
+                        network &&
+                        network->reachability() == QNetworkInformation::Reachability::Disconnected;
+                    failure = PluginNetworkFailure::classify(
+                        reply->error(), status, reply->url(), reply->errorString(),
+                        *tooLarge || count > limit,
+                        reply->rawHeader("X-RateLimit-Remaining") == "0" ||
+                            !reply->rawHeader("Retry-After").trimmed().isEmpty(),
+                        offline);
+                } else if (archive && !archive->finish()) {
+                    failure = archive->storageFailed()
+                                  ? PluginNetworkFailure::storage(archive->error(), reply->url())
+                                  : PluginNetworkFailure::content(archive->error(), reply->url());
+                    failure["title"] = archive->error();
+                } else if (!archive && validate) {
+                    const auto error = validate(*bytes);
+                    if (!error.isEmpty()) {
+                        failure = PluginNetworkFailure::content(error, reply->url());
+                        failure["title"] = error;
+                    }
+                }
+                if (archive && (!failure.isEmpty() || m_closing))
+                    archive->cancel();
+                if (!failure.isEmpty()) {
+                    failure["host"] = reply->url().host();
+                    if (reply->url() != origin)
+                        failure["originUrl"] = PluginNetworkFailure::address(origin);
+                }
+                const auto error = failure.value("title").toString();
+                // An explicit cancel must not become a fresh origin request. Local
+                // storage failures cannot be repaired by downloading the same file.
+                const bool retry =
+                    !m_closing && fallback && !error.isEmpty() &&
+                    (!archive || (!archive->storageFailed() &&
+                                  (reply->error() != QNetworkReply::OperationCanceledError ||
+                                   *tooLarge || !archive->error().isEmpty())));
+                const auto diagnostic =
+                    QStringLiteral("request finished request=%1 url=%2 status=%3 bytes=%4 "
+                                   "elapsed_ms=%5 attempt=%6 fallback=%7")
+                        .arg(requestId,
+                             safeLogField(PluginNetworkFailure::address(reply->url().adjusted(
+                                              QUrl::RemoveQuery | QUrl::RemoveFragment)),
+                                          1024))
+                        .arg(status)
+                        .arg(count)
+                        .arg(elapsed.elapsed())
+                        .arg(attempts.size() + 1)
+                        .arg(retry);
+                if (!m_closing && !error.isEmpty())
+                    qCWarning(pluginMarketplaceLog).noquote().nospace()
+                        << diagnostic << " category=" << failure.value("category").toString()
+                        << " error=" << safeLogField(error, 512)
+                        << " detail=" << safeLogField(failure.value("message").toString(), 512);
+                else
+                    qCDebug(pluginMarketplaceLog).noquote() << diagnostic;
+                reply->deleteLater();
+                if (retry) {
+                    auto previous = attempts;
+                    previous.append(failure);
+                    getAttempt(origin, origin, limit, std::move(complete), body, timeout, false,
+                               std::move(validate), fresh, previous, requestId, archive);
+                } else if (!m_closing) {
+                    if (!failure.isEmpty() && !attempts.isEmpty()) {
+                        auto history = attempts;
+                        history.append(failure);
+                        failure["attempts"] = history;
+                    }
+                    complete(bytes ? *bytes : QByteArray(), error, failure);
+                }
+            });
 }
 void PluginManager::fetchSource(QVariantMap source, quint64 generation,
                                 std::function<void(QVariantMap, QVariantList)> complete, bool fresh,

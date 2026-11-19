@@ -6,6 +6,7 @@ import { collectLicenses } from './licenses.mjs';
 import { verifyQtDeployment } from './qt-licenses.mjs';
 import { thinMacosBinaries } from './macos-architecture.mjs';
 import { deployIcu, verifyIcuDeployment } from './icu.mjs';
+import { prepareQtDeployment } from './qt-deployment.mjs';
 import {
   root,
   matrix,
@@ -70,9 +71,8 @@ const licenseDirectory =
     : path.join(stage, 'share/echomusicnext/licenses');
 collectLicenses(licenseDirectory, qt, version);
 const icuFiles = deployIcu(build, stage, platform, arch, licenseDirectory);
+const deploymentTools = prepareQtDeployment(qt, path.join(staging, 'qt-deployment'), platform);
 if (platform === 'macOS') {
-  // Filter before macdeployqt follows optional database-client dependencies.
-  keepSqliteDriver(path.join(qt, 'plugins/sqldrivers'), 'libqsqlite.dylib');
   const app = path.join(stage, 'EchoMusicNext.app');
   const platforms = path.join(app, 'Contents/PlugIns/platforms');
   fs.mkdirSync(platforms, { recursive: true });
@@ -80,7 +80,7 @@ if (platform === 'macOS') {
     path.join(qt, 'plugins/platforms/libqoffscreen.dylib'),
     path.join(platforms, 'libqoffscreen.dylib'),
   );
-  run(path.join(qt, 'bin/macdeployqt'), [
+  run(deploymentTools.macdeployqt, [
     app,
     `-qmldir=${path.join(root, 'modules')}`,
     `-qmlimport=${path.join(build, 'qml')}`,
@@ -188,9 +188,6 @@ if (platform === 'macOS') {
     path.join(root, 'tools/release/installer.nsi'),
   ]);
 } else {
-  // linuxdeploy's Qt plugin scans every SQL driver. This host uses only SQLite;
-  // other SDK drivers require external database clients (for example Oracle).
-  keepSqliteDriver(path.join(qt, 'plugins/sqldrivers'), 'libqsqlite.so');
   const appdir = path.dirname(stage),
     marker = path.join(stage, 'share/echomusicnext/package-type');
   fs.mkdirSync(path.dirname(marker), { recursive: true });
@@ -222,7 +219,7 @@ if (platform === 'macOS') {
       cwd: output,
       env: {
         ...process.env,
-        QMAKE: path.join(qt, 'bin/qmake'),
+        QMAKE: deploymentTools.qmake,
         QML_SOURCES_PATHS: path.join(root, 'modules'),
         QML_MODULES_PATHS: path.join(build, 'qml'),
         EXTRA_PLATFORM_PLUGINS: 'libqwayland.so;libqoffscreen.so',

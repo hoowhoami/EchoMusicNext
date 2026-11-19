@@ -212,6 +212,14 @@ private slots:
     void marketplaceIconsUseAcceleratorAndOriginFallback_data();
     void marketplaceIconsUseAcceleratorAndOriginFallback();
     void marketplaceFreshContentAndValidationFallback();
+    void archiveDownloadBoundedReceiverAndStorageFailures();
+    void marketplaceArchiveInstallsStreamedPackage();
+    void marketplaceArchiveStreamsToFile_data();
+    void marketplaceArchiveStreamsToFile();
+    void marketplaceArchiveFailuresClean_data();
+    void marketplaceArchiveFailuresClean();
+    void marketplaceArchiveCancelRetiresStaging_data();
+    void marketplaceArchiveCancelRetiresStaging();
     void sourceCatalogNetworkCacheAndOfficialProtection();
     void settingsContributionRetiresWithScope();
     void managementHeaderAndLoadingContentStayAligned();

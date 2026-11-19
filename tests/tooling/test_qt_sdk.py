@@ -23,6 +23,20 @@ spec.loader.exec_module(patcher)
 
 
 class QtSdkTest(unittest.TestCase):
+    def test_missing_sql_driver_is_reported_before_cmake(self):
+        target = self.prefix / "lib/cmake/Qt6Sql/Qt6QMimerSQLDriverPluginTargets-release.cmake"
+        target.write_text(
+            'IMPORTED_LOCATION_RELEASE "${_IMPORT_PREFIX}/plugins/sqldrivers/libqsqlmimer.dylib"',
+            encoding="utf-8",
+        )
+        with patch.object(qt_sdk.subprocess, "check_output", return_value=qt_sdk.VERSION):
+            with self.assertRaisesRegex(RuntimeError, "libqsqlmimer.dylib is missing"):
+                qt_sdk.validate_sdk(self.prefix)
+            driver = self.prefix / "plugins/sqldrivers/libqsqlmimer.dylib"
+            driver.parent.mkdir(parents=True)
+            driver.touch()
+            self.assertEqual(qt_sdk.validate_sdk(self.prefix), self.prefix.resolve())
+
     def test_old_python_fails_before_sdk_queries_or_build(self):
         for version in ((3, 9, 6), (3, 11, 9)):
             with (

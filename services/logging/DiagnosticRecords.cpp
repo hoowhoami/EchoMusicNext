@@ -2,6 +2,7 @@
 #include <winsock2.h>
 #endif
 #include "DiagnosticRecords.h"
+#include <QJsonArray>
 #include "CrashDiagnostics.h"
 #include "LogRedaction.h"
 #include <QDateTime>
@@ -71,9 +72,10 @@ void adoptNative(DiagnosticRecord &record, const QJsonObject &json)
     record.session = ownedName(build.value("sessionReport").toString(), ".jsonl");
     record.runLog = ownedName(build.value("runLog").toString(), ".log");
     // Do not expose absolute paths, annotations, environment or command lines.
-    for (const auto *key : {"exceptionCode", "exceptionInfo", "module", "moduleOffset",
-                            "moduleVersion", "debugId", "debugAge", "codeId", "faultAddress",
-                            "instructionPointer", "threadCount", "capturedStackBytes"})
+    for (const auto *key :
+         {"exceptionCode", "exceptionInfo", "module", "moduleOffset", "moduleVersion", "debugId",
+          "debugAge", "codeId", "faultAddress", "instructionPointer", "threadCount",
+          "capturedStackBytes", "thread", "exceptionParameters", "modules"})
         if (json.contains(key))
             record.exception.insert(key, json.value(key));
 }
@@ -108,6 +110,13 @@ void adoptSession(DiagnosticRecord &record, const QString &directory)
         }
         if (event.value("event") == "fatal" && record.kind != "native_crash")
             record.kind = "fatal";
+        if (event.value("event") == "cpp_exception") {
+            auto exceptions = record.exception.value("cppExceptions").toArray();
+            exceptions.append(event);
+            while (exceptions.size() > 8)
+                exceptions.removeFirst();
+            record.exception.insert("cppExceptions", exceptions);
+        }
     }
 }
 using Database = crashpad::CrashReportDatabase;

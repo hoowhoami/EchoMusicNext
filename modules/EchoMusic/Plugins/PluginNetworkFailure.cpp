@@ -141,6 +141,11 @@ QVariantMap classify(QNetworkReply::NetworkError error, int status, const QUrl &
     result["networkError"] = int(error);
     return result;
 }
+QVariantMap storage(const QString &message, const QUrl &url)
+{
+    return detail("storage", tr("存储失败"), message,
+                  tr("请检查磁盘可用空间及临时目录的写入权限后重试。"), url, message);
+}
 QVariantMap content(const QString &message, const QUrl &url)
 {
     return detail("invalid-content", tr("插件资料无效"), tr("插件索引或清单无效"),

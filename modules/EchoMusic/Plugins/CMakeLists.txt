@@ -47,16 +47,21 @@ target_link_libraries(
             echo_build_options
 )
 
-target_link_libraries(echo_plugins PRIVATE echo_settings_keys echo_log_redaction)
+target_link_libraries(
+    echo_plugins PRIVATE echo_settings_keys echo_log_redaction echo_crash_diagnostics
+)
 
 target_sources(
-    echo_plugins PRIVATE PluginRuntimeHelpers_p.h PluginRuntimeActivation.cpp
-                         PluginRuntimeMutation.cpp PluginRuntimeDiscovery.cpp PluginRuntimeData.cpp
+    echo_plugins
+    PRIVATE PluginRuntimeHelpers_p.h PluginImportResult_p.h PluginRuntimeActivation.cpp
+            PluginRuntimeMutation.cpp PluginRuntimeDiscovery.cpp PluginRuntimeData.cpp
 )
 
 target_sources(
     echo_plugins
     PRIVATE PluginManagerHelpers_p.h
+            PluginArchiveDownload_p.h
+            PluginArchiveDownload.cpp
             PluginManagerCatalog.cpp
             PluginManagerInstallation.cpp
             PluginManagerSharing.cpp

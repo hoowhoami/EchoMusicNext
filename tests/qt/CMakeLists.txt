@@ -926,6 +926,17 @@ add_test(NAME logging COMMAND echo-logging-test)
 set_tests_properties(logging PROPERTIES TIMEOUT 30)
 echo_copy_rust_runtime(echo-logging-test)
 qt_add_executable(echo-crash-probe CrashProbe.cpp)
+qt_add_executable(echo-plugin-import-capture-test PluginImportCaptureTest.cpp)
+target_include_directories(
+    echo-plugin-import-capture-test PRIVATE ${PROJECT_SOURCE_DIR}/modules/EchoMusic/Plugins
+)
+target_link_libraries(
+    echo-plugin-import-capture-test PRIVATE echo_plugin_packages echo_crash_diagnostics Qt6::Test
+                                            Qt6::Concurrent
+)
+echo_copy_rust_runtime(echo-plugin-import-capture-test)
+add_test(NAME plugin-import-capture COMMAND echo-plugin-import-capture-test)
+set_tests_properties(plugin-import-capture PROPERTIES TIMEOUT 30)
 target_link_libraries(echo-crash-probe PRIVATE echo_logging Qt6::Core)
 echo_copy_rust_runtime(echo-crash-probe)
 echo_copy_crash_runtime(echo-crash-probe)
@@ -1020,6 +1031,7 @@ target_sources(
             plugins/PluginRuntimeManagement2.cpp
             plugins/PluginRuntimeManagementFirstOpen.cpp
             plugins/PluginRuntimeDistribution.cpp
+            plugins/PluginRuntimeArchiveDownload.cpp
             plugins/PluginRuntimeUpdateTasks.cpp
             plugins/PluginRuntimeRuntime.cpp
             plugins/PluginRuntimePlatforms.cpp
@@ -1170,6 +1182,16 @@ add_test(
         marketplaceInstallsActualPackageAndRejectsTampering
         pluginCardStateChangesPreserveDelegateAndScroll pluginCardPresentationStates
         pluginCatalogRecyclingRetainsScrollGeometry
+)
+add_test(
+    NAME plugin-archive-download
+    COMMAND
+        echo-plugin-runtime-test marketplaceArchiveInstallsStreamedPackage
+        archiveDownloadBoundedReceiverAndStorageFailures marketplaceArchiveStreamsToFile
+        marketplaceArchiveFailuresClean marketplaceArchiveCancelRetiresStaging
+)
+set_tests_properties(
+    plugin-archive-download PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60
 )
 add_test(
     NAME plugin-update-tasks

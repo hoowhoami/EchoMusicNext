@@ -12,6 +12,8 @@
 #include <cstdlib>
 #include <csignal>
 #include <exception>
+#include <QException>
+#include <stdexcept>
 #include <thread>
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -81,7 +83,7 @@ int main(int argc, char **argv)
         QTimer::singleShot(20000, &app, &QCoreApplication::quit);
         return app.exec();
     }
-    if (mode == "fatal-logged") {
+    if (mode == "fatal-logged" || mode == "cpp-context") {
         // This case specifically exercises the log attachment fallback. A fault
         // before the writer creates a file legitimately has no log attachment;
         // the early-fatal/startup cases continue covering that separate boundary.
@@ -96,6 +98,21 @@ int main(int argc, char **argv)
         }
         if (QFileInfo(path).size() <= 0)
             return 4;
+        if (mode == "cpp-context") {
+            std::exception_ptr original;
+            try {
+                try {
+                    throw std::runtime_error("controlled worker failure");
+                } catch (...) {
+                    std::throw_with_nested(std::runtime_error("password=do-not-store"));
+                }
+            } catch (...) {
+                original = std::current_exception();
+            }
+            EchoMusic::CrashDiagnostics::recordException(
+                "plugin.import.worker", std::make_exception_ptr(QUnhandledException(original)));
+            accessViolation();
+        }
         qFatal("logged crash probe password=do-not-store");
     }
     if (mode == "fatal")
