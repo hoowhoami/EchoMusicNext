@@ -81,7 +81,8 @@ def create_word_data(source, tools, output, environment=None):
     texts.mkdir()
     rewritten = []
     for resource in sorted((items / "brkitr").glob("*.res")):
-        run([tool("derb"), "-s", items / "brkitr", "-d", texts, resource.stem])
+        # derb writes resource files independently of subprocess's stdout encoding.
+        run([tool("derb"), "-e", "UTF-8", "-s", items / "brkitr", "-d", texts, resource.stem])
         textfile = texts / (resource.stem + ".txt")
         original = textfile.read_text(encoding="utf-8-sig")
         filtered = word_resource(original)
