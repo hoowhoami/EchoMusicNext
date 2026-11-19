@@ -1050,7 +1050,7 @@ struct GlyphRun::Data
     std::shared_ptr<StaticAtlasCache> staticCache;
     std::shared_ptr<const GlyphAtlasPreparation> atlasSnapshot;
     bool screen = false;
-    QMetaObject::Connection windowVisibility;
+    QMetaObject::Connection windowVisibility, windowStopping;
     QString haloSampling = QStringLiteral("static");
     qreal maximumRasterScale = 32;
     bool preparing = false;
@@ -1067,6 +1067,7 @@ GlyphRun::GlyphRun(QQuickItem *parent) : QQuickItem(parent), d(std::make_unique<
     setFlag(ItemHasContents);
     const auto observeWindow = [this](QQuickWindow *target) {
         disconnect(d->windowVisibility);
+        disconnect(d->windowStopping);
         if (target) {
             d->windowVisibility = connect(target, &QWindow::visibilityChanged, this,
                                           [this](QWindow::Visibility visibility) {
@@ -1080,6 +1081,18 @@ GlyphRun::GlyphRun(QQuickItem *parent) : QQuickItem(parent), d(std::make_unique<
                                                   rebuildForEnvironment();
                                               }
                                           });
+            d->windowStopping = connect(
+                target, &QQuickWindow::sceneGraphAboutToStop, this,
+                [this, stoppedWindow = QPointer<QQuickWindow>(target)] {
+                    if (!stoppedWindow || window() != stoppedWindow || d->released ||
+                        !isVisible() || d->haloSampling != "static")
+                        return;
+                    // Static pages retired on the render thread. A paused item
+                    // still needs one sync, and atlas borrowers need a fresh lease.
+                    update();
+                    emit atlasChanged();
+                },
+                Qt::QueuedConnection);
         }
         const qreal dpr = window() ? window()->effectiveDevicePixelRatio() : 1;
         if (!qFuzzyCompare(d->dpr, dpr) && isVisible())
@@ -1095,6 +1108,7 @@ GlyphRun::~GlyphRun()
     blockSignals(true);
     disconnect(this, &QQuickItem::windowChanged, this, nullptr);
     disconnect(d->windowVisibility);
+    disconnect(d->windowStopping);
     cancelPreparation();
     releaseResources();
 }
@@ -2153,7 +2167,12 @@ QSGNode *GlyphRun::updatePaintNode(QSGNode *old, UpdatePaintNodeData *)
     }
     if (!root)
         root = new RunRoot;
-    const bool layoutChanged = root->revision != d->revision;
+    const auto retiredPages = [](const QList<std::shared_ptr<TexturePage>> &pages) {
+        return std::any_of(pages.cbegin(), pages.cend(),
+                           [](const auto &page) { return !page->texture; });
+    };
+    const bool layoutChanged =
+        root->revision != d->revision || retiredPages(root->bodies) || retiredPages(root->effects);
     if (layoutChanged || root->topologyRevision != d->topologyRevision) {
         while (auto *child = root->firstChild()) {
             root->removeChildNode(child);

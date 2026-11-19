@@ -1,5 +1,6 @@
 #include "GlyphRun.h"
 #include "GlyphRunCanvas_p.h"
+#include "GlyphAtlas_p.h"
 #include <QTextLayout>
 #include <QGlyphRun>
 #include <QDir>
@@ -14,6 +15,7 @@
 #include <cmath>
 #include <array>
 #include <algorithm>
+#include <functional>
 
 namespace
 {
@@ -75,12 +77,14 @@ public:
         window.setVisible(true);
         return !window.handle();
     }
-    QImage read()
+    QImage read(const std::function<void(QRhi *, QRhiCommandBuffer *)> &consume = {})
     {
         control.polishItems();
         control.beginFrame();
         control.sync();
         control.render();
+        if (consume)
+            consume(control.rhi(), control.commandBuffer());
         QRhiReadbackResult result;
         auto *updates = control.rhi()->nextResourceUpdateBatch();
         updates->readBackTexture(color.get(), &result);
@@ -130,6 +134,118 @@ private slots:
     void cleanupTestCase()
     {
         QTRY_COMPARE_WITH_TIMEOUT(EchoMusic::GlyphCanvas::Memory::total(), qint64(0), 5000);
+    }
+    void staticTexturesRecoverWithoutPoseChanges_data()
+    {
+        QTest::addColumn<qreal>("ratio");
+        QTest::newRow("100-percent") << qreal(1);
+        QTest::newRow("125-percent") << qreal(1.25);
+    }
+    void staticTexturesRecoverWithoutPoseChanges()
+    {
+        QFETCH(qreal, ratio);
+        QTest::failOnWarning(QRegularExpression("No QSGTexture provided"));
+        GlyphTarget scene;
+        QVERIFY(scene.create(ratio));
+        EchoMusic::GlyphRun glyph(scene.window.contentItem());
+        glyph.setSize(scene.window.size());
+        QFont font("Arial");
+        font.setPixelSize(32);
+        glyph.setFont(font);
+        glyph.setRuns({QVariantMap{{"key", "static"},
+                                   {"text", QString::fromUtf8("墨 Aa😀")},
+                                   {"maxBlur", 8},
+                                   {"maxHaloRadius", 40}}});
+        QVERIFY2(glyph.errorString().isEmpty(), qPrintable(glyph.errorString()));
+        QTRY_VERIFY2_WITH_TIMEOUT(!glyph.preparing() && !glyph.metrics().isEmpty(),
+                                  qPrintable(glyph.errorString()), 5000);
+        glyph.setPoses({QVariantMap{
+            {"key", "static"},
+            {"x", 24.},
+            {"y", 70.},
+            {"color", QColor(Qt::white)},
+            {"blur", 2.},
+            {"halos", QVariantList{QVariantMap{{"radius", 7.}, {"color", QColor(Qt::cyan)}}}}}});
+        const auto reference = scene.read();
+        QVERIFY(!reference.isNull());
+        int ink = 0;
+        for (int y = 0; y < reference.height(); ++y)
+            for (int x = 0; x < reference.width(); ++x)
+                ink += qAlpha(reference.pixel(x, y)) > 32;
+        QVERIFY(ink > 100);
+        const auto revision = glyph.maskRevision();
+        const auto metrics = glyph.metrics();
+        const auto uploadCount = glyph.textureUploads();
+        QVERIFY(uploadCount > 0);
+        auto preparation = glyph.atlasPreparation();
+        QVERIFY(preparation && preparation->valid->load());
+        // Refresh the same C++ borrow seam as a native atlas consumer. The old
+        // lease must retire before any consumer can sample the replacement.
+        connect(&glyph, &EchoMusic::GlyphRun::atlasChanged, &glyph,
+                [&] { preparation = glyph.atlasPreparation(); });
+        const auto readAtlas = [&]() {
+            QString error;
+            EchoMusic::NativeGlyphAtlas borrowed;
+            QRhiReadbackResult result;
+            scene.read([&](QRhi *rhi, QRhiCommandBuffer *commands) {
+                auto *updates = rhi->nextResourceUpdateBatch();
+                borrowed = preparation->acquire(&scene.window, updates, error);
+                if (!borrowed.textures.empty())
+                    updates->readBackTexture(borrowed.textures.front(), &result);
+                commands->resourceUpdate(updates);
+            });
+            if (!error.isEmpty() || borrowed.uploads != 0)
+                return QByteArray();
+            return result.data;
+        };
+        const auto atlasPixels = readAtlas();
+        QVERIFY(!atlasPixels.isEmpty());
+        for (int cycle = 0; cycle < 3; ++cycle) {
+            const auto retired = preparation;
+            const auto uploads = glyph.textureUploads();
+            QVERIFY(QMetaObject::invokeMethod(&scene.window, "sceneGraphAboutToStop",
+                                              Qt::DirectConnection));
+            QVERIFY(!retired->valid->load());
+            QCoreApplication::processEvents();
+            // No setPoses/setRuns/update call: the first resumed frame must
+            // repair the retained node even when playback is paused.
+            QCOMPARE(scene.read(), reference);
+            QCOMPARE(glyph.maskRevision(), revision);
+            QCOMPARE(glyph.metrics(), metrics);
+            QCOMPARE(glyph.textureUploads() - uploads, uploadCount);
+            QVERIFY(preparation && preparation != retired && preparation->valid->load());
+            QCOMPARE(readAtlas(), atlasPixels);
+            scene.read();
+            QCOMPARE(glyph.textureUploads() - uploads, uploadCount);
+        }
+        const auto retired = preparation;
+        QVERIFY(QMetaObject::invokeMethod(&scene.window, "sceneGraphAboutToStop",
+                                          Qt::DirectConnection));
+        glyph.setVisible(false);
+        QCoreApplication::processEvents();
+        QVERIFY(!glyph.ready());
+        QCOMPARE(glyph.cacheBytes(), qint64(0));
+        const auto hidden = scene.read();
+        QCOMPARE(glyph.renderBatches(), 0);
+        QVERIFY(!retired->valid->load());
+        for (int y = 0; y < hidden.height(); ++y)
+            for (int x = 0; x < hidden.width(); ++x)
+                QCOMPARE(qAlpha(hidden.pixel(x, y)), 0);
+        glyph.setVisible(true);
+        QTRY_VERIFY_WITH_TIMEOUT(!glyph.preparing() && !glyph.metrics().isEmpty(), 5000);
+        QCOMPARE(scene.read(), reference);
+        {
+            auto closing = std::make_unique<EchoMusic::GlyphRun>(scene.window.contentItem());
+            closing->setSize(scene.window.size());
+            closing->setRuns({QVariantMap{{"key", "closing"}, {"text", "Closing"}}});
+            scene.read();
+            QVERIFY(QMetaObject::invokeMethod(&scene.window, "sceneGraphAboutToStop",
+                                              Qt::DirectConnection));
+            closing.reset();
+            QCoreApplication::processEvents();
+            QCOMPARE(scene.read(), reference);
+        }
+        QVERIFY(!scene.window.handle());
     }
     void inkAndDenseSharedKernels()
     {
