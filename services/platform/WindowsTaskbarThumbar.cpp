@@ -72,6 +72,7 @@ void WindowsTaskbarThumbar::releaseIcons()
 void WindowsTaskbarThumbar::detach()
 {
     releaseIcons();
+    m_buttons.clear();
     const auto handle = reinterpret_cast<HWND>(m_hwnd);
     if (m_subclassed && handle && IsWindow(handle))
         RemoveWindowSubclass(handle, thumbarSubclass, ThumbarSubclassId);

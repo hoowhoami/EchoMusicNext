@@ -58,8 +58,8 @@ private:
     int m_buttonCount = 0;
     bool m_subclassed = false;
     unsigned m_taskbarCreatedMessage = 0;
-    /// Last set, kept so the toolbar can be rebuilt when the button returns
-    /// without the shell module having to re-render anything.
+    /// Last set while attached, so Explorer button recreation does not need
+    /// another render. Retiring the host also releases these source images.
     QList<TaskbarThumbarButton> m_buttons;
     /// HICONs handed to Explorer; it reads them after the call returns, so they
     /// outlive the call and are released with the button set.

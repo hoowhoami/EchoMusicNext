@@ -1,11 +1,13 @@
 #include "WaylandBackgroundEffect.h"
 #include "WindowBackdrop.h"
+#include "HyprlandWindowBackdrop.h"
 #include "wayland-ext-background-effect-v1-client-protocol.h"
 #include <QFile>
 #include <QGuiApplication>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QPlatformSurfaceEvent>
+#include <QProcess>
 #include <QScopeGuard>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -17,6 +19,21 @@
 
 namespace EchoMusic
 {
+namespace
+{
+class ObservedBackdropWindow final : public QWindow
+{
+public:
+    int widthSubscribers() const
+    {
+        return receivers(SIGNAL(widthChanged(int)));
+    }
+    int heightSubscribers() const
+    {
+        return receivers(SIGNAL(heightChanged(int)));
+    }
+};
+} // namespace
 class WaylandBackgroundEffectTest : public QObject
 {
     Q_OBJECT
@@ -60,6 +77,129 @@ private:
     }
 
 private slots:
+    void hyprlandRetirementCancelsPendingCommands()
+    {
+        QTemporaryDir directory;
+        QFile executable(directory.filePath("hyprctl"));
+        QVERIFY(executable.open(QIODevice::WriteOnly));
+        executable.write(R"(#!/usr/bin/env python3
+import json, os, sys, time
+from pathlib import Path
+root = Path(__file__).parent
+with (root / 'calls.jsonl').open('a') as log:
+    log.write(json.dumps(sys.argv[1:]) + '\n')
+if sys.argv[1] == 'clients':
+    if not (root / 'release').exists():
+        (root / 'pending').touch()
+        time.sleep(5)
+    print(json.dumps([{'pid': os.getppid(), 'address': '0xcafe', 'title': 'Restored'}]))
+)");
+        executable.close();
+        QVERIFY(executable.setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+        const auto oldPath = qgetenv("PATH");
+        const auto cleanup = qScopeGuard([&] { qputenv("PATH", oldPath); });
+        qputenv("PATH", directory.path().toUtf8() + ':' + oldPath);
+        QWindow retired;
+        retired.setTitle("Retired");
+        QWindow restored;
+        restored.setTitle("Restored");
+        HyprlandWindowBackdrop backdrop;
+        backdrop.attach(&retired);
+        QSignalSpy completed(&backdrop, &HyprlandWindowBackdrop::completed);
+        backdrop.apply(true);
+        QTRY_VERIFY(QFile::exists(directory.filePath("pending")));
+        QPointer<QProcess> pending = backdrop.findChild<QProcess *>();
+        QVERIFY(pending);
+        backdrop.attach(nullptr);
+        QTRY_VERIFY(pending.isNull());
+        QCOMPARE(completed.size(), 0);
+        QFile release(directory.filePath("release"));
+        QVERIFY(release.open(QIODevice::WriteOnly));
+        release.close();
+        backdrop.attach(&restored);
+        backdrop.apply(false);
+        QTRY_COMPARE(completed.size(), 1);
+        QVERIFY(completed.first().first().toString().isEmpty());
+        QFile calls(directory.filePath("calls.jsonl"));
+        QVERIFY(calls.open(QIODevice::ReadOnly));
+        const auto lines = calls.readAll().trimmed().split('\n');
+        QCOMPARE(lines.size(), 3);
+        const auto command = QJsonDocument::fromJson(lines.last()).array();
+        QCOMPARE(command[0].toString(), QString("dispatch"));
+        QVERIFY(command[1].toString().contains("address:0xcafe"));
+        QVERIFY(command[1].toString().contains("value = \"1\""));
+        backdrop.attach(nullptr);
+        QTRY_VERIFY(backdrop.findChildren<QProcess *>().isEmpty());
+    }
+
+    void backgroundDetachReleasesEffectsAndWindowSubscriptions()
+    {
+        int sockets[2];
+        QCOMPARE(socketpair(AF_UNIX, SOCK_STREAM, 0, sockets), 0);
+        auto *display = wl_display_connect_to_fd(sockets[0]);
+        QVERIFY(display);
+        auto *registry = wl_display_get_registry(display);
+        auto *compositor = static_cast<wl_compositor *>(
+            wl_registry_bind(registry, 1, &wl_compositor_interface, 1));
+        auto *surface = wl_compositor_create_surface(compositor);
+        const auto cleanup = qScopeGuard([&] {
+            wl_surface_destroy(surface);
+            wl_compositor_destroy(compositor);
+            wl_display_disconnect(display);
+            close(sockets[1]);
+        });
+        ObservedBackdropWindow window;
+        const int widthSubscribers = window.widthSubscribers();
+        const int heightSubscribers = window.heightSubscribers();
+        WaylandBackgroundEffect effect;
+        effect.m_display = display;
+        effect.m_registry = registry;
+        effect.m_compositor = compositor;
+        effect.bindGlobal(registry, 2, ext_background_effect_manager_v1_interface.name, 1);
+        effect.setEnabled(true);
+        const auto managerId = wl_proxy_get_id(reinterpret_cast<wl_proxy *>(effect.m_manager));
+        const uint32_t capability[] = {managerId, 12u << 16,
+                                       EXT_BACKGROUND_EFFECT_MANAGER_V1_CAPABILITY_BLUR};
+        QCOMPARE(send(sockets[1], capability, sizeof(capability), 0), ssize_t(sizeof(capability)));
+        QVERIFY(wl_display_dispatch(display) >= 0);
+        requests(display, sockets[1]);
+        for (int iteration = 0; iteration < 100; ++iteration) {
+            effect.attach(&window);
+            effect.m_surface = surface;
+            QVERIFY(effect.attach(&window));
+            QVERIFY(effect.m_effect);
+            QCOMPARE(window.widthSubscribers(), widthSubscribers + 1);
+            QCOMPARE(window.heightSubscribers(), heightSubscribers + 1);
+            const auto effectId = wl_proxy_get_id(reinterpret_cast<wl_proxy *>(effect.m_effect));
+            const auto created = requests(display, sockets[1]);
+            int creations = 0;
+            for (const auto &request : created)
+                if (request.object == managerId && request.opcode == 1)
+                    ++creations;
+            QCOMPARE(creations, 1);
+            effect.attach(nullptr);
+            QVERIFY(!effect.m_effect);
+            QVERIFY(!effect.m_surface);
+            QCOMPARE(window.widthSubscribers(), widthSubscribers);
+            QCOMPARE(window.heightSubscribers(), heightSubscribers);
+            const auto retired = requests(display, sockets[1]);
+            QCOMPARE(retired.size(), 1);
+            QCOMPARE(retired.first().object, effectId);
+            QCOMPARE(retired.first().opcode, uint16_t(0));
+            window.resize(640 + iteration, 480 + iteration);
+            effect.setEnabled(iteration % 2 == 0);
+            QVERIFY(requests(display, sockets[1]).isEmpty());
+        }
+        const uint32_t noCapability[] = {managerId, 12u << 16, 0};
+        QCOMPARE(send(sockets[1], noCapability, sizeof(noCapability), 0),
+                 ssize_t(sizeof(noCapability)));
+        QVERIFY(wl_display_dispatch(display) >= 0);
+        QCOMPARE(send(sockets[1], capability, sizeof(capability), 0), ssize_t(sizeof(capability)));
+        QVERIFY(wl_display_dispatch(display) >= 0);
+        QVERIFY(!effect.m_effect);
+        QVERIFY(requests(display, sockets[1]).isEmpty());
+    }
+
     void capabilitiesRecover_data()
     {
         QTest::addColumn<bool>("enabled");

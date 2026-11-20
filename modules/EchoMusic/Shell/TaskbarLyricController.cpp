@@ -80,24 +80,29 @@ void TaskbarLyricController::setEnabled(bool value)
 
 void TaskbarLyricController::attach(QQuickWindow *window)
 {
-    if (m_window == window)
+    if (window && m_window == window)
         return;
+    detach();
     m_window = window;
     // Frames that do arrive silence the exposure re-kick; see the m_exposure
     // hookup for why the timer must not run unconditionally.
     if (window) {
+        const QPointer<QQuickWindow> observed(window);
         m_lastFrameMs = QDateTime::currentMSecsSinceEpoch();
-        connect(window, &QQuickWindow::frameSwapped, this,
-                [this] { m_lastFrameMs = QDateTime::currentMSecsSinceEpoch(); });
+        connect(window, &QQuickWindow::frameSwapped, this, [this, observed] {
+            if (observed && observed == m_window)
+                m_lastFrameMs = QDateTime::currentMSecsSinceEpoch();
+        });
     }
     syncMounted();
 }
 
 void TaskbarLyricController::detach()
 {
-    if (!m_window)
-        return;
+    if (m_window)
+        disconnect(m_window, nullptr, this, nullptr);
     m_window.clear();
+    m_firstFrameConnected = false;
     syncMounted();
 }
 
@@ -111,6 +116,7 @@ void TaskbarLyricController::syncMounted()
             // child-form swapchain never presents (blank window).
             if (!m_firstFrameConnected && m_window) {
                 m_firstFrameConnected = true;
+                const QPointer<QQuickWindow> observed(m_window);
                 // Qt must consider the window visible, otherwise the scene
                 // graph stops rendering and the strip freezes on its first
                 // frame. The native alpha keeps it invisible until the mount
@@ -118,8 +124,13 @@ void TaskbarLyricController::syncMounted()
                 setStripAlpha(0);
                 connect(
                     m_window, &QQuickWindow::frameSwapped, this,
-                    [this] {
-                        if (m_session.mounted())
+                    [this, observed] {
+                        // A queued first frame can outlive an old surface's
+                        // disconnect. Only the current enabled strip may mount.
+                        if (!observed || observed != m_window)
+                            return;
+                        m_firstFrameConnected = false;
+                        if (!m_enabled || m_session.mounted())
                             return;
                         qCInfo(taskbarLyricLog)
                             << "首帧就绪，嵌入任务栏:"

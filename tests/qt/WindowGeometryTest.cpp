@@ -17,6 +17,7 @@
 using namespace EchoMusic;
 #ifdef Q_OS_MACOS
 void zoomNativeWindow(QQuickWindow *window);
+int runMacBackdropRetirementProbe(bool throughController);
 #endif
 namespace
 {
@@ -35,6 +36,10 @@ QRect testBounds(QQuickWindow &window, bool changed = false)
 }
 int child(const QString &file, const QString &phase)
 {
+#ifdef Q_OS_MACOS
+    if (phase.startsWith("backdrop-retirement"))
+        return runMacBackdropRetirementProbe(phase.endsWith("controller"));
+#endif
     SettingsStore settings(file);
     WindowController windows(settings, true);
     QQuickWindow window;
@@ -116,6 +121,26 @@ class WindowGeometryTest final : public QObject
         return result;
     }
 private slots:
+    void backgroundRetirementReleasesNativeMaterialViews_data()
+    {
+        QTest::addColumn<QString>("phase");
+        QTest::newRow("material") << QStringLiteral("backdrop-retirement");
+        QTest::newRow("window-controller") << QStringLiteral("backdrop-retirement-controller");
+    }
+    void backgroundRetirementReleasesNativeMaterialViews()
+    {
+#ifdef Q_OS_MACOS
+        if (QGuiApplication::platformName() != "cocoa")
+            QSKIP("Native material retirement requires Cocoa");
+        QFETCH(QString, phase);
+        QTemporaryDir directory;
+        const auto result = run(directory.filePath("settings.ini"), phase);
+        QCOMPARE(result.value("qtWindowAlive").toBool(), false);
+        QCOMPARE(result.value("nativeObjectsRemaining").toInt(-1), 0);
+#else
+        QSKIP("macOS native material lifetime");
+#endif
+    }
     void backgroundRetirementPreservesGeometry_data()
     {
         QTest::addColumn<QString>("mode");

@@ -111,11 +111,22 @@ void TaskbarButtonController::setDark(bool dark)
 }
 void TaskbarButtonController::attach(QQuickWindow *window)
 {
+    if (m_window) {
+        const auto oldHandle = handle();
+        disconnect(m_window, nullptr, this, nullptr);
+        if (oldHandle)
+            m_progress.clear(oldHandle);
+    }
+    // Retire handle-owned images and callbacks at detach, before the shell's
+    // deferred QQuickWindow destruction. Explorer may keep that HWND alive
+    // until its native teardown messages have completed.
+    m_thumbnail.clear();
+    m_thumbar.detach();
     // Every visibility change re-arms the three features. Hiding to the tray
     // hands the taskbar button back to Explorer, which returns a fresh one on
     // show, and Qt may also recreate the native window behind us; either way
     // the cached handle, bitmaps and toolbar registration are stale.
-    if (window && m_window != window) {
+    if (window) {
         connect(window, &QWindow::visibleChanged, this, [this] {
             // Hiding to the tray takes the taskbar button with it, and Explorer
             // discards the thumbnail toolbar rather than hiding it. The window
