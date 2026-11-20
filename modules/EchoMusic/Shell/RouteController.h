@@ -24,6 +24,7 @@ class RouteContext final : public QObject
     Q_PROPERTY(QVariantMap query READ query NOTIFY queryChanged)
     Q_PROPERTY(QVariantMap initialProperties READ initialProperties CONSTANT)
     Q_PROPERTY(bool active READ active NOTIFY activeChanged)
+    Q_PROPERTY(bool presented READ presented NOTIFY presentationChanged)
     Q_PROPERTY(bool pluginOwned READ pluginOwned CONSTANT)
     Q_PROPERTY(EchoMusic::EchoPageStateStore *viewState READ viewState CONSTANT)
 public:
@@ -67,8 +68,13 @@ public:
     {
         return m_active;
     }
+    bool presented() const
+    {
+        return m_active && m_presentationActive;
+    }
 signals:
     void activeChanged();
+    void presentationChanged();
     void queryChanged();
 
 private:
@@ -85,14 +91,23 @@ private:
         m_active = active;
         // Deactivation can synchronously clear models/change view geometry.
         // Freeze snapshots before notifying any visual or business subscriber.
-        m_viewState->setWritable(active);
+        m_viewState->setWritable(presented());
         emit activeChanged();
+        emit presentationChanged();
+    }
+    void setPresentationActive(bool active)
+    {
+        if (m_presentationActive == active)
+            return;
+        m_presentationActive = active;
+        m_viewState->setWritable(presented());
+        emit presentationChanged();
     }
     EchoPageStateStore *const m_viewState;
     QString m_name, m_key, m_instance, m_canonical, m_resource;
     QUrl m_component;
     QVariantMap m_query, m_initialProperties;
-    bool m_active = false, m_pluginOwned = false;
+    bool m_active = false, m_pluginOwned = false, m_presentationActive = true;
     quint64 m_used = 0;
 };
 
@@ -174,6 +189,9 @@ public:
     /// and resets history/epoch exactly like normal account invalidation.
     void invalidateAccountPreservingRoute();
     void shutdown();
+    /// Freeze visual snapshots before tearing down a window; keep route
+    /// identity and domain models alive without replaying page activation.
+    void setPresentationActive(bool active);
 signals:
     void registryChanged();
     void routeChanged();
@@ -207,7 +225,7 @@ private:
     quint64 m_registrationRevision = 0;
     RouteContext *m_current = nullptr;
     int m_cursor = -1, m_max = 20;
-    bool m_enabled = true, m_changing = false, m_closed = false;
+    bool m_enabled = true, m_changing = false, m_closed = false, m_presentationActive = true;
     quint64 m_clock = 0, m_instance = 0, m_accountEpoch = 0;
 };
 } // namespace EchoMusic

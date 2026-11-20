@@ -205,6 +205,7 @@ private:
     std::optional<ApiClient::CloudPlaylistId> m_cloud;
     quint64 m_generation = 0, m_total = 0;
     std::optional<quint64> m_revision;
+    bool m_revisionsKnown = true;
     quint32 m_nextPage = 1, m_pageSize = 200;
     bool m_complete = false, m_resolving = false, m_closed = false, m_network;
 };

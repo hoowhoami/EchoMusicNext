@@ -16,22 +16,8 @@ import EchoMusic.Details
 ApplicationWindow {
     id: mainWindow
     property StartupController startup: null
-    // The taskbar lyric strip window (created without a parent on purpose).
-    property var taskbarLyricWindow: null
-    // Create or destroy the strip so it matches the enabled preference.
-    function syncTaskbarLyricWindow(): void {
-        const controller = windowService.taskbar;
-        if (controller.enabled) {
-            if (!taskbarLyricWindow)
-                taskbarLyricWindow = taskbarLyricComponent.createObject(null);
-        } else if (taskbarLyricWindow) {
-            taskbarLyricWindow.destroy();
-            taskbarLyricWindow = null;
-        }
-    }
     Component.onCompleted: {
-        syncTaskbarLyricWindow();
-        syncBackupConfirmation();
+        initialStartupPresentation = startup !== null && !startup.entered;
         syncVerificationCover();
     }
     Component.onDestruction: EchoPopupCoordinator.setInteractionSuspended(mainWindow, false)
@@ -47,15 +33,18 @@ ApplicationWindow {
             mainWindow.syncVerificationCover();
         }
     }
-    function syncBackupConfirmation(): void {
-        if (settingsDataService && settingsDataService.confirmation.summary)
-            backupConfirmationOwner.open();
-        else
-            backupConfirmationOwner.close();
+    function notifyMainContentReady(): void {
+        if (mainActionsReady)
+            windowService.mainContentReady();
     }
     readonly property bool startupPending: startup !== null && !startup.entered
-    readonly property bool startupCoverNeeded: startup !== null && (startupPending || !mainShell || !mainShell.initialPageReady)
+    property bool initialStartupPresentation: false
+    readonly property bool startupCoverNeeded: startup !== null && (startupPending || initialStartupPresentation && (!mainShell || !mainShell.initialPageReady))
     readonly property MainShell mainShell: shellLoader.item as MainShell
+    // Settings and lyric selection belong to the shell. A slow or replaced
+    // route must not prevent these recovery actions after startup has finished.
+    readonly property bool mainActionsReady: mainShell !== null && !startupCoverNeeded
+    onMainActionsReadyChanged: notifyMainContentReady()
     property PluginManager pluginManager: null
     required property RouteController router
     required property ShellSettings shellSettings
@@ -70,11 +59,6 @@ ApplicationWindow {
     readonly property real uiScale: shellSettings.uiScale
     property NetworkPreferences networkPreferences: null
     property ShortcutService shortcutService: null
-    Binding {
-        target: mainWindow.windowService.floating
-        property: "miniScale"
-        value: mainWindow.shellSettings.uiScale
-    }
     property AboutService aboutService: null
     property ExperimentalSettingsService experimentalSettingsService: null
     property SettingsDataService settingsDataService: null
@@ -106,62 +90,12 @@ ApplicationWindow {
     EchoPopupLoader {
         id: backupConfirmationOwner
         hostItem: mainWindow.contentItem
+        requestedVisible: mainWindow.settingsDataService !== null && !!mainWindow.settingsDataService.confirmation.summary
         sourceComponent: Component {
             SettingsBackupConfirmation {
                 service: mainWindow.settingsDataService
                 uiScale: mainWindow.shellSettings.uiScale
             }
-        }
-    }
-    Connections {
-        target: mainWindow.settingsDataService
-        function onConfirmationChanged(): void {
-            mainWindow.syncBackupConfirmation();
-        }
-    }
-    Connections {
-        target: mainWindow.shortcutService
-        function onTriggered(command: int): void {
-            if (command === ShortcutService.ToggleMainLyric && mainWindow.mainShell)
-                mainWindow.mainShell.togglePlayback();
-        }
-    }
-    Loader {
-        active: !mainWindow.startupPending && mainWindow.playbackService !== null && mainWindow.windowService.floating.desktopEnabled
-        sourceComponent: DesktopLyricWindow {
-            service: mainWindow.windowService.floating
-            playback: mainWindow.playbackService
-        }
-    }
-    Loader {
-        active: !mainWindow.startupPending && mainWindow.playbackService !== null && mainWindow.windowService.floating.unlockAvailable
-        sourceComponent: DesktopLyricUnlockWindow {
-            service: mainWindow.windowService.floating
-        }
-    }
-    Loader {
-        active: !mainWindow.startupPending && mainWindow.playbackService !== null && mainWindow.windowService.floating.miniActive
-        sourceComponent: MiniPlayerWindow {
-            pluginSurfaces: mainWindow.shellController.pluginSurfaces
-            service: mainWindow.windowService.floating
-            playback: mainWindow.playbackService
-        }
-    }
-    // The taskbar strip must be a real top-level window: a QML Window created
-    // inside the main window's object tree becomes its native child, and the
-    // toolkit then re-parents it over the taskbar mount. Creating it with a
-    // null parent keeps that from ever happening.
-    Component {
-        id: taskbarLyricComponent
-        TaskbarLyricWindow {
-            controller: mainWindow.windowService.taskbar
-            playback: mainWindow.playbackService
-        }
-    }
-    Connections {
-        target: mainWindow.windowService.taskbar
-        function onEnabledChanged(): void {
-            mainWindow.syncTaskbarLyricWindow();
         }
     }
     // The cover's click is forwarded to WindowController in C++ (it owns the
@@ -176,19 +110,19 @@ ApplicationWindow {
             EchoPopupCoordinator.nativeMenuOpening();
         }
         function onPresentationReadyChanged(): void {
-            if (Qt.platform.os === "windows" && mainWindow.windowService.presentationReady && !mainWindow.windowService.background)
-                mainWindow.show();
+            if (mainWindow.windowService.presentationReady)
+                mainWindow.notifyMainContentReady();
         }
     }
     Connections {
-        target: mainWindow.windowService.floating
-        function onSettingsRequested(): void {
-            if (mainWindow.mainShell)
-                mainWindow.mainShell.openLyricSettings();
-        }
+        target: mainWindow.windowService
         function onLyricSelectionRequested(): void {
             if (mainWindow.playbackService)
                 floatingLyricSource.open();
+        }
+        function onPlaybackPageRequested(): void {
+            if (mainWindow.mainShell)
+                mainWindow.mainShell.togglePlayback();
         }
     }
     EchoPopupLoader {
@@ -887,6 +821,7 @@ ApplicationWindow {
         height: mainWindow.height / mainWindow.uiScale
         active: !mainWindow.startupPending
         sourceComponent: MainShell {}
+        onLoaded: mainWindow.notifyMainContentReady()
     }
     // Native frame resize keeps OS snap/Wayland semantics. This fixed set of
     // eight handles is decoration, never a list of business records.

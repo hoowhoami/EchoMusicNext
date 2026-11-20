@@ -20,6 +20,7 @@ struct Wire {
     status: u32,
     #[serde(deserialize_with = "crate::util::response::scalar")]
     error_code: i64,
+    #[serde(default)]
     data: serde_json::Value,
     #[serde(default, deserialize_with = "crate::util::response::object")]
     extra: Extra,
@@ -28,7 +29,7 @@ struct Wire {
 struct Data {
     #[serde(default, deserialize_with = "crate::util::response::optional")]
     total: Option<u64>,
-    #[serde(deserialize_with = "crate::util::response::list")]
+    #[serde(default, deserialize_with = "crate::util::response::list")]
     songs: Vec<Song>,
 }
 #[derive(Deserialize, Default)]

@@ -24,6 +24,8 @@
 #include "StartupController.h"
 #include "ThemeStore.h"
 #include "WindowController.h"
+#include "MainWindowHost.h"
+#include <QQmlComponent>
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QQmlApplicationEngine>
@@ -59,27 +61,27 @@ void AppContext::mountUi()
     auto &settingsData = *m_settingsData;
     auto &experimentalSettings = *m_experimentalSettings;
     shellController.bindBarrageSettings(shell);
-    engine.setInitialProperties(
-        {{QStringLiteral("startup"), QVariant::fromValue(useStartup ? &startup : nullptr)},
-         {QStringLiteral("pluginManager"), QVariant::fromValue(&pluginManager)},
-         {QStringLiteral("shortcutService"), QVariant::fromValue(&shortcuts)},
-         {QStringLiteral("aboutService"), QVariant::fromValue(&about)},
-         {QStringLiteral("experimentalSettingsService"),
-          QVariant::fromValue(&experimentalSettings)},
-         {QStringLiteral("settingsDataService"), QVariant::fromValue(&settingsData)},
-         {QStringLiteral("networkPreferences"), QVariant::fromValue(&network)},
-         {QStringLiteral("logService"), QVariant::fromValue(m_logging)},
-         {QStringLiteral("relaunchService"), QVariant::fromValue(&relaunch)},
-         {QStringLiteral("playbackDiscussion"), QVariant::fromValue(details.playbackDiscussion())},
-         {QStringLiteral("songDetails"), QVariant::fromValue(&details)},
-         {QStringLiteral("playbackService"), QVariant::fromValue(&playback)},
-         {QStringLiteral("libraryController"), QVariant::fromValue(&libraryController)},
-         {QStringLiteral("accountController"), QVariant::fromValue(&accountController)},
-         {QStringLiteral("shellController"), QVariant::fromValue(&shellController)},
-         {QStringLiteral("searchService"), QVariant::fromValue(&search)},
-         {QStringLiteral("router"), QVariant::fromValue(&router)},
-         {QStringLiteral("shellSettings"), QVariant::fromValue(&shell)},
-         {QStringLiteral("windowService"), QVariant::fromValue(&window)}});
+    const QVariantMap mainProperties{
+        {QStringLiteral("startup"), QVariant::fromValue(useStartup ? &startup : nullptr)},
+        {QStringLiteral("pluginManager"), QVariant::fromValue(&pluginManager)},
+        {QStringLiteral("shortcutService"), QVariant::fromValue(&shortcuts)},
+        {QStringLiteral("aboutService"), QVariant::fromValue(&about)},
+        {QStringLiteral("experimentalSettingsService"), QVariant::fromValue(&experimentalSettings)},
+        {QStringLiteral("settingsDataService"), QVariant::fromValue(&settingsData)},
+        {QStringLiteral("networkPreferences"), QVariant::fromValue(&network)},
+        {QStringLiteral("logService"), QVariant::fromValue(m_logging)},
+        {QStringLiteral("relaunchService"), QVariant::fromValue(&relaunch)},
+        {QStringLiteral("playbackDiscussion"), QVariant::fromValue(details.playbackDiscussion())},
+        {QStringLiteral("songDetails"), QVariant::fromValue(&details)},
+        {QStringLiteral("playbackService"), QVariant::fromValue(&playback)},
+        {QStringLiteral("libraryController"), QVariant::fromValue(&libraryController)},
+        {QStringLiteral("accountController"), QVariant::fromValue(&accountController)},
+        {QStringLiteral("shellController"), QVariant::fromValue(&shellController)},
+        {QStringLiteral("searchService"), QVariant::fromValue(&search)},
+        {QStringLiteral("router"), QVariant::fromValue(&router)},
+        {QStringLiteral("shellSettings"), QVariant::fromValue(&shell)},
+        {QStringLiteral("windowService"), QVariant::fromValue(&window)},
+        {QStringLiteral("visible"), false}};
     deliverUrls = [&] {
         urlDeliveryReady = true;
         shareResolver.startClipboardMonitoring();
@@ -92,6 +94,8 @@ void AppContext::mountUi()
         pendingUrls.clear();
     };
     startBusiness = [&] {
+        if (pluginStartupReady || quitting)
+            return;
         plugins.start(m_pluginDirectories);
         if (!smoke)
             m_pluginManager->startStartupUpdateCheck();
@@ -118,20 +122,61 @@ void AppContext::mountUi()
     // Store the initial appearance before the hidden Windows HWND is attached;
     // attachment applies it before publishing first-presentation readiness.
     window.setAppearance(theme.windowFrosted(), theme.dark(), theme.transparency());
-    engine.loadFromModule(QStringLiteral("EchoMusic.App"), QStringLiteral("Main"));
-    if (!engine.rootObjects().isEmpty()) {
-        window.attach(qobject_cast<QQuickWindow *>(engine.rootObjects().first()));
-        shortcuts.attach(qobject_cast<QQuickWindow *>(engine.rootObjects().first()));
-        // Queue real initialization after the startup QML exists. Do not wait
-        // for frameSwapped: an occluded/tray launch may never render a frame.
-        if (useStartup)
-            QTimer::singleShot(0, &startup, &EchoMusic::StartupController::start);
-        QTimer::singleShot(0, &window, [&] {
-            if (!activatedDuringStartup)
-                window.applyStartupVisibility();
+    window.initializeSystemIntegration();
+    QQmlComponent auxiliary(&engine, QUrl("qrc:/qt/qml/EchoMusic/App/AuxiliaryWindows.qml"));
+    m_auxiliaryWindows.reset(auxiliary.createWithInitialProperties(
+        {{"startup", QVariant::fromValue(useStartup ? &startup : nullptr)},
+         {"windowService", QVariant::fromValue(&window)},
+         {"shellSettings", QVariant::fromValue(&shell)},
+         {"shellController", QVariant::fromValue(&shellController)},
+         {"playbackService", QVariant::fromValue(&playback)}}));
+    if (!m_auxiliaryWindows) {
+        qCritical().noquote() << auxiliary.errorString();
+        exitStatus = 1;
+        beginShutdown();
+        return;
+    }
+    m_mainUi = std::make_unique<MainWindowHost>(
+        engine, window, shortcuts,
+        [this, mainProperties]() -> QQuickWindow * {
+            QQmlComponent component(m_engine.get(), QUrl("qrc:/qt/qml/EchoMusic/App/Main.qml"));
+            auto *object = component.createWithInitialProperties(mainProperties);
+            auto *surface = qobject_cast<QQuickWindow *>(object);
+            if (!surface) {
+                qWarning().noquote() << "Main window creation failed:" << component.errorString();
+                delete object;
+            }
+            return surface;
+        },
+        &router);
+    bind(&router, &RouteController::settingsRequested, &window, [&](const QString &section) {
+        if (!window.mainWindow())
+            window.requestSettings(section);
+    });
+    bind(m_mainUi.get(), &MainWindowHost::creationFailed, &m_callbacks, [&] {
+        // A failed rebuild must leave playback, plugins and recovery reachable.
+        shellController.toasts()->show(QObject::tr("主窗口打开失败，请通过托盘重试"),
+                                       ToastService::Warning);
+        if (!window.trayAvailable()) {
+            exitStatus = 1;
+            beginShutdown();
+        }
+    });
+    // Background initialization does not require an invisible main window.
+    // First-home consent remains a real visible interaction.
+    if (!activatedDuringStartup && window.startMinimized() && window.trayAvailable() &&
+        shell.userAgreementAccepted())
+        window.applyStartupVisibility();
+    else
+        m_mainUi->show();
+    if (useStartup) {
+        bind(&startup, &StartupController::changed, &m_callbacks, [&] {
+            if (startup.failed() && !quitting)
+                window.showWindow();
         });
-        if (!quitting && !useStartup)
-            startBusiness();
+        QTimer::singleShot(0, &startup, &StartupController::start);
+    } else if (!quitting) {
+        startBusiness();
     }
 }
 } // namespace EchoMusic

@@ -43,6 +43,7 @@ struct Wire {
     status: u32,
     #[serde(deserialize_with = "crate::util::response::scalar")]
     error_code: i64,
+    #[serde(default)]
     data: Value,
 }
 #[derive(Deserialize)]
@@ -62,8 +63,7 @@ struct Data {
     #[serde(default)]
     #[serde(deserialize_with = "crate::util::response::optional")]
     total: Option<Value>,
-    #[serde(default)]
-    #[serde(deserialize_with = "crate::util::response::list")]
+    #[serde(default, deserialize_with = "crate::util::response::list")]
     items: Vec<Value>,
 }
 #[derive(Serialize)]

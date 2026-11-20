@@ -1,5 +1,6 @@
 #include "GlyphRun.h"
 #include "GlyphRunCanvas_p.h"
+#include "GlyphRunStaticLayout_p.h"
 #include "GlyphAtlas_p.h"
 #include <QTextLayout>
 #include <QGlyphRun>
@@ -16,6 +17,12 @@
 #include <array>
 #include <algorithm>
 #include <functional>
+#ifdef Q_OS_WIN
+#include <QLibrary>
+#include <QScopeGuard>
+#include <QtCore/qt_windows.h>
+#include <d3dcompiler.h>
+#endif
 
 namespace
 {
@@ -110,6 +117,139 @@ class GlyphRunCanvasPixelsTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void staticLiveLayoutsKeepIndependentPixelsAndRetirement_data()
+    {
+        QTest::addColumn<qreal>("ratio");
+        QTest::addColumn<qreal>("stroke");
+        for (const qreal ratio : {1., 1.25, 2.})
+            for (const qreal stroke : {0., 1.25})
+                QTest::newRow(qPrintable(QString("%1-%2").arg(ratio).arg(stroke)))
+                    << ratio << stroke;
+    }
+    void staticLiveLayoutsKeepIndependentPixelsAndRetirement()
+    {
+        using EchoMusic::GlyphRun;
+        using EchoMusic::GlyphStaticLayout::statistics;
+        QFETCH(qreal, ratio);
+        QFETCH(qreal, stroke);
+        QCOMPARE(statistics().liveResults, qsizetype(0));
+        GlyphTarget scene;
+        QVERIFY(scene.create(ratio));
+        QFont font = QGuiApplication::font();
+        font.setFamilies({"Arial", "PingFang SC", "Apple Color Emoji"});
+        font.setPixelSize(24);
+        const QVariantList runs{QVariantMap{{"key", "line"},
+                                            {"text", QString::fromUtf8("缓存 ffi 星😀")},
+                                            {"strokeWidth", stroke},
+                                            {"strokeBitmap", "fill"},
+                                            {"maxBlur", 0},
+                                            {"maxHaloRadius", 0}}};
+        const QVariantList poses{
+            QVariantMap{{"key", "line"}, {"x", 12.}, {"y", 24.}, {"color", QColor(Qt::white)}}};
+        const auto initialize = [&](GlyphRun &glyph) {
+            glyph.setSize({256, 144});
+            glyph.setFont(font);
+            glyph.setRuns(runs);
+            glyph.setPoses(poses);
+        };
+        auto first = std::make_unique<GlyphRun>(scene.window.contentItem());
+        initialize(*first);
+        QVERIFY2(first->errorString().isEmpty(), qPrintable(first->errorString()));
+        scene.read();
+        const auto reference = scene.read();
+        QVERIFY(!reference.isNull());
+        const auto originalMetrics = first->metrics();
+        const auto before = statistics();
+        first->setOpacity(0);
+        auto second = std::make_unique<GlyphRun>(scene.window.contentItem());
+        initialize(*second);
+        QCOMPARE(statistics().hits, before.hits + 1);
+        QCOMPARE(statistics().builds, before.builds);
+        QCOMPARE(second->metrics(), originalMetrics);
+        scene.read();
+        QCOMPARE(scene.read(), reference);
+        const auto secondUploads = second->textureUploads();
+        first->setVisible(false);
+        QCOMPARE(first->cacheBytes(), 0);
+        scene.read();
+        QCOMPARE(scene.read(), reference);
+        QCOMPARE(second->textureUploads(), secondUploads);
+        first->setVisible(true);
+        first.reset();
+        scene.read();
+        QCOMPARE(scene.read(), reference);
+        QCOMPARE(second->textureUploads(), secondUploads);
+        QVERIFY(secondUploads > 0);
+        const auto beforeDatabase = statistics();
+        QVERIFY(QMetaObject::invokeMethod(qGuiApp, "fontDatabaseChanged", Qt::DirectConnection));
+        auto third = std::make_unique<GlyphRun>(scene.window.contentItem());
+        third->setOpacity(0);
+        initialize(*third);
+        QCOMPARE(statistics().builds, beforeDatabase.builds + 1);
+        QCOMPARE(third->metrics(), originalMetrics);
+        auto changed = font;
+        changed.setPixelSize(30);
+        const auto beforeFont = statistics().builds;
+        third->setFont(changed);
+        QCOMPARE(statistics().builds, beforeFont + 1);
+        QVERIFY(third->metrics() != originalMetrics);
+        scene.read();
+        QCOMPARE(scene.read(), reference);
+        // A second DPR owns a different CPU layout and its own GPU pages.
+        {
+            GlyphTarget other;
+            QVERIFY(other.create(ratio == 2 ? 1 : 2));
+            const auto beforeDensity = statistics().builds;
+            GlyphRun glyph(other.window.contentItem());
+            initialize(glyph);
+            QCOMPARE(statistics().builds, beforeDensity + 1);
+            QVERIFY(!other.read().isNull());
+        }
+        third.reset();
+        second->setVisible(false);
+        QCOMPARE(second->cacheBytes(), 0);
+        QCOMPARE(statistics().liveResults, qsizetype(0));
+        second.reset();
+        scene.read();
+        QVERIFY(!scene.window.handle());
+    }
+    void computeShadersCompileWithWindowsFxc()
+    {
+#ifdef Q_OS_WIN
+        if (qEnvironmentVariableIsSet("ECHO_GLYPH_REFERENCE_COMPUTE_RCC"))
+            QSKIP("This pixel reference intentionally disables compute shaders");
+        QLibrary library(QStringLiteral("d3dcompiler_47"));
+        QVERIFY2(library.load(), qPrintable(library.errorString()));
+        const auto compile = reinterpret_cast<decltype(&D3DCompile)>(library.resolve("D3DCompile"));
+        QVERIFY(compile);
+        for (const auto *name : {"vertical.comp", "vertical-small.comp", "horizontal.comp"}) {
+            QFile file(
+                QString(":/qt/qml/EchoMusic/PluginSdk/shaders/glyph-canvas/%1.qsb").arg(name));
+            QVERIFY(file.open(QIODevice::ReadOnly));
+            const auto shader = QShader::fromSerialized(file.readAll());
+            QVERIFY(shader.isValid());
+            const auto hlsl = shader.shader({QShader::HlslShader, 50, QShader::StandardShader});
+            QVERIFY2(!hlsl.shader().isEmpty(), name);
+            ID3DBlob *bytecode = nullptr, *errors = nullptr;
+            const auto release = qScopeGuard([&] {
+                if (bytecode)
+                    bytecode->Release();
+                if (errors)
+                    errors->Release();
+            });
+            const auto status =
+                compile(hlsl.shader().constData(), SIZE_T(hlsl.shader().size()), name, nullptr,
+                        nullptr, hlsl.entryPoint().constData(), "cs_5_0", 0, 0, &bytecode, &errors);
+            const auto message =
+                errors ? QByteArray(static_cast<const char *>(errors->GetBufferPointer()),
+                                    qsizetype(errors->GetBufferSize()))
+                       : QByteArray(name);
+            QVERIFY2(SUCCEEDED(status) && bytecode, message.constData());
+        }
+#else
+        QSKIP("Requires the Windows D3DCompiler/FXC implementation");
+#endif
+    }
     void initTestCase()
     {
         const auto computeReference = qEnvironmentVariable("ECHO_GLYPH_REFERENCE_COMPUTE_RCC");
@@ -134,6 +274,81 @@ private slots:
     void cleanupTestCase()
     {
         QTRY_COMPARE_WITH_TIMEOUT(EchoMusic::GlyphCanvas::Memory::total(), qint64(0), 5000);
+    }
+    void curvesArePreparedOnlyForVisibleOutlinePasses_data()
+    {
+        QTest::addColumn<qreal>("ratio");
+        QTest::newRow("100-percent") << qreal(1);
+        QTest::newRow("125-percent") << qreal(1.25);
+        QTest::newRow("200-percent") << qreal(2);
+    }
+    void curvesArePreparedOnlyForVisibleOutlinePasses()
+    {
+        GlyphTarget scene;
+        QFETCH(qreal, ratio);
+        QVERIFY(scene.create(ratio));
+        QFont font("Arial");
+        font.setPixelSize(30);
+        const auto initialize = [&](EchoMusic::GlyphRun &glyph, const QString &key,
+                                    const QString &text) {
+            glyph.setSize(scene.window.size());
+            glyph.setFont(font);
+            glyph.setMaximumRasterScale(2);
+            glyph.setHaloSampling("canvas");
+            glyph.setRuns({QVariantMap{
+                {"key", key}, {"text", text}, {"maxBlur", 0}, {"maxHaloRadius", 160}}});
+        };
+        EchoMusic::GlyphRun warm(scene.window.contentItem());
+        initialize(warm, "warm", "I");
+        QTRY_VERIFY2_WITH_TIMEOUT(!warm.preparing() && !warm.metrics().isEmpty(),
+                                  qPrintable(warm.errorString()), 5000);
+        warm.setPoses({QVariantMap{{"key", "warm"}, {"x", 8.}, {"y", 30.}}});
+        scene.read();
+        scene.read();
+        QTRY_VERIFY(warm.ready());
+        EchoMusic::GlyphRun glyph(scene.window.contentItem());
+        initialize(glyph, "ink", QString::fromUtf8("墨 Aa"));
+        QTRY_VERIFY2_WITH_TIMEOUT(!glyph.preparing() && !glyph.metrics().isEmpty(),
+                                  qPrintable(glyph.errorString()), 5000);
+        const auto pose = [](bool halo, qreal x) {
+            QVariantMap value{{"key", "ink"}, {"x", x}, {"y", 70.}, {"color", QColor(Qt::white)}};
+            if (halo)
+                value["halos"] =
+                    QVariantList{QVariantMap{{"radius", 40.}, {"color", QColor(Qt::white)}}};
+            return value;
+        };
+        glyph.setPoses({pose(false, 50.)});
+        // Reserve accounting headroom without allocating a test-sized heap.
+        // Ink/bindings fit; the separate 8 MiB curve scratch deliberately does not.
+        EchoMusic::GlyphCanvas::Memory pressure;
+        QVERIFY(pressure.resize(EchoMusic::GlyphCanvas::NativeBudget -
+                                EchoMusic::GlyphCanvas::Memory::total() - 6LL * 1024 * 1024));
+        scene.read();
+        auto ink = scene.read();
+        QTRY_VERIFY2(glyph.ready(), qPrintable(glyph.errorString()));
+        QVERIFY(!ink.isNull());
+        QVERIFY(glyph.errorString().isEmpty());
+        glyph.setPoses({pose(true, 50.)});
+        scene.read();
+        QTRY_VERIFY(glyph.errorString().contains("curve preparation"));
+        QVERIFY(pressure.resize(0));
+        initialize(glyph, "ink", QString::fromUtf8("墨 Aa"));
+        QTRY_VERIFY2_WITH_TIMEOUT(!glyph.preparing() && !glyph.metrics().isEmpty(),
+                                  qPrintable(glyph.errorString()), 5000);
+        glyph.setPoses({pose(true, 50.25)});
+        scene.read();
+        scene.read();
+        QTRY_VERIFY2(glyph.ready() && glyph.errorString().isEmpty(),
+                     qPrintable(glyph.errorString()));
+        // Leave sparse curve slots and recover their native state more than once.
+        glyph.setVisible(false);
+        scene.read();
+        glyph.setVisible(true);
+        QTRY_VERIFY_WITH_TIMEOUT(!glyph.preparing(), 5000);
+        scene.read();
+        scene.read();
+        QTRY_VERIFY(glyph.ready());
+        QVERIFY(glyph.errorString().isEmpty());
     }
     void staticTexturesRecoverWithoutPoseChanges_data()
     {

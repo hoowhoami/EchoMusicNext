@@ -249,6 +249,7 @@ void PlaylistDetailContext::reload()
     m_cloud.reset();
     m_publicId.clear();
     m_revision.reset();
+    m_revisionsKnown = true;
     m_total = 0;
     m_received = 0;
     m_filteredInvalidCount = 0;
@@ -267,9 +268,12 @@ void PlaylistDetailContext::reload()
 }
 void PlaylistDetailContext::applyTrackReadback(const QJsonObject &snapshot, quint64 session)
 {
+    const auto revision = snapshot["revision"].isDouble()
+                              ? std::optional<quint64>(quint64(snapshot["revision"].toInteger()))
+                              : std::nullopt;
     if (m_closed || session != m_api.sessionRevision() || !m_cloud ||
         quint64(snapshot["cloud_list_id"].toInteger()) != m_cloud->value ||
-        (m_revision && quint64(snapshot["revision"].toInteger()) < *m_revision))
+        (m_revision && revision && *revision < *m_revision))
         return;
     if (!active()) {
         m_pendingTrackReadback = snapshot;
@@ -277,7 +281,8 @@ void PlaylistDetailContext::applyTrackReadback(const QJsonObject &snapshot, quin
     }
     cancelPageRequests();
     m_reconcilingTracks = true;
-    m_revision = quint64(snapshot["revision"].toInteger());
+    m_revision = revision;
+    m_revisionsKnown = revision.has_value();
     m_cloudEntries.clear();
     m_cloudEntryRows.clear();
     m_cloudEntryIds.clear();
@@ -399,12 +404,18 @@ void PlaylistDetailContext::accept(quint64 id, const QByteArray &bytes)
     } else {
         auto page = doc.object();
         if (m_cloud) {
-            const auto revision = quint64(page["revision"].toInteger());
-            if (m_revision && *m_revision != revision) {
+            const auto revision =
+                page["revision"].isDouble()
+                    ? std::optional<quint64>(quint64(page["revision"].toInteger()))
+                    : std::nullopt;
+            if (m_revision && revision && *m_revision != *revision) {
                 failMessage(tr("歌单在加载期间已改变，请重新加载"));
                 return;
             }
-            m_revision = revision;
+            if (revision)
+                m_revision = revision;
+            else
+                m_revisionsKnown = false;
             page = page["page"].toObject();
         }
         m_pages.insert(pending.page, page);
@@ -551,7 +562,7 @@ void PlaylistDetailContext::completePage(const QJsonArray &songs)
 }
 void PlaylistDetailContext::publishCover()
 {
-    if (!m_cloud || !m_complete || !m_revision || !active())
+    if (!m_cloud || !m_complete || !m_revision || !m_revisionsKnown || !active())
         return;
     QString cover;
     // Entries already have stable sort ascending order, independent of arrival.
@@ -707,7 +718,7 @@ bool PlaylistDetailContext::removeSongs(const QStringList &ids)
 {
     // 只有歌单所有者可删除曲目；写操作由共享服务串行执行。
     // 成功后复用 trackPageReconciled 读回，增量同步受影响的歌曲行。
-    if (m_closed || !m_cloud || !m_revision || !m_complete || !active() ||
+    if (m_closed || !m_cloud || !m_revision || !m_revisionsKnown || !m_complete || !active() ||
         orderListId() != m_cloud->value || removeBusy())
         return false;
     const QSet<QString> selected(ids.begin(), ids.end());

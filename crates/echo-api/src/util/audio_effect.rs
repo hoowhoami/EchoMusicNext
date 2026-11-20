@@ -96,9 +96,7 @@ fn base(sound: Sound, source: &'static str) -> Result<Effect, ApiError> {
         sound_urls: urls(sound.sound_bk, sound.sound),
         vpf_urls: urls(sound.vpf_bk, sound.vpf),
         file_size: None,
-        unavailable_reason: if sound.privilege.is_none() {
-            Some("音效授权尚未确认")
-        } else if sound.privilege.is_some_and(|v| v > 0) {
+        unavailable_reason: if sound.privilege.is_some_and(|v| v > 0) {
             Some("此音效需要上游授权，暂不支持下载")
         } else {
             None
@@ -113,9 +111,7 @@ pub fn catalog(row: CatalogRow, source: &'static str) -> Result<Effect, ApiError
     e.labels = row.label;
     e.user_count = row.user_count;
     e.file_size = row.filesize;
-    if row.singer_privilege.is_none() {
-        e.unavailable_reason = Some("音效授权尚未确认");
-    } else if row.singer_privilege.is_some_and(|v| v > 0) {
+    if row.singer_privilege.is_some_and(|v| v > 0) {
         e.unavailable_reason = Some("此音效需要上游授权，暂不支持下载");
     }
     Ok(e)
@@ -125,7 +121,7 @@ pub fn headphone(row: Headphone) -> Result<Effect, ApiError> {
     e.name = row.model;
     e.icon_url = image(row.model_icon);
     e.intro = "针对对应耳机型号调校，请选择与你的设备一致的型号。".into();
-    if row.is_unlocked != Some(1) {
+    if row.is_unlocked.is_some_and(|value| value != 1) {
         e.unavailable_reason = Some("此耳机音效尚未解锁");
     }
     Ok(e)
@@ -138,7 +134,7 @@ pub struct CatalogWire {
     pub errcode: i64,
     #[serde(default, deserialize_with = "crate::util::response::optional")]
     pub total: Option<u64>,
-    #[serde(deserialize_with = "crate::util::response::list")]
+    #[serde(default, deserialize_with = "crate::util::response::list")]
     pub data: Vec<CatalogRow>,
 }
 pub fn catalog_page(
@@ -147,7 +143,7 @@ pub fn catalog_page(
     size: u32,
     source: &'static str,
 ) -> Result<Page<Effect>, ApiError> {
-    let wire: CatalogWire = request::decode(bytes)?;
+    let wire: CatalogWire = request::decode_envelope(bytes, "errcode")?;
     request::success(wire.status, wire.errcode)?;
     Ok(Page {
         page: Some(page),
@@ -197,5 +193,42 @@ mod tests {
         let effect = headphone(row).unwrap();
         assert_eq!(effect.id, 5753);
         assert_ne!(effect.id, raw["model_id"].as_u64().unwrap());
+    }
+}
+
+#[cfg(test)]
+mod admission_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn optional_authorization_metadata_only_blocks_explicit_restrictions() {
+        let row = json!({"id":17,"name":"known effect","sound":"https://example.test/effect.wav"});
+        let effect = catalog(serde_json::from_value(row.clone()).unwrap(), "market").unwrap();
+        assert!(effect.unavailable_reason.is_none());
+        assert_eq!(effect.id, 17);
+        assert_eq!(effect.sound_urls, ["https://example.test/effect.wav"]);
+        for field in ["privilege", "singer_privilege"] {
+            let mut denied = row.clone();
+            denied[field] = json!(1);
+            assert!(
+                catalog(serde_json::from_value(denied).unwrap(), "market")
+                    .unwrap()
+                    .unavailable_reason
+                    .is_some()
+            );
+        }
+        for unlocked in [None, Some(1), Some(0), Some(2)] {
+            let mut headphone_row = json!({"model":"known headphone","sound":row});
+            if let Some(code) = unlocked {
+                headphone_row["is_unlocked"] = json!(code);
+            }
+            let effect = headphone(serde_json::from_value(headphone_row).unwrap()).unwrap();
+            assert_eq!(effect.id, 17);
+            assert_eq!(
+                effect.unavailable_reason.is_some(),
+                unlocked.is_some_and(|code| code != 1)
+            );
+        }
     }
 }

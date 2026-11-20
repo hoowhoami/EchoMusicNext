@@ -61,7 +61,7 @@ fn default_sort() -> String {
     "hot".into()
 }
 pub fn convert(bytes: &[u8], page: u32, page_size: u32) -> Result<Page<AlbumSummary>, ApiError> {
-    let wire: Wire = request::decode(bytes)?;
+    let wire: Wire = request::decode_envelope(bytes, "error_code")?;
     request::success(wire.status, wire.error_code)?;
     let items = wire
         .data

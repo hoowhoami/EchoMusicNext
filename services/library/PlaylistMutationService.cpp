@@ -395,19 +395,23 @@ void PlaylistMutationService::acceptRefresh(const QJsonObject &object)
     QPointer<PlaylistMutationService> guard(this);
     if (!m_refresh->library) {
         const auto id = m_refresh->id.value;
-        emit tracksReconciled(id, integer(object, "revision").value_or(0), count(page, "total"),
-                              session);
+        if (const auto version = integer(object, "revision"))
+            emit tracksReconciled(id, *version, count(page, "total"), session);
         if (!guard || session != m_api.sessionRevision())
             return;
         emit trackPageReconciled(object, session);
     } else {
         const auto version = integer(object, "total_revision");
         // This is one paged directory read; do not merge different snapshots.
-        if (m_refresh->page > 1 && version != m_refresh->version) {
+        if (m_refresh->page > 1 && version && m_refresh->version &&
+            *version != *m_refresh->version) {
             finishRefresh();
             return;
         }
-        m_refresh->version = version;
+        if (version)
+            m_refresh->version = version;
+        else
+            m_refresh->versionsKnown = false;
         const auto previousCount = m_refresh->items.size();
         bool repeatedPage =
             m_refresh->page > 1 && !items.isEmpty() && previousCount >= items.size();
@@ -441,6 +445,8 @@ void PlaylistMutationService::acceptRefresh(const QJsonObject &object)
             return;
         }
         auto snapshot = object;
+        if (!m_refresh->versionsKnown)
+            snapshot["total_revision"] = QJsonValue::Null;
         auto completePage = page;
         completePage["items"] = m_refresh->items;
         snapshot["page"] = completePage;

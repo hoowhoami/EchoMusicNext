@@ -11,9 +11,9 @@ EchoUiPartHost {
     partRole: "page.content"
     partKey: context.key
     partSurface: "main"
-    publicPart.active: context.active
+    publicPart.active: context.presented
     required property RouteContext context
     required property RouteController router
     required property ShellSettings settings
-    readonly property bool pageActive: context.active && !publicPart.replaced && !publicPart.contentReplaced
+    readonly property bool pageActive: context.presented && !publicPart.replaced && !publicPart.contentReplaced
 }

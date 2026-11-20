@@ -13,7 +13,7 @@ struct Wire {
     status: u32,
     #[serde(deserialize_with = "crate::util::response::scalar")]
     error_code: i64,
-    #[serde(deserialize_with = "crate::util::response::list")]
+    #[serde(default, deserialize_with = "crate::util::response::list")]
     data: Vec<serde_json::Value>,
 }
 #[derive(Deserialize)]
@@ -72,7 +72,7 @@ fn flag(value: &str) -> Option<bool> {
     value.parse().ok().and_then(crate::util::numeric::boolean)
 }
 pub fn convert(bytes: &[u8]) -> Result<Option<AlbumDetail>, ApiError> {
-    let wire: Wire = request::decode(bytes)?;
+    let wire: Wire = request::decode_envelope(bytes, "error_code")?;
     request::success(wire.status, wire.error_code)?;
     let Some(value) = wire.data.into_iter().next() else {
         return Ok(None);

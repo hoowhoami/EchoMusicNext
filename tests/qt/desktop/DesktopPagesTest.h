@@ -11,6 +11,10 @@ private:
     QFont m_initialFont;
     bool m_initialSystemProxy = false;
 private slots:
+    void mainWindowUnloadRestoresProductionUi_data();
+    void mainWindowUnloadRestoresProductionUi();
+    void mainWindowBackgroundKeepsPluginPlaybackAndFloating();
+    void mainWindowRecoveryRejectsStaleRetirementAndRetriesFailure();
     void initTestCase();
     void cleanup();
     void startupUsesRealFailuresAndReleasesItsEntirePage();

@@ -18,7 +18,7 @@ struct Wire {
     error_code: i64,
     #[serde(default, deserialize_with = "crate::util::response::optional")]
     total: Option<u64>,
-    #[serde(deserialize_with = "crate::util::response::list")]
+    #[serde(default, deserialize_with = "crate::util::response::list")]
     data: Vec<Song>,
 }
 #[derive(Deserialize)]
@@ -218,6 +218,8 @@ pub struct Chart {
     pub change: Option<i64>,
 }
 pub fn convert(bytes: &[u8]) -> Result<NewSongs, ApiError> {
+    let status: crate::util::response::AckEnvelope = request::decode(bytes)?;
+    request::success(status.status, status.error_code)?;
     let raw: serde_json::Value = request::decode(bytes)?;
     let w: Wire = request::decode_value(
         raw,

@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 type Wire = crate::util::response::ErrcodeEnvelope<serde_json::Value>;
 #[derive(Deserialize)]
 struct Data {
-    #[serde(deserialize_with = "crate::util::response::list")]
+    #[serde(default, deserialize_with = "crate::util::response::list")]
     list: Vec<Group>,
 }
 #[derive(Deserialize)]

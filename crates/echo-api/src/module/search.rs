@@ -33,6 +33,7 @@ struct Envelope {
     status: u32,
     #[serde(deserialize_with = "crate::util::response::scalar")]
     error_code: i64,
+    #[serde(default)]
     data: serde_json::Value,
 }
 #[derive(Deserialize)]
@@ -44,7 +45,7 @@ struct WirePage<T> {
     pagesize: Option<u32>,
     #[serde(default, deserialize_with = "crate::util::response::optional")]
     total: Option<u64>,
-    #[serde(deserialize_with = "crate::util::response::list")]
+    #[serde(default, deserialize_with = "crate::util::response::list")]
     lists: Vec<T>,
 }
 impl<T> WirePage<T> {

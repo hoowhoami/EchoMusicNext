@@ -767,7 +767,7 @@ public:
             return true;
         }
         // Live source owners pin their atlas slots. Expired entries release their
-        // rectangles; a stable digest prevents recycled-address false hits.
+        // rectangles; a stable pixel identity prevents recycled-address false hits.
         for (auto it = locations.begin(); it != locations.end();) {
             if (it->source.expired()) {
                 inkPages[it->location.page]->release(it->location.pixels);
@@ -950,7 +950,7 @@ public:
     {
         if (pool) {
             for (auto &curve : curves)
-                if (pool->selected == curve->node.get())
+                if (curve && pool->selected == curve->node.get())
                     pool->select(nullptr);
             pool->nodeCpuBytes.remove(this);
             pool->nodeEffectsBytes.remove(this);
@@ -1193,16 +1193,6 @@ void CanvasNode::prepare()
                 status->uploads.fetch_add(1);
         }
     commandBuffer()->resourceUpdate(updates);
-    if (curves.empty()) {
-        for (const auto &fragment : input->fragments) {
-            auto curve = pool->curveFor(fragment.outline);
-            if (!curve) {
-                report("Canvas curve preparation exceeds the bounded native budget");
-                return;
-            }
-            curves.append(std::move(curve));
-        }
-    }
     const qreal dpr = window->effectiveDevicePixelRatio();
     const auto parent = matrix()->toTransform();
     const auto deviceToClip =
@@ -1281,6 +1271,20 @@ void CanvasNode::prepare()
                 operationCount += filters + (plan.outline ? 0 : 1);
                 ++effectCount;
             }
+    }
+    // Ink-only and clipped-out draws need no tessellated outline. Keep sparse
+    // slots indexed by the original fragment so later scale/halo changes can
+    // prepare exactly the same curves without rebuilding unrelated geometry.
+    curves.resize(input->fragments.size());
+    for (const auto &[key, job] : jobs) {
+        if (!job.plan.outline || job.needed.isEmpty() || curves[key.first])
+            continue;
+        auto curve = pool->curveFor(input->fragments[key.first].outline);
+        if (!curve) {
+            report("Canvas curve preparation exceeds the bounded native budget");
+            return;
+        }
+        curves[key.first] = std::move(curve);
     }
     forecast =
         std::max(forecast, qint64(pool->rhi->ubufAligned(sizeof(Params)))) + KernelBufferBytes;

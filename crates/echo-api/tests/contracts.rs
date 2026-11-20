@@ -708,7 +708,7 @@ fn cloud_tracks_map_returned_identity_and_preserve_business_failures() {
     assert_eq!(first.page.items[0].song.duration_ms, Some(391810));
     assert_eq!(first.page.items[0].song.privilege, Some(10));
     assert_eq!(first.page.items[0].song.id, "39691125");
-    assert_eq!(first.cloud_list_id, query.cloud_list_id);
+    assert_eq!(first.cloud_list_id, Some(query.cloud_list_id));
     assert_eq!(
         module::convert(&sample("playlist_track_all_new/page2.json"))
             .unwrap()
@@ -743,11 +743,11 @@ fn cloud_tracks_map_returned_identity_and_preserve_business_failures() {
         module::convert(&serde_json::to_vec(&response).unwrap())
             .unwrap()
             .cloud_list_id,
-        6409645
+        Some(6409645)
     );
 }
 #[test]
-fn collected_cloud_id_is_not_a_valid_cloud_track_source_and_missing_info_is_malformed() {
+fn collected_cloud_source_and_missing_list_fields_keep_empty_page_semantics() {
     use echo_api::module::{playlist_track_all_new as module, user_playlist};
     let bytes = sample("playlist_track_all_new/collected-list.json");
 
@@ -780,11 +780,23 @@ fn collected_cloud_id_is_not_a_valid_cloud_track_source_and_missing_info_is_malf
     let mut broken: Value =
         serde_json::from_slice(&sample("user_playlist/empty-page.json")).unwrap();
     broken["data"].as_object_mut().unwrap().remove("info");
-    assert!(user_playlist::convert(&serde_json::to_vec(&broken).unwrap(), 10000, 2).is_err());
+    assert!(
+        user_playlist::convert(&serde_json::to_vec(&broken).unwrap(), 10000, 2)
+            .unwrap()
+            .page
+            .items
+            .is_empty()
+    );
     let mut broken: Value =
         serde_json::from_slice(&sample("playlist_track_all_new/empty-page.json")).unwrap();
     broken["data"].as_object_mut().unwrap().remove("info");
-    assert!(module::convert(&serde_json::to_vec(&broken).unwrap()).is_err());
+    assert!(
+        module::convert(&serde_json::to_vec(&broken).unwrap())
+            .unwrap()
+            .page
+            .items
+            .is_empty()
+    );
 }
 #[test]
 fn playback_stages_have_separate_contracts_and_precise_units() {
@@ -1830,10 +1842,10 @@ fn import_tasks_use_real_link_and_screenshot_contracts() {
         ));
         let task = import_playlist::convert_created(&bytes).unwrap();
         assert_eq!(task.task_type, Some(0));
-        assert!(task.task_id > 0);
+        assert!(task.task_id.is_some_and(|id| id > 0));
         assert_eq!(
             import_playlist::convert_created(&bytes).unwrap().user_id,
-            900000
+            Some(900000)
         );
         for n in 0..=5 {
             let name = format!("import_playlist/link-status-{platform}-{n}-20261013-shaped.json");
@@ -1850,11 +1862,11 @@ fn import_tasks_use_real_link_and_screenshot_contracts() {
             let rows =
                 import_playlist::convert_status(&bytes).unwrap_or_else(|e| panic!("{name}: {e:?}"));
             assert_eq!(rows.len(), 1);
-            assert_eq!(rows[0].task_id, id);
+            assert_eq!(rows[0].task_id, Some(id));
             assert_eq!(import_playlist::convert_status(&bytes).unwrap().len(), 1);
             assert_eq!(
                 import_playlist::convert_status(&bytes).unwrap()[0].user_id,
-                900000
+                Some(900000)
             );
         }
         let bytes = sample(&format!(
@@ -1868,11 +1880,11 @@ fn import_tasks_use_real_link_and_screenshot_contracts() {
                     .unwrap()
                     .task
                     .status,
-                11
+                Some(11)
             );
         } else {
             let result = import_playlist::convert_result(&bytes, 1, 100).unwrap();
-            assert_eq!(result.task.status, 3);
+            assert_eq!(result.task.status, Some(3));
             assert!(result.task.imported > Some(0));
             assert_eq!(Some(result.missed_tracks.len() as u64), result.task.missed);
             assert_eq!(
@@ -1880,7 +1892,7 @@ fn import_tasks_use_real_link_and_screenshot_contracts() {
                     .unwrap()
                     .task
                     .cloud_list_id,
-                list
+                Some(list)
             );
         }
     }
@@ -1907,9 +1919,9 @@ fn import_tasks_use_real_link_and_screenshot_contracts() {
     let raw: Value = serde_json::from_slice(&bytes).unwrap();
     let id: u64 = raw["data"][0]["id"].as_str().unwrap().parse().unwrap();
     let task = import_playlist::convert_status(&bytes).unwrap().remove(0);
-    assert_eq!(task.task_id, id);
+    assert_eq!(task.task_id, Some(id));
     assert_eq!(task.task_type, Some(1));
-    assert_eq!(task.status, 3);
+    assert_eq!(task.status, Some(3));
     assert_eq!(task.imported, Some(1));
     assert_eq!(
         import_playlist::convert_result(

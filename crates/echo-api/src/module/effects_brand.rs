@@ -43,7 +43,7 @@ pub async fn execute(
 type Wire = crate::util::response::ErrcodeEnvelope<serde_json::Value>;
 #[derive(Deserialize)]
 struct Data {
-    #[serde(deserialize_with = "crate::util::response::list")]
+    #[serde(default, deserialize_with = "crate::util::response::list")]
     list: Vec<BrandWire>,
     #[serde(default, deserialize_with = "crate::util::response::optional")]
     total: Option<u64>,

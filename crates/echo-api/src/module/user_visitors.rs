@@ -35,7 +35,7 @@ struct Row {
 }
 #[derive(Deserialize)]
 struct Data {
-    #[serde(deserialize_with = "crate::util::response::list")]
+    #[serde(default, deserialize_with = "crate::util::response::list")]
     list: Vec<Row>,
     #[serde(default, deserialize_with = "crate::util::response::optional")]
     total: Option<u64>,

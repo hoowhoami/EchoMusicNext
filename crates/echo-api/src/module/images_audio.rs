@@ -111,7 +111,7 @@ fn image_url(value: Option<String>) -> Option<String> {
     (parsed.scheme() == "https" && parsed.host_str().is_some()).then_some(value)
 }
 pub fn convert(bytes: &[u8]) -> Result<Vec<Vec<ArtistImages>>, ApiError> {
-    let wire: Wire = request::decode(bytes)?;
+    let wire: Wire = request::decode_envelope(bytes, "error_code")?;
     if wire.status != 1 {
         return Err(ApiError::business(wire.error_code));
     }

@@ -36,6 +36,7 @@
 #include "ThemeStore.h"
 #include "ToastService.h"
 #include "WindowController.h"
+#include "MainWindowHost.h"
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QQmlApplicationEngine>
@@ -88,6 +89,8 @@ void AppContext::wireShutdown()
     m_drain = std::make_unique<ApplicationDrain>(ApplicationDrain::Actions{
         [&] {
             quitting = true;
+            if (m_mainUi)
+                m_mainUi->shutdown();
             qInfo("Application shutdown started");
             startup.shutdown();
             shareResolver.shutdown();

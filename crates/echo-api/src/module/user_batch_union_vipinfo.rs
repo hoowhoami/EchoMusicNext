@@ -12,8 +12,9 @@ pub struct Query {
 }
 #[derive(Deserialize)]
 struct Wire {
+    #[serde(deserialize_with = "crate::util::response::scalar")]
     status: u32,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::util::response::scalar")]
     error_code: i64,
     #[serde(default, deserialize_with = "crate::util::response::object")]
     data: Data,

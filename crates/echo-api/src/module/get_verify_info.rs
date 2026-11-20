@@ -20,8 +20,7 @@ struct WireConfiguration {
     verify_info: serde_json::Map<String, serde_json::Value>,
     #[serde(default)]
     extinfo: serde_json::Map<String, serde_json::Value>,
-    #[serde(default)]
-    #[serde(deserialize_with = "crate::util::response::list")]
+    #[serde(default, deserialize_with = "crate::util::response::list")]
     v_type_list: Vec<u32>,
     #[serde(default)]
     partnerid_map: std::collections::BTreeMap<String, i64>,

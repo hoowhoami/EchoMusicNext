@@ -13,7 +13,7 @@ struct Wire {
     status: u32,
     #[serde(deserialize_with = "crate::util::response::scalar")]
     error_code: i64,
-    #[serde(deserialize_with = "crate::util::response::list")]
+    #[serde(default, deserialize_with = "crate::util::response::list")]
     data: Vec<Group>,
     #[serde(rename = "SingerShortcut")]
     #[serde(default, deserialize_with = "crate::util::response::optional")]
@@ -107,7 +107,7 @@ fn default_limit() -> u32 {
 }
 
 pub fn convert(bytes: &[u8]) -> Result<Suggestions, ApiError> {
-    let wire: Wire = request::decode(bytes)?;
+    let wire: Wire = request::decode_envelope(bytes, "error_code")?;
     request::success(wire.status, wire.error_code)?;
     let groups = wire
         .data

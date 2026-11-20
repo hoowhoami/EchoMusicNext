@@ -65,6 +65,7 @@ class StorageService;
 class ThemeStore;
 class UserPlaylistModel;
 class WindowController;
+class MainWindowHost;
 class SingleInstance;
 class ApplicationUrlHandler;
 class LogService;
@@ -159,6 +160,8 @@ private:
     std::unique_ptr<QQmlApplicationEngine> m_engine;
     std::unique_ptr<PluginRuntime> m_plugins;
     std::unique_ptr<PluginManager> m_pluginManager;
+    std::unique_ptr<QObject> m_auxiliaryWindows;
+    std::unique_ptr<MainWindowHost> m_mainUi;
     std::unique_ptr<ShareResolveService> m_shareResolver;
     std::unique_ptr<SettingsDataService> m_settingsData;
     std::unique_ptr<ExperimentalSettingsService> m_experimentalSettings;

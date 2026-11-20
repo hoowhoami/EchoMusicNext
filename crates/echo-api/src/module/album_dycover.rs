@@ -17,7 +17,7 @@ struct Wire {
     status: u32,
     #[serde(deserialize_with = "crate::util::response::scalar")]
     error_code: i64,
-    #[serde(deserialize_with = "crate::util::response::list")]
+    #[serde(default, deserialize_with = "crate::util::response::list")]
     data: Vec<Item>,
 }
 #[derive(Deserialize)]
@@ -45,7 +45,7 @@ pub struct DynamicCover {
     pub urls: Vec<String>,
 }
 pub fn convert(bytes: &[u8], album_id: u64) -> Result<Option<DynamicCover>, ApiError> {
-    let wire: Wire = request::decode(bytes)?;
+    let wire: Wire = request::decode_envelope(bytes, "error_code")?;
     if wire.status != 1 {
         return Err(ApiError::business(wire.error_code));
     }

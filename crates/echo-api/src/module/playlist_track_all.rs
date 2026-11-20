@@ -15,7 +15,7 @@ type Wire = crate::util::response::Envelope<serde_json::Value>;
 struct Data {
     #[serde(default, deserialize_with = "crate::util::response::optional")]
     count: Option<u64>,
-    #[serde(deserialize_with = "crate::util::response::list")]
+    #[serde(default, deserialize_with = "crate::util::response::list")]
     songs: Vec<Song>,
 }
 #[derive(Deserialize)]

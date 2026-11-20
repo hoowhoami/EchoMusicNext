@@ -21,7 +21,7 @@ type Wire = crate::util::response::ErrcodeEnvelope<serde_json::Value>;
 struct Data {
     #[serde(default, deserialize_with = "crate::util::response::optional")]
     timestamp: Option<u64>,
-    #[serde(deserialize_with = "crate::util::response::list")]
+    #[serde(default, deserialize_with = "crate::util::response::list")]
     info: Vec<Group>,
     #[serde(default, deserialize_with = "crate::util::response::object")]
     enu_list: Enums,

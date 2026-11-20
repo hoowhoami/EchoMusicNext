@@ -22,6 +22,7 @@
 #include <QIcon>
 #include <QFileInfo>
 #include <functional>
+#include <utility>
 namespace EchoMusic
 {
 namespace
@@ -92,16 +93,19 @@ WindowController::WindowController(EchoMusic::SettingsStore &settings, bool pers
             &WindowController::popupTrayMenu);
     connect(&m_menuBarLyrics, &MenuBarLyricController::presentationChanged, this,
             &WindowController::updateTrayVisibility);
-    connect(&m_menuBarLyrics, &MenuBarLyricController::settingsRequested, this, [this] {
-        showWindow();
-        emit settingsRequested(QStringLiteral("lyric"));
-    });
+    connect(&m_menuBarLyrics, &MenuBarLyricController::settingsRequested, this,
+            [this] { requestSettings(QStringLiteral("lyric")); });
+    connect(&m_floating, &FloatingPlayerController::settingsRequested, this,
+            [this] { requestSettings(QStringLiteral("lyric")); });
+    connect(&m_floating, &FloatingPlayerController::lyricSelectionRequested, this,
+            &WindowController::requestLyricSelection);
     connect(&m_floating, &FloatingPlayerController::miniEntered, this, [this] {
         m_restoreMini = true;
-        if (!m_window)
-            return;
-        m_backgroundState = restoreState(m_window->windowStates());
-        m_window->hide();
+        if (m_window) {
+            updateNormalGeometry();
+            m_backgroundState = restoreState(m_window->windowStates());
+            m_window->hide();
+        }
         setBackground(true);
     });
     connect(&m_floating, &FloatingPlayerController::miniClosed, this, [this] {
@@ -146,6 +150,9 @@ WindowController::WindowController(EchoMusic::SettingsStore &settings, bool pers
     m_geometryTimer.setSingleShot(true);
     m_geometryTimer.setInterval(0);
     connect(&m_geometryTimer, &QTimer::timeout, this, &WindowController::updateNormalGeometry);
+    m_contentReadyTimer.setSingleShot(true);
+    m_contentReadyTimer.setInterval(0);
+    connect(&m_contentReadyTimer, &QTimer::timeout, this, &WindowController::dispatchMainActions);
 }
 WindowController::~WindowController()
 {
@@ -195,27 +202,11 @@ bool WindowController::mainWindowActive() const
 {
     return m_window && m_window->isVisible() && m_window->isActive() && !m_floating.miniActive();
 }
-void WindowController::attach(QQuickWindow *window)
+void WindowController::initializeSystemIntegration()
 {
-    Q_ASSERT(!m_window);
-    if (!window)
+    if (m_systemIntegrationReady || m_shuttingDown)
         return;
-    m_window = window;
-    installQuickAnimationDriverGuard(*window);
-    m_appIcons.attach(window);
-    connect(window, &QWindow::activeChanged, this, [this] {
-        if (mainWindowActive())
-            emit mainWindowActivated();
-    });
-    m_backdrop.attach(window);
-    m_taskbarButton.attach(window);
-    if (qEnvironmentVariableIntValue("ECHO_RENDER_DIAGNOSTICS") == 1)
-        new WindowPresentationDiagnostics(window);
-    window->installEventFilter(this);
-#ifdef Q_OS_WIN
-    if (QGuiApplication::platformName() == QStringLiteral("windows"))
-        new WindowResizeSync(window);
-#endif
+    m_systemIntegrationReady = true;
     // Test/offscreen controllers never allocate a QWidget menu or touch the OS.
     if (m_persist && qobject_cast<QApplication *>(QCoreApplication::instance()) &&
         QGuiApplication::platformName() != "offscreen") {
@@ -257,11 +248,118 @@ void WindowController::attach(QQuickWindow *window)
                         restoreWindow();
                 });
     }
+    m_menuBarLyrics.setPresentationReady();
+}
+void WindowController::detach()
+{
+    if (!m_window)
+        return;
+    updateNormalGeometry();
+    m_geometryTimer.stop();
+    m_saveTimer.stop();
+    m_contentReadyTimer.stop();
+    save();
+    auto *old = m_window.data();
+    if (auto *engine = qmlEngine(old))
+        engine->setIncubationController(nullptr);
+    if (m_contentFullscreenOwner) {
+        // The MV/content surface is being retired with this window. Restore
+        // the user's underlying window mode, not the temporary content mode.
+        if (m_contentEnteredFullscreen && m_backgroundState == Qt::WindowFullScreen)
+            m_backgroundState = m_wasMaximized ? Qt::WindowMaximized : Qt::WindowNoState;
+        disconnect(m_contentFullscreenDestroyed);
+        m_contentFullscreenOwner = nullptr;
+        m_contentEnteredFullscreen = false;
+    }
+    old->removeEventFilter(this);
+    disconnect(old, nullptr, this, nullptr);
+    m_backdrop.attach(nullptr);
+    m_taskbarButton.attach(nullptr);
+    m_window = nullptr;
+    m_firstPresentation = false;
+    m_presentationReady = m_mainContentReady = false;
+    updateIncubationController();
+    emit presentationReadyChanged();
+    emit changed();
+}
+void WindowController::mainContentReady()
+{
+    if (!m_window || m_shuttingDown)
+        return;
+    m_mainContentReady = true;
+    // QML availability bindings must settle before an owner receives open().
+    m_contentReadyTimer.start();
+}
+void WindowController::dispatchMainActions()
+{
+    if (!m_mainContentReady || !m_window || m_shuttingDown || !m_window->isVisible() ||
+        m_window->visibility() == QWindow::Minimized)
+        return;
+    if (std::exchange(m_pendingSettings, false))
+        emit settingsRequested(std::exchange(m_pendingSettingsSection, {}));
+    if (std::exchange(m_pendingLyrics, false))
+        emit lyricSelectionRequested();
+    if (std::exchange(m_pendingPlaybackPage, false))
+        emit playbackPageRequested();
+}
+void WindowController::requestSettings(const QString &section)
+{
+    m_pendingSettings = true;
+    m_pendingSettingsSection = section;
+    showWindow();
+    if (m_mainContentReady)
+        mainContentReady();
+}
+void WindowController::requestLyricSelection()
+{
+    m_pendingLyrics = true;
+    showWindow();
+    if (m_mainContentReady)
+        mainContentReady();
+}
+void WindowController::requestPlaybackPage()
+{
+    m_pendingPlaybackPage = !m_pendingPlaybackPage;
+    showWindow();
+    if (m_mainContentReady)
+        mainContentReady();
+}
+void WindowController::attach(QQuickWindow *window)
+{
+    Q_ASSERT(!m_window);
+    if (!window)
+        return;
+    m_window = window;
+    installQuickAnimationDriverGuard(*window);
+    m_appIcons.attach(window);
+    connect(window, &QWindow::activeChanged, this, [this] {
+        if (mainWindowActive())
+            emit mainWindowActivated();
+    });
+    m_backdrop.attach(window);
+    m_taskbarButton.attach(window);
+    if (qEnvironmentVariableIntValue("ECHO_RENDER_DIAGNOSTICS") == 1)
+        new WindowPresentationDiagnostics(window);
+    window->installEventFilter(this);
+#ifdef Q_OS_WIN
+    if (QGuiApplication::platformName() == QStringLiteral("windows"))
+        new WindowResizeSync(window);
+#endif
+    initializeSystemIntegration();
+    m_mainContentReady = false;
+    m_firstPresentation = true;
     m_restoring = true;
+#ifdef Q_OS_MACOS
+    // Creating the expanded native titlebar adjusts Qt's client geometry.
+    // Complete that step before applying the saved client rectangle.
+    if (QGuiApplication::platformName() == "cocoa")
+        configureMacWindow(window);
+#endif
     auto *primary = QGuiApplication::primaryScreen();
     if (primary) {
         const auto saved =
-            m_remember && m_persist
+            m_normal.isValid() ? m_normal
+            : m_remember && m_persist
                 ? m_settings.value(EchoMusic::SettingsKeys::Window::NormalGeometry).toRect()
                 : QRect{};
         if (QGuiApplication::platformName().startsWith("wayland")) {
@@ -272,17 +370,19 @@ void WindowController::attach(QQuickWindow *window)
             QList<QRect> areas;
             for (auto *screen : QGuiApplication::screens())
                 areas.append(screen->availableGeometry());
-            const auto bounds = restoreBounds(saved, areas, primary->availableGeometry());
+            // A background rebuild is the same user session. Keep an intentional
+            // oversized/edge placement while the screen layout is unchanged;
+            // cold starts and changed layouts still use disconnected recovery.
+            const auto bounds = m_normal.isValid() && m_screenAreas == areas
+                                    ? m_normal
+                                    : restoreBounds(saved, areas, primary->availableGeometry());
             window->setMinimumSize({qMin(1100, bounds.width()), qMin(650, bounds.height())});
             window->setGeometry(bounds);
+            m_screenAreas = areas;
         }
     }
     m_normal = window->geometry();
     m_restoring = false;
-#ifdef Q_OS_MACOS
-    if (QGuiApplication::platformName() == "cocoa")
-        configureMacWindow(window);
-#endif
     connect(window, &QWindow::xChanged, this, &WindowController::captureNormalGeometry);
     connect(window, &QWindow::yChanged, this, &WindowController::captureNormalGeometry);
     connect(window, &QWindow::widthChanged, this, &WindowController::captureNormalGeometry);
@@ -303,6 +403,10 @@ void WindowController::attach(QQuickWindow *window)
     }
     connect(window, &QWindow::visibleChanged, this, &WindowController::updateIncubationController,
             Qt::QueuedConnection);
+    connect(window, &QWindow::visibleChanged, this, [this] {
+        if (m_mainContentReady)
+            mainContentReady();
+    });
     updateIncubationController();
     setAppearance(m_frosted, m_dark, m_transparency);
     m_presentationReady = true;
@@ -422,9 +526,7 @@ void WindowController::openTaskbarLyricSettings()
     // The settings page lives inside the main window, so the window has to be
     // brought up first: from the taskbar strip the app is often in the tray,
     // and opening the page in a hidden window would look like nothing happened.
-    showWindow();
-    // The taskbar lyric section lives in the lyric settings page.
-    emit settingsRequested(QStringLiteral("lyric"));
+    requestSettings(QStringLiteral("lyric"));
 }
 QMenu *WindowController::createDockMenu()
 {
@@ -644,7 +746,8 @@ void WindowController::captureNormalGeometry()
 void WindowController::updateNormalGeometry()
 {
     m_geometryTimer.stop();
-    if (!m_window || m_restoring || m_window->windowState() != Qt::WindowNoState)
+    if (!m_window || m_restoring || m_background || !m_window->isVisible() ||
+        m_window->windowState() != Qt::WindowNoState)
         return;
     m_normal = m_window->geometry();
     if (m_persist && m_remember)
@@ -834,17 +937,36 @@ void WindowController::setBackground(bool value)
         setMacDockHidden(value && !m_floating.miniActive() && m_hideDock);
 #endif
     emit changed();
+    if (value && !m_shuttingDown)
+        emit backgroundRequested();
 }
 void WindowController::showWindow()
 {
-    if (!m_window || m_shuttingDown)
+    if (m_shuttingDown)
         return;
+    if (!m_window) {
+        emit mainWindowRequested();
+        return;
+    }
+    emit mainWindowRequested();
     m_restoreMini = false;
     if (m_floating.miniActive())
         m_floating.leaveMini();
-    if (!m_background)
+    if (!m_background) {
+        updateNormalGeometry();
         m_backgroundState = restoreState(m_window->windowStates());
+    }
+    const auto normalGeometry = m_normal;
+    const QScopedValueRollback restoring(m_restoring, true);
     setBackground(false);
+    if (std::exchange(m_firstPresentation, false) || m_backgroundState == Qt::WindowNoState) {
+        // The first native show can constrain placement. Establish the ordinary
+        // frame synchronously, including Qt's restore frame, before applying a
+        // saved maximized/fullscreen mode or returning to the render loop.
+        m_window->showNormal();
+        if (normalGeometry.isValid())
+            m_window->setGeometry(normalGeometry);
+    }
     if (m_backgroundState == Qt::WindowMaximized) {
         // Maximize must start caption-less (prepareWindowTransition's maximizing
         // branch): a caption would land the resize-border ring over the taskbar.
@@ -852,8 +974,6 @@ void WindowController::showWindow()
         m_window->showMaximized();
     } else if (m_backgroundState == Qt::WindowFullScreen) {
         m_window->showFullScreen();
-    } else {
-        m_window->showNormal();
     }
     m_window->raise();
     m_window->requestActivate();
@@ -864,27 +984,35 @@ void WindowController::quit()
 }
 void WindowController::toggleVisibility()
 {
-    if (!m_window || m_shuttingDown)
+    if (m_shuttingDown)
         return;
+    if (!m_window) {
+        showWindow();
+        return;
+    }
     if (m_background || !m_window->isVisible() || m_window->visibility() == QWindow::Minimized) {
         showWindow();
         return;
     }
+    updateNormalGeometry();
     m_backgroundState = restoreState(m_window->windowStates());
     m_window->hide();
     setBackground(true);
 }
 void WindowController::applyStartupVisibility()
 {
-    if (!m_startMinimized || !m_window)
+    if (!m_startMinimized)
         return;
     if (!trayAvailable()) {
         m_systemError = tr("当前桌面没有可用托盘，保留主窗口");
         emit changed();
         return;
     }
-    m_backgroundState = restoreState(m_window->windowStates());
-    m_window->hide();
+    if (m_window) {
+        updateNormalGeometry();
+        m_backgroundState = restoreState(m_window->windowStates());
+        m_window->hide();
+    }
     setBackground(true);
 }
 bool WindowController::eventFilter(QObject *watched, QEvent *event)
@@ -898,9 +1026,15 @@ bool WindowController::eventFilter(QObject *watched, QEvent *event)
     if (watched == m_window && event->type() == QEvent::Close && !m_shuttingDown && m_closeToTray &&
         trayAvailable()) {
         static_cast<QCloseEvent *>(event)->ignore();
+        updateNormalGeometry();
         m_backgroundState = restoreState(m_window->windowStates());
         m_window->hide();
         setBackground(true);
+        return true;
+    }
+    if (watched == m_window && event->type() == QEvent::Close && !m_shuttingDown) {
+        static_cast<QCloseEvent *>(event)->ignore();
+        quit();
         return true;
     }
     return QObject::eventFilter(watched, event);
@@ -908,6 +1042,8 @@ bool WindowController::eventFilter(QObject *watched, QEvent *event)
 void WindowController::shutdown()
 {
     m_shuttingDown = true;
+    m_contentReadyTimer.stop();
+    m_pendingSettings = m_pendingLyrics = m_pendingPlaybackPage = false;
     m_menuBarLyrics.shutdown();
     if (m_trayMenu) {
         m_trayMenu->close();

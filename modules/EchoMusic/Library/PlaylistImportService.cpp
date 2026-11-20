@@ -456,18 +456,21 @@ void PlaylistImportService::succeed(quint64 request, const QByteArray &payload)
     }
     if (m_stage == Polling) {
         const auto rows = document.array();
-        const auto found = std::find_if(rows.begin(), rows.end(), [this](const QJsonValue &row) {
-            return row.toObject().value("task_id").toInteger() == qint64(m_task);
-        });
-        if (found == rows.end()) {
+        if (rows.isEmpty()) {
             fail(tr("未查询到导入任务"));
             return;
         }
-        const auto task = found->toObject();
-        m_target = quint64(task.value("cloud_list_id").toInteger());
-        m_total = quint64(task.value("total").toInteger());
-        m_imported = quint64(task.value("imported").toInteger());
-        m_missed = quint64(task.value("missed").toInteger());
+        // This request asks for one task; request/session ownership already
+        // identifies it. The provider need not echo its ID or ancillary facts.
+        const auto task = rows.first().toObject();
+        if (task.value("cloud_list_id").toInteger() > 0)
+            m_target = quint64(task.value("cloud_list_id").toInteger());
+        if (task.value("total").isDouble())
+            m_total = quint64(task.value("total").toInteger());
+        if (task.value("imported").isDouble())
+            m_imported = quint64(task.value("imported").toInteger());
+        if (task.value("missed").isDouble())
+            m_missed = quint64(task.value("missed").toInteger());
         if (!task.value("title").toString().isEmpty())
             m_title = task.value("title").toString();
         const auto status = m_cloudStatus = task.value("status").toInt();

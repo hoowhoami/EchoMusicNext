@@ -3,6 +3,7 @@
 #include "GlyphAtlas_p.h"
 #include <QColor>
 #include <QImage>
+#include <QHash>
 #include <QPainterPath>
 #include <QRectF>
 #include <QVariantList>
@@ -45,6 +46,21 @@ struct Ink
     QByteArray key;
     std::shared_ptr<Memory> memory;
 };
+// Single preparation worker; weak candidates never retain pixel leases.
+// The hash only selects a bucket. Every reuse verifies the complete image.
+class InkInternCache final
+{
+public:
+    using Hasher = std::function<size_t(const QImage &)>;
+    explicit InkInternCache(Hasher hasher = {});
+    std::shared_ptr<const Ink> intern(QImage image, std::shared_ptr<Memory> memory);
+    void prune();
+
+private:
+    Hasher hasher_;
+    QHash<size_t, QList<std::weak_ptr<const Ink>>> candidates_;
+};
+bool hasColoredInk(const QImage &image);
 struct Outline
 {
     QPainterPath path;

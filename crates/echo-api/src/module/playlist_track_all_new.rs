@@ -17,13 +17,14 @@ struct Data {
     count: Option<u64>,
     #[serde(default, deserialize_with = "crate::util::response::optional")]
     page: Option<u32>,
+    #[serde(default)]
     info: serde_json::Value,
     #[serde(default, deserialize_with = "crate::util::response::optional")]
     userid: Option<u64>,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    list_ver: u64,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    listid: u64,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    list_ver: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    listid: Option<u64>,
 }
 #[derive(Deserialize)]
 struct Song {
@@ -82,8 +83,8 @@ pub struct CloudPlaylistTrack {
 pub struct CloudPlaylistTracks {
     pub page: Page<CloudPlaylistTrack>,
     pub user_id: Option<u64>,
-    pub cloud_list_id: u64,
-    pub revision: u64,
+    pub cloud_list_id: Option<u64>,
+    pub revision: Option<u64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

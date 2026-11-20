@@ -12,8 +12,9 @@ pub struct Query {
 }
 #[derive(Deserialize)]
 struct Wire {
+    #[serde(deserialize_with = "crate::util::response::scalar")]
     status: u32,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::util::response::scalar")]
     error_code: i64,
     #[serde(default, deserialize_with = "crate::util::response::list")]
     data: Vec<Row>,
@@ -152,7 +153,7 @@ struct Row {
     h264: Resolutions,
 }
 pub fn convert(b: &[u8]) -> Result<Vec<Video>, ApiError> {
-    let w: Wire = request::decode(b)?;
+    let w: Wire = request::decode_envelope(b, "error_code")?;
     request::success(w.status, w.error_code)?;
     Ok(w.data
         .into_iter()

@@ -131,6 +131,7 @@ private:
         std::optional<quint64> version;
         QJsonArray items;
         QHash<quint64, qsizetype> positions;
+        bool versionsKnown = true;
     };
     QList<Refresh> m_refreshQueue;
     std::optional<Refresh> m_refresh;

@@ -788,6 +788,7 @@ struct Session
     SearchRouteCoordinator searchRoutes{search, router, false};
     ProfileRouteCoordinator profileRoutes{accounts.controller, profile, router, false};
     QQmlEngine engine;
+    QScopedPointer<QObject> auxiliary;
     QScopedPointer<QObject> root;
     QQuickWindow *window = nullptr;
     QString initialRoute = QStringLiteral("profile");
@@ -1032,6 +1033,20 @@ struct Session
             qWarning().noquote() << component.errorString();
             return false;
         }
+        if (playback) {
+            QQmlComponent secondary(&engine,
+                                    QUrl("qrc:/qt/qml/EchoMusic/App/AuxiliaryWindows.qml"));
+            auxiliary.reset(secondary.createWithInitialProperties(
+                {{"startup", QVariant::fromValue(startup)},
+                 {"windowService", QVariant::fromValue(&windows)},
+                 {"shellSettings", QVariant::fromValue(&shell)},
+                 {"shellController", QVariant::fromValue(&commands)},
+                 {"playbackService", QVariant::fromValue(playback)}}));
+            if (!auxiliary) {
+                qWarning().noquote() << secondary.errorString();
+                return false;
+            }
+        }
         window = qobject_cast<QQuickWindow *>(root.data());
         windows.attach(window);
         return window;
@@ -1045,6 +1060,7 @@ struct Session
         if (window)
             window->close();
         root.reset();
+        auxiliary.reset();
         // Shutdown is asynchronous. A new data row must not start while the
         // previous native runtime still owns sockets, callbacks or threads.
         // Observe from construction so explicitly closed sessions also work.

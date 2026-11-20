@@ -13,7 +13,17 @@ void storeResult(ivec2 position, float value)
     // across separate compute passes, so overlapping channels never race.
     ivec2 at = ivec2(mvp[0].xy) + position;
     vec4 previous = imageLoad(result, at);
-    previous[int(mvp[0].z)] = value;
+    // FXC cannot address a vector component through a dynamic l-value here.
+    // Explicit scalar stores preserve the other atlas channels unchanged.
+    int channel = int(mvp[0].z);
+    if (channel == 0)
+        previous.r = value;
+    else if (channel == 1)
+        previous.g = value;
+    else if (channel == 2)
+        previous.b = value;
+    else
+        previous.a = value;
     imageStore(result, at, previous);
 }
 // The box path has at most256 input rows; the pyramid keeps sigma near4.

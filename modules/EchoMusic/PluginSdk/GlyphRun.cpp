@@ -1,6 +1,7 @@
 #include "GlyphRun.h"
 #include "GlyphAtlas_p.h"
 #include "GlyphRunCanvas_p.h"
+#include "GlyphRunStaticLayout_p.h"
 #include <QDataStream>
 #include <QBuffer>
 #include <QCryptographicHash>
@@ -33,6 +34,68 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+
+namespace EchoMusic::GlyphCanvas
+{
+InkInternCache::InkInternCache(Hasher hasher)
+    : hasher_(hasher ? std::move(hasher) : Hasher([](const QImage &image) {
+          return qHashBits(image.constBits(), size_t(image.sizeInBytes()));
+      }))
+{
+}
+void InkInternCache::prune()
+{
+    for (auto it = candidates_.begin(); it != candidates_.end();) {
+        auto &values = it.value();
+        values.removeIf([](const auto &entry) { return entry.expired(); });
+        if (values.isEmpty())
+            it = candidates_.erase(it);
+        else
+            ++it;
+    }
+}
+std::shared_ptr<const Ink> InkInternCache::intern(QImage image, std::shared_ptr<Memory> memory)
+{
+    auto &values = candidates_[hasher_(image)];
+    for (auto it = values.begin(); it != values.end();) {
+        if (const auto existing = it->lock()) {
+            const auto &old = existing->image;
+            if (old.size() == image.size() && old.format() == image.format() &&
+                old.bytesPerLine() == image.bytesPerLine() &&
+                old.sizeInBytes() == image.sizeInBytes() &&
+                (image.sizeInBytes() == 0 ||
+                 std::memcmp(old.constBits(), image.constBits(), size_t(image.sizeInBytes())) == 0))
+                return existing;
+            ++it;
+        } else
+            it = values.erase(it);
+    }
+    static std::atomic<quint64> nextIdentity{1};
+    auto ink = std::make_shared<Ink>();
+    ink->image = std::move(image);
+    ink->memory = std::move(memory);
+    // GPU atlas lookups use this process-wide identity, never the bucket hash
+    // or a recyclable address. Equal pixels retain the same live identity.
+    ink->key = QByteArray("ink:") + QByteArray::number(nextIdentity.fetch_add(1));
+    values.append(ink);
+    return ink;
+}
+bool hasColoredInk(const QImage &image)
+{
+    Q_ASSERT(image.format() == QImage::Format_ARGB32_Premultiplied);
+    const int width = image.width(), height = image.height();
+    for (int y = 0; y < height; ++y) {
+        const auto *row = reinterpret_cast<const QRgb *>(image.constScanLine(y));
+        for (int x = 0; x < width; ++x) {
+            const auto pixel = row[x];
+            if (qRed(pixel) != qAlpha(pixel) || qGreen(pixel) != qAlpha(pixel) ||
+                qBlue(pixel) != qAlpha(pixel))
+                return true;
+        }
+    }
+    return false;
+}
+} // namespace EchoMusic::GlyphCanvas
 
 namespace EchoMusic
 {
@@ -440,6 +503,61 @@ struct LayoutBuildResult
     QHash<QString, QSet<int>> boundaries;
     QHash<QString, int> blurLimits, haloLimits;
 };
+using StaticLayouts = GlyphStaticLayout::LiveResults<LayoutBuildResult>;
+struct StaticLayoutIndex
+{
+    StaticLayouts values;
+    quint64 hits = 0, builds = 0;
+    StaticLayoutIndex()
+    {
+        QObject::connect(qGuiApp, &QGuiApplication::fontDatabaseChanged, qGuiApp,
+                         [this] { values.clear(); });
+    }
+};
+StaticLayoutIndex &staticLayoutIndex()
+{
+    // Accessed only on the GUI thread, unlike Canvas preparation's worker cache.
+    static StaticLayoutIndex index;
+    return index;
+}
+bool cacheableStaticRuns(const QVariantList &runs, const QFont &font)
+{
+    if (runs.isEmpty() || runs.size() > GlyphRun::MaxRuns)
+        return false;
+    static const QSet<QString> fields{"key",           "text",        "size",         "weight",
+                                      "spacing",       "strokeWidth", "strokeBitmap", "maxBlur",
+                                      "maxHaloRadius", "maxWidth",    "lineHeight"};
+    qsizetype units = font.styleName().size();
+    for (const auto &family : font.families())
+        units += family.size();
+    for (const auto &value : runs) {
+        if (value.metaType().id() != QMetaType::QVariantMap)
+            return false;
+        const auto run = value.toMap();
+        for (auto it = run.cbegin(); it != run.cend(); ++it) {
+            if (!fields.contains(it.key()))
+                return false;
+            switch (it.value().metaType().id()) {
+            case QMetaType::QString:
+                units += it.value().toString().size();
+                break;
+            case QMetaType::Bool:
+            case QMetaType::Int:
+            case QMetaType::UInt:
+            case QMetaType::LongLong:
+            case QMetaType::ULongLong:
+            case QMetaType::Float:
+            case QMetaType::Double:
+                break;
+            default:
+                return false;
+            }
+        }
+        if (units > 65536)
+            return false;
+    }
+    return units <= 65536;
+}
 bool buildGlyphLayout(const QVariantList &runs, const QFont &baseFont, bool measurementOnly,
                       qreal dpr, bool visible, bool keepGlyphs, LayoutBuildResult &result,
                       QString &error, bool canvasPreparation = false)
@@ -1025,6 +1143,12 @@ bool buildGlyphLayout(const QVariantList &runs, const QFont &baseFont, bool meas
 
 } // namespace
 
+GlyphStaticLayout::Statistics GlyphStaticLayout::statistics()
+{
+    auto &index = staticLayoutIndex();
+    return {index.hits, index.builds, index.values.liveCount()};
+}
+
 struct GlyphRun::Data
 {
     QFont font;
@@ -1048,6 +1172,7 @@ struct GlyphRun::Data
     QSet<const QObject *> atlasConsumers;
     QString atlasDomain;
     std::shared_ptr<StaticAtlasCache> staticCache;
+    StaticLayouts::Handle liveLayout;
     std::shared_ptr<const GlyphAtlasPreparation> atlasSnapshot;
     bool screen = false;
     QMetaObject::Connection windowVisibility, windowStopping;
@@ -1066,6 +1191,9 @@ GlyphRun::GlyphRun(QQuickItem *parent) : QQuickItem(parent), d(std::make_unique<
     d->font.setPixelSize(32);
     setFlag(ItemHasContents);
     const auto observeWindow = [this](QQuickWindow *target) {
+        if (!target || target->visibility() == QWindow::Hidden ||
+            target->visibility() == QWindow::Minimized)
+            d->liveLayout.reset();
         disconnect(d->windowVisibility);
         disconnect(d->windowStopping);
         if (target) {
@@ -1410,6 +1538,7 @@ void GlyphRun::cancelPreparation()
 }
 bool GlyphRun::prepareCanvas(const QVariantList &runs, const QFont &font, bool clearError)
 {
+    d->liveLayout.reset();
     // Check structural/input budgets before copying or serializing GUI values.
     if (runs.size() > MaxRuns) {
         setError("Too many runs (maximum 128)");
@@ -1553,13 +1682,8 @@ bool GlyphRun::prepareCanvas(const QVariantList &runs, const QFont &font, bool c
                 layout = {};
             // One worker is the only writer of this weak pixel-intern table.
             // Weak entries never keep an unreferenced image or lease alive.
-            static QHash<QByteArray, std::weak_ptr<const GlyphCanvas::Ink>> inkCache;
-            for (auto it = inkCache.begin(); it != inkCache.end();) {
-                if (it.value().expired())
-                    it = inkCache.erase(it);
-                else
-                    ++it;
-            }
+            static GlyphCanvas::InkInternCache inkCache;
+            inkCache.prune();
             static QHash<QByteArray, std::weak_ptr<const GlyphCanvas::Outline>> outlineCache;
             for (auto it = outlineCache.begin(); it != outlineCache.end();) {
                 if (it.value().expired())
@@ -1661,15 +1785,7 @@ bool GlyphRun::prepareCanvas(const QVariantList &runs, const QFont &font, bool c
                     };
                     paint(image, Qt::white);
                     if (level == 0) {
-                        for (int y = 0; y < image.height() && !output.color; ++y)
-                            for (int x = 0; x < image.width(); ++x) {
-                                const auto p = image.pixel(x, y);
-                                if (qRed(p) != qAlpha(p) || qGreen(p) != qAlpha(p) ||
-                                    qBlue(p) != qAlpha(p)) {
-                                    output.color = true;
-                                    break;
-                                }
-                            }
+                        output.color = GlyphCanvas::hasColoredInk(image);
                         if (!output.color) {
                             QImage black(size, QImage::Format_ARGB32_Premultiplied);
                             black.setDevicePixelRatio(density);
@@ -1682,22 +1798,7 @@ bool GlyphRun::prepareCanvas(const QVariantList &runs, const QFont &font, bool c
                         }
                     }
                     image = image.convertToFormat(QImage::Format_RGBA8888_Premultiplied);
-                    QCryptographicHash hash(QCryptographicHash::Sha256);
-                    hash.addData(QByteArray::number(size.width()) + ":" +
-                                 QByteArray::number(size.height()) + ":");
-                    hash.addData(QByteArrayView(reinterpret_cast<const char *>(image.constBits()),
-                                                image.sizeInBytes()));
-                    const auto key = hash.result();
-                    auto existing = inkCache.value(key).lock();
-                    if (!existing) {
-                        auto ink = std::make_shared<GlyphCanvas::Ink>();
-                        ink->image = std::move(image);
-                        ink->memory = std::move(memory);
-                        ink->key = key;
-                        existing = ink;
-                        inkCache.insert(key, existing);
-                    }
-                    output.ink[level] = std::move(existing);
+                    output.ink[level] = inkCache.intern(std::move(image), std::move(memory));
                     // QImage rounds its physical allocation up. Map all of
                     // those pixels back at the requested density; squeezing
                     // them into the unrounded logical box distorts small mips.
@@ -1885,12 +1986,36 @@ bool GlyphRun::rebuild(const QVariantList &runs, const QFont &baseFont, bool mea
     d->canvas.reset();
     LayoutBuildResult built;
     QString error;
-    if (!buildGlyphLayout(runs, baseFont, measurementOnly, dpr,
-                          isVisible() && (!d->atlasOnly || !d->atlasConsumers.isEmpty()), false,
-                          built, error)) {
-        setError(error);
-        return false;
+    const bool drawable = isVisible() && (!d->atlasOnly || !d->atlasConsumers.isEmpty());
+    const bool reusable = !measurementOnly && drawable && cacheableStaticRuns(runs, baseFont) &&
+                          window() && window()->visibility() != QWindow::Hidden &&
+                          window()->visibility() != QWindow::Minimized;
+    StaticLayouts::Handle shared;
+    GlyphStaticLayout::Input input;
+    size_t hash = 0;
+    if (reusable) {
+        input = {baseFont, QGuiApplication::font(), runs, dpr,
+                 qreal(QFontInfo(baseFont).pixelSize())};
+        hash = qHashBits(input.serialized.constData(), size_t(input.serialized.size()));
+        shared = staticLayoutIndex().values.find(input, hash);
     }
+    if (shared) {
+        ++staticLayoutIndex().hits;
+        built = shared->layout;
+    } else {
+        if (!buildGlyphLayout(runs, baseFont, measurementOnly, dpr, drawable, false, built,
+                              error)) {
+            setError(error);
+            return false;
+        }
+        if (reusable) {
+            ++staticLayoutIndex().builds;
+            // QImages/paths/lists are implicitly shared CPU values. GPU pages
+            // and their invalidation tokens remain exclusively instance-owned.
+            shared = staticLayoutIndex().values.insert(std::move(input), hash, built);
+        }
+    }
+    d->liveLayout = std::move(shared);
     d->font = baseFont;
     d->measurementOnly = measurementOnly;
     d->runs = runs;
@@ -2352,6 +2477,7 @@ void GlyphRun::releaseResources()
         d->draws.clear();
     }
     d->canvas.reset();
+    d->liveLayout.reset();
     d->canvasStatus->ready = false;
     auto *job = new ReleasePages;
     {

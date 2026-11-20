@@ -72,6 +72,7 @@ struct Data {
     // `has_more` decides whether another page exists.
     #[serde(default, deserialize_with = "optional")]
     has_more: Option<bool>,
+    #[serde(default, deserialize_with = "crate::util::response::list")]
     songs: Vec<Row>,
 }
 
@@ -247,7 +248,6 @@ mod tests {
     fn malformed_success_data_is_not_a_successful_empty_page() {
         for data in [
             serde_json::Value::Null,
-            serde_json::json!({"has_more": 1}),
             serde_json::json!({"songs": "invalid"}),
             serde_json::json!({"has_more": 1, "bp": "next", "songs": [{"mxid": 123}, null]}),
         ] {
@@ -256,6 +256,27 @@ mod tests {
             }))
             .unwrap();
             assert_eq!(convert(&payload).unwrap_err().kind, "decode");
+        }
+    }
+
+    #[test]
+    fn absent_or_empty_song_lists_preserve_independent_pagination_facts() {
+        for songs in [
+            None,
+            Some(serde_json::json!({})),
+            Some(serde_json::Value::Null),
+        ] {
+            let mut data = serde_json::json!({"has_more":1,"bp":"next"});
+            if let Some(songs) = songs {
+                data["songs"] = songs;
+            }
+            let bytes =
+                serde_json::to_vec(&serde_json::json!({"status":1,"error_code":0,"data":data}))
+                    .unwrap();
+            let page = convert(&bytes).unwrap();
+            assert!(page.items.is_empty());
+            assert_eq!(page.has_more, Some(true));
+            assert_eq!(page.cursor.as_deref(), Some("next"));
         }
     }
 

@@ -1,11 +1,13 @@
 #include "GlyphRun.h"
 #include "GlyphRunCanvas_p.h"
+#include "GlyphRunStaticLayout_p.h"
 #include <QElapsedTimer>
 #include <QFontDatabase>
 #include <QGuiApplication>
 #include <QImage>
 #include <QtTest>
 #include <memory>
+#include <cstring>
 
 using EchoMusic::GlyphRun;
 using EchoMusic::GlyphCanvas::Memory;
@@ -42,6 +44,128 @@ private slots:
     {
         QTRY_COMPARE_WITH_TIMEOUT(Memory::total(), m_initialBytes, 15000);
         QVERIFY(Memory::highWater() <= EchoMusic::GlyphCanvas::NativeBudget);
+    }
+    void staticLayoutCollisionsCompareCompleteTypedInputsAndExpire()
+    {
+        using namespace EchoMusic::GlyphStaticLayout;
+        LiveResults<QImage> cache;
+        QFont font = QGuiApplication::font();
+        font.setPixelSize(32);
+        const QVariantList runs{QVariantMap{{"key", "line"}, {"text", "42"}, {"maxBlur", 0}}};
+        const Input input(font, QGuiApplication::font(), runs, 1, 32);
+        QImage image(8, 8, QImage::Format_RGBA8888_Premultiplied);
+        image.fill(Qt::white);
+        auto first = cache.insert(input, 7, image);
+        QCOMPARE(cache.find(input, 7).get(), first.get());
+        const auto rejected = [&](QFont otherFont, QVariantList otherRuns, qreal dpr,
+                                  qreal pixels) {
+            return !cache.find(Input(otherFont, QGuiApplication::font(), otherRuns, dpr, pixels),
+                               7);
+        };
+        QVERIFY(rejected(font, runs, 2, 32));
+        QVERIFY(rejected(font, runs, 1, 33));
+        QFont bold = font;
+        bold.setBold(true);
+        QVERIFY(rejected(bold, runs, 1, 32));
+        QVERIFY(!cache.find(Input(font, bold, runs, 1, 32), 7));
+        const QLocale originalLocale;
+        QLocale::setDefault(QLocale(
+            originalLocale.bcp47Name() == QLocale("ar_EG").bcp47Name() ? "en_US" : "ar_EG"));
+        const auto otherLocale = cache.find(Input(font, QGuiApplication::font(), runs, 1, 32), 7);
+        QLocale::setDefault(originalLocale);
+        QVERIFY(!otherLocale);
+        auto different = runs;
+        auto run = different.first().toMap();
+        run["text"] = 42; // A numeric QVariant must not equal the accepted string.
+        different[0] = run;
+        QVERIFY(rejected(font, different, 1, 32));
+        auto second = cache.insert(Input(bold, QGuiApplication::font(), runs, 1, 32), 7, image);
+        QVERIFY(second.get() != first.get());
+        std::weak_ptr<const LiveResults<QImage>::Result> weak = first;
+        first.reset();
+        QVERIFY(weak.expired());
+        QCOMPARE(cache.liveCount(), qsizetype(1));
+        cache.clear();
+        QVERIFY(!cache.find(second->input, 7));
+        QVERIFY(!second->layout.isNull()); // Invalidation cannot destroy another live consumer.
+        second.reset();
+        QCOMPARE(cache.liveCount(), qsizetype(0));
+    }
+    void inkInterningVerifiesEveryCollisionAndReleasesWeakEntries()
+    {
+        using EchoMusic::GlyphCanvas::InkInternCache;
+        InkInternCache cache([](const QImage &) { return size_t(7); });
+        const auto intern = [&](QImage image) {
+            auto memory = std::make_shared<Memory>();
+            if (!memory->resize(image.sizeInBytes()))
+                return std::shared_ptr<const EchoMusic::GlyphCanvas::Ink>();
+            return cache.intern(std::move(image), std::move(memory));
+        };
+        QImage pixels(8, 8, QImage::Format_RGBA8888_Premultiplied);
+        pixels.fill(QColor(20, 40, 60, 80));
+        auto first = intern(pixels);
+        QVERIFY(first);
+        const auto bytes = Memory::total();
+        auto duplicate = pixels.copy();
+        duplicate.setDevicePixelRatio(2);
+        auto same = intern(duplicate);
+        QCOMPARE(first.get(), same.get());
+        QCOMPARE(Memory::total(), bytes);
+        auto different = pixels.copy();
+        different.setPixelColor(7, 7, QColor(20, 40, 60, 81));
+        auto changed = intern(different);
+        QVERIFY(changed);
+        QVERIFY(changed.get() != first.get());
+        QVERIFY(changed->key != first->key);
+        QImage tall(4, 16, pixels.format());
+        std::memcpy(tall.bits(), pixels.constBits(), size_t(pixels.sizeInBytes()));
+        auto reshaped = intern(tall);
+        QVERIFY(reshaped.get() != first.get());
+        auto formatted = intern(pixels.convertToFormat(QImage::Format_ARGB32_Premultiplied));
+        QVERIFY(formatted.get() != first.get());
+        const auto oldKey = first->key;
+        first.reset();
+        same.reset();
+        changed.reset();
+        reshaped.reset();
+        formatted.reset();
+        cache.prune();
+        QCOMPARE(Memory::total(), m_initialBytes);
+        auto recreated = intern(pixels);
+        QVERIFY(recreated);
+        QVERIFY(recreated->key != oldKey);
+        InkInternCache independent([](const QImage &) { return size_t(7); });
+        auto memory = std::make_shared<Memory>();
+        QVERIFY(memory->resize(pixels.sizeInBytes()));
+        auto isolated = independent.intern(pixels, std::move(memory));
+        QVERIFY(isolated);
+        QVERIFY(isolated->key != recreated->key);
+    }
+    void inkColorScanMatchesOriginalPixelClassification()
+    {
+        for (const int width : {1, 3, 16, 31})
+            for (const int height : {1, 4, 17})
+                for (const int channel : {-1, 0, 1, 2, 3}) {
+                    QImage image(width, height, QImage::Format_ARGB32_Premultiplied);
+                    for (int y = 0; y < height; ++y)
+                        for (int x = 0; x < width; ++x) {
+                            const int a = (x * 31 + y * 17) % 256;
+                            image.setPixel(x, y, qRgba(a, a, a, a));
+                        }
+                    if (channel >= 0) {
+                        auto *last =
+                            reinterpret_cast<uchar *>(image.scanLine(height - 1)) + (width - 1) * 4;
+                        last[channel] ^= 1;
+                    }
+                    bool reference = false;
+                    for (int y = 0; y < height; ++y)
+                        for (int x = 0; x < width; ++x) {
+                            const auto p = image.pixel(x, y);
+                            reference |= qRed(p) != qAlpha(p) || qGreen(p) != qAlpha(p) ||
+                                         qBlue(p) != qAlpha(p);
+                        }
+                    QCOMPARE(EchoMusic::GlyphCanvas::hasColoredInk(image), reference);
+                }
     }
     void heavyUnknownPayloadIsRejectedAtomically_data()
     {

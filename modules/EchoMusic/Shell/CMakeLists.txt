@@ -54,6 +54,8 @@ qt_add_qml_module(
     AppIconShortcuts.cpp
     WindowController.h
     WindowController.cpp
+    MainWindowHost.h
+    MainWindowHost.cpp
     TrayIconTheme.h
     TrayIconTheme.cpp
     WindowPresentationDiagnostics.h

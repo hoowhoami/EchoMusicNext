@@ -402,7 +402,9 @@ private slots:
             PlaylistDetailContextTestAccess::pending(*context, 99000 + number, number);
             PlaylistDetailContextTestAccess::accept(
                 *context, 99000 + number,
-                cloud ? QJsonObject{{"revision", 9}, {"page", page}} : page);
+                cloud ? (number == 2 ? QJsonObject{{"page", page}}
+                                     : QJsonObject{{"revision", 9}, {"page", page}})
+                      : page);
         };
         auto hashless = playlistSong(90);
         auto hashlessSong = hashless["song"].toObject();

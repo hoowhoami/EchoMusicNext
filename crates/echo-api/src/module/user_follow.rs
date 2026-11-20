@@ -44,7 +44,7 @@ struct Row {
 struct Data {
     #[serde(default, deserialize_with = "crate::util::response::optional")]
     total: Option<u64>,
-    #[serde(deserialize_with = "crate::util::response::list")]
+    #[serde(default, deserialize_with = "crate::util::response::list")]
     lists: Vec<Row>,
 }
 pub fn convert(bytes: &[u8]) -> Result<SocialPage, ApiError> {

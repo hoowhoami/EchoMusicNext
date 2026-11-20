@@ -16,7 +16,7 @@ struct Wire {
     status: u32,
     #[serde(deserialize_with = "crate::util::response::scalar")]
     error_code: i64,
-    #[serde(deserialize_with = "crate::util::response::list")]
+    #[serde(default, deserialize_with = "crate::util::response::list")]
     data: Vec<Resource>,
 }
 #[derive(Deserialize)]
@@ -223,7 +223,7 @@ fn file(hash: Option<String>, size: Option<u64>) -> Result<Option<EncodedFile>, 
     }
 }
 pub fn convert(bytes: &[u8]) -> Result<Vec<ResourcePrivileges>, ApiError> {
-    let wire: Wire = request::decode(bytes)?;
+    let wire: Wire = request::decode_envelope(bytes, "error_code")?;
     request::success(wire.status, wire.error_code)?;
     wire.data
         .into_iter()

@@ -9,6 +9,7 @@ qt_add_qml_module(
     StartupTypes.h
     QML_FILES
     Main.qml
+    AuxiliaryWindows.qml
     StartupPage.qml
     StartupWindow.qml
 )

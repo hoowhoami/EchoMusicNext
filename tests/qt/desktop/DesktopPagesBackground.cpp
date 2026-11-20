@@ -1,0 +1,430 @@
+#include "DesktopPagesTest.h"
+#include "DesktopPagesTestFixture.h"
+#include "MainWindowHost.h"
+#include "ShortcutActions.h"
+#include "EchoPluginUi.h"
+#include "TrackTransitionController.h"
+#include <QScreen>
+
+namespace
+{
+QVariantMap detachMain(Session &session)
+{
+    QVariantMap properties;
+    for (const auto *name :
+         {"startup", "playbackService", "libraryController", "accountController", "shellController",
+          "searchService", "router", "shellSettings", "windowService"})
+        properties.insert(QString::fromLatin1(name), session.root->property(name));
+    properties.insert("visible", false);
+    session.windows.detach();
+    session.root.reset();
+    session.window = nullptr;
+    return properties;
+}
+QQuickWindow *createMain(Session &session, const QVariantMap &properties)
+{
+    QQmlComponent component(&session.engine, QUrl("qrc:/qt/qml/EchoMusic/App/Main.qml"));
+    auto *object = component.createWithInitialProperties(properties);
+    if (!object)
+        qWarning().noquote() << component.errorString();
+    session.window = qobject_cast<QQuickWindow *>(object);
+    return session.window;
+}
+bool writeShortWave(const QString &path)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly))
+        return false;
+    QDataStream stream(&file);
+    stream.setByteOrder(QDataStream::LittleEndian);
+    constexpr quint32 bytes = 48000 * 3 * 2;
+    stream.writeRawData("RIFF", 4);
+    stream << quint32(36 + bytes);
+    stream.writeRawData("WAVEfmt ", 8);
+    stream << quint32(16) << quint16(1) << quint16(1) << quint32(48000) << quint32(96000)
+           << quint16(2) << quint16(16);
+    stream.writeRawData("data", 4);
+    stream << bytes;
+    stream.writeRawData(QByteArray(bytes, 0).constData(), bytes);
+    return stream.status() == QDataStream::Ok;
+}
+bool captureSurface(QQuickWindow *surface, const QString &name)
+{
+    const auto directory = qEnvironmentVariable("ECHO_BACKGROUND_CAPTURES");
+    if (directory.isEmpty())
+        return true;
+    if (!surface || !QDir().mkpath(directory) || !QTest::qWaitForWindowExposed(surface))
+        return false;
+    QSignalSpy rendered(surface, &QQuickWindow::frameSwapped);
+    surface->update();
+    if (rendered.isEmpty() && !rendered.wait(2000))
+        return false;
+    return surface->grabWindow().save(directory + '/' + name + ".png");
+}
+} // namespace
+
+void DesktopPagesTest::mainWindowUnloadRestoresProductionUi_data()
+{
+    QTest::addColumn<bool>("cacheEnabled");
+    QTest::newRow("cache-on") << true;
+    QTest::newRow("cache-off") << false;
+}
+
+void DesktopPagesTest::mainWindowUnloadRestoresProductionUi()
+{
+    QFETCH(bool, cacheEnabled);
+    Session session;
+    session.router.setCachePolicy(cacheEnabled, cacheEnabled ? 20 : 0);
+    session.shell.acceptUserAgreement();
+    session.shell.setMotionEnabled(false);
+    QFile pageFile(session.directory.filePath("BackgroundRoute.qml"));
+    QVERIFY(pageFile.open(QIODevice::WriteOnly));
+    pageFile.write(R"(
+        import QtQuick
+        import EchoMusic.Shell
+        import EchoMusic.Controls
+        RoutePage {
+            id: page
+            objectName: "backgroundRoute"
+            property int draft: 0
+            EchoPageState.properties: ["draft"]
+            Component.onCompleted: EchoPageState.restore()
+            EchoPageScrollContainer {
+                anchors.fill: parent
+                pageActive: page.pageActive
+                scrollView: rows
+                ListView {
+                    id: rows
+                    objectName: "backgroundRows"
+                    anchors.fill: parent
+                    model: 200
+                    delegate: Item {
+                        required property int index
+                        width: ListView.view.width
+                        height: 40
+                        Text { text: "Cached row " + index }
+                    }
+                }
+            }
+        }
+    )");
+    pageFile.close();
+    QVERIFY(session.router.registerPage({"background",
+                                         "/background",
+                                         QUrl::fromLocalFile(pageFile.fileName()),
+                                         {},
+                                         true,
+                                         false,
+                                         false,
+                                         {}}));
+    session.initialRoute = "background";
+    QVERIFY(session.create());
+    const auto properties = detachMain(session);
+    auto *context = session.router.current();
+    QVERIFY(context);
+    QVERIFY(context->viewState()->save("background-probe", {{"selected", 7}}));
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    ShortcutService shortcuts(session.preferences, false);
+    int creations = 0;
+    MainWindowHost host(
+        session.engine, session.windows, shortcuts,
+        [&] {
+            ++creations;
+            return createMain(session, properties);
+        },
+        &session.router);
+    const auto cleanup = qScopeGuard([&] {
+        host.shutdown();
+        session.window = nullptr;
+    });
+    QSignalSpy activated(&session.router, &RouteController::pageActivated);
+    QRect normalGeometry;
+    for (int iteration = 0; iteration < 50; ++iteration) {
+        host.show();
+        QVERIFY(host.window());
+        QCOMPARE(host.state(), MainWindowHost::State::Present);
+        QTRY_VERIFY(visual(host.window()->contentItem(), "shellFrame"));
+        QPointer<QQuickItem> rows;
+        QPointer<QQuickItem> page;
+        QTRY_VERIFY((rows = visual(host.window()->contentItem(), "backgroundRows")));
+        QTRY_VERIFY((page = visual(host.window()->contentItem(), "backgroundRoute")));
+        QTRY_VERIFY(visual(host.window()->contentItem(), "shellFrame")
+                        ->property("initialPageReady")
+                        .toBool());
+        if (iteration == 0) {
+            const auto area = host.window()->screen()->availableGeometry();
+            host.window()->setGeometry({area.topLeft() + QPoint(20, 30),
+                                        QSize(qMin(1220, area.width()), qMin(710, area.height()))});
+            normalGeometry = host.window()->geometry();
+            rows->setProperty("contentY", 3200.);
+            page->setProperty("draft", 37);
+        }
+        QTRY_COMPARE(host.window()->geometry(), normalGeometry);
+        QTRY_COMPARE(rows->property("contentY").toDouble(), 3200.);
+        QCOMPARE(page->property("draft").toInt(), 37);
+        QCOMPARE(session.router.current(), context);
+        QCOMPARE(context->viewState()->load("background-probe").value("selected").toInt(), 7);
+        QPointer<QQuickWindow> retired = host.window();
+        QPointer<QObject> shell = visual(host.window()->contentItem(), "shellFrame");
+        session.windows.toggleVisibility();
+        QTRY_VERIFY(retired.isNull());
+        QVERIFY(shell.isNull());
+        QVERIFY(!session.windows.mainWindow());
+        QCOMPARE(host.state(), MainWindowHost::State::Absent);
+        QVERIFY(!context->presented());
+        QVERIFY(!context->viewState()->save("background-probe", {{"selected", 0}}));
+    }
+    QCOMPARE(creations, 50);
+    QCOMPARE(activated.size(), 0); // Visual rebuilding must not replay route activation.
+    host.show();
+    QVERIFY(captureSurface(host.window(), "restored-main"));
+    QPointer<QQuickWindow> closing = host.window();
+    session.windows.toggleVisibility();
+    QTRY_VERIFY(closing.isNull());
+    // This is a user command while no root exists, not a direct call on a
+    // pre-existing shell. It must survive creation and first-page readiness.
+    session.windows.requestSettings("lyric");
+    QPointer<QObject> settings;
+    QTRY_VERIFY((settings = host.window()->findChild<QObject *>("settingsDialog")));
+    QTRY_VERIFY(settings->property("opened").toBool());
+    QCOMPARE(warnings.size(), 0);
+}
+
+void DesktopPagesTest::mainWindowBackgroundKeepsPluginPlaybackAndFloating()
+{
+    Session session;
+    session.shell.acceptUserAgreement();
+    session.shell.setMotionEnabled(false);
+    // Hold upstream requests: the test uses no account and only local WAV files.
+    session.api.addInterceptor(100, [](const QJsonObject &, ApiInterceptNext, ApiInterceptDone) {
+        return std::function<void()>([] {});
+    });
+    PlaybackService playback(session.api, session.preferences, nullptr,
+                             session.directory.filePath("background.sqlite"));
+    playback.setVolume(0);
+    playback.transition()->setMode("none");
+    QVERIFY(session.create(&playback));
+    const auto properties = detachMain(session);
+    ShortcutService shortcuts(session.preferences, false);
+    ShortcutActions actions(shortcuts, playback, session.shell, session.windows, session.commands);
+    PluginHost pluginHost{playback,
+                          session.theme,
+                          session.commands,
+                          session.router,
+                          session.accounts.account,
+                          session.api,
+                          session.windows.floating()};
+    pluginHost.mainWindow = [&] { return session.windows.mainWindow(); };
+    PluginRuntime plugins(session.engine, session.preferences, pluginHost,
+                          session.directory.filePath("plugins"));
+    plugins.start();
+    QTRY_VERIFY(!plugins.loading());
+    const auto wav = session.directory.filePath("source.wav");
+    QVERIFY(writeShortWave(wav));
+    const auto source = session.directory.filePath("source");
+    QVERIFY(QDir().mkpath(source));
+    const QJsonObject manifest{
+        {"schemaVersion", 1},
+        {"format", "echomod"},
+        {"id", "test.background"},
+        {"name", "Background integration"},
+        {"version", "1.0.0"},
+        {"kind", "qml-js"},
+        {"entry", "entry.mjs"},
+        {"requires", QJsonObject{{"hostVersion", ">=0.1.0 <1.0.0"},
+                                 {"sdkVersion", ">=1.0.0 <2.0.0"},
+                                 {"features", QJsonArray{"lifecycle", "playback.audioSource",
+                                                         "lyrics.resolvers"}}}},
+        {"capabilities", QJsonArray{"audioSource", "lyrics"}},
+        {"contexts", QJsonArray{"main"}}};
+    QFile manifestFile(source + "/manifest.json");
+    QVERIFY(manifestFile.open(QIODevice::WriteOnly));
+    manifestFile.write(QJsonDocument(manifest).toJson());
+    manifestFile.close();
+    QFile entry(source + "/entry.mjs");
+    QVERIFY(entry.open(QIODevice::WriteOnly));
+    const auto urlLiteral = QJsonDocument(QJsonArray{QUrl::fromLocalFile(wav).toString()})
+                                .toJson(QJsonDocument::Compact)
+                                .mid(1)
+                                .chopped(1);
+    entry.write("export function activate(c) { c.ui.setState({ticks:0,resolves:0});"
+                "c.setTimer('clock',25,true,function(){c.ui.setState({ticks:c.ui.state.ticks+1,"
+                "resolves:c.ui.state.resolves});});"
+                "c.player.audioSource.registerResolver('local',{resolve:function(){"
+                "c.ui.setState({resolves:c.ui.state.resolves+1,ticks:c.ui.state.ticks});return " +
+                urlLiteral +
+                ";}});"
+                "c.lyrics.registerResolver('lines',{resolve:function(){return {format:'lrc',"
+                "content:'[00:00]后台播放测试\\n[00:01.50]主窗口已释放，歌词继续显示'};}});}");
+    entry.close();
+    plugins.importDirectory(source);
+    QPointer<EchoPluginContext> plugin;
+    QTRY_VERIFY((plugin = plugins.context(plugins.installationForId("test.background"))));
+    const auto installation = plugins.installationForId("test.background");
+    QTRY_COMPARE(plugins.state(installation), PluginRuntime::Active);
+    MainWindowHost host(
+        session.engine, session.windows, shortcuts, [&] { return createMain(session, properties); },
+        &session.router);
+    QSignalSpy playbackClosed(&playback, &PlaybackService::closed);
+    QSignalSpy pluginsClosed(&plugins, &PluginRuntime::closed);
+    const auto cleanup = qScopeGuard([&] {
+        host.shutdown();
+        session.window = nullptr;
+        session.auxiliary.reset();
+        plugins.shutdown();
+        if (!QTest::qWaitFor([&] { return !pluginsClosed.isEmpty(); }, 15000))
+            QTest::qFail("Background plugins did not drain", __FILE__, __LINE__);
+        playback.shutdown();
+        if (!QTest::qWaitFor([&] { return !playbackClosed.isEmpty(); }, 15000))
+            QTest::qFail("Background playback did not drain", __FILE__, __LINE__);
+    });
+    QTRY_VERIFY_WITH_TIMEOUT(playback.engineReady(), 15000);
+    PlaybackTracks tracks;
+    for (int i = 0; i < 3; ++i) {
+        PlaybackTrack track;
+        track.id = QString::number(i);
+        track.title = QString("Background %1").arg(i);
+        track.durationMs = 3000;
+        track.catalogMetadata["plugin_source"] = "test.background/local";
+        tracks.append(track);
+    }
+    QSet<QString> played;
+    connect(&playback, &PlaybackService::changed, &playback, [&] {
+        if (playback.playing())
+            played.insert(playback.currentTrack().id);
+    });
+    playback.playTracks(tracks, 0, "Background", "background-test");
+    QTRY_VERIFY_WITH_TIMEOUT(playback.playing(), 15000);
+    QVERIFY(playback.sleepTimer()->start(30, "pause"));
+    const auto deadline = playback.sleepTimer()->endTime();
+    const auto sequence = playback.audioSequence();
+    const auto revision = playback.sourceRevision();
+    playback.ensureLyrics();
+    QTRY_COMPARE(playback.lyrics()->rowCount(), 2);
+    session.windows.floating()->setDesktopEnabled(true);
+    QPointer<QQuickWindow> desktop;
+    QTRY_VERIFY((desktop = session.windows.floating()->presentationWindow()));
+    host.show();
+    QPointer<QQuickWindow> main = host.window();
+    host.unload();
+    QTRY_VERIFY(main.isNull());
+    // Local and native global bindings share this application-owned command
+    // path; detaching the main window must not disconnect playback actions.
+    shortcuts.triggered(ShortcutService::VolumeUp);
+    QCOMPARE(playback.volume(), 5);
+    shortcuts.triggered(ShortcutService::VolumeDown);
+    QCOMPARE(playback.volume(), 0);
+    QVERIFY(!host.window());
+    QVERIFY(desktop && desktop->isVisible());
+    QVERIFY(!desktop->transientParent());
+    QCOMPARE(playback.audioSequence(), sequence);
+    QCOMPARE(playback.sourceRevision(), revision);
+    QVERIFY(captureSurface(desktop, "desktop-without-main"));
+    const auto ticks = plugin->ui()->state().value("ticks").toInt();
+    QTRY_VERIFY(plugin->ui()->state().value("ticks").toInt() > ticks + 2);
+    QTRY_COMPARE_WITH_TIMEOUT(played.size(), 3, 20000);
+    QVERIFY(plugin->ui()->state().value("resolves").toInt() >= 3);
+    QCOMPARE(plugins.context(installation), plugin.data());
+    QCOMPARE(plugins.state(installation), PluginRuntime::Active);
+    QCOMPARE(playback.sleepTimer()->endTime(), deadline);
+    playback.seek(1600);
+    QTRY_COMPARE(playback.lyrics()->currentIndex(), 1);
+    // Mini is created after the main window is already absent.
+    session.windows.floating()->showMini();
+    QPointer<QQuickWindow> mini;
+    QTRY_VERIFY((mini = session.windows.floating()->miniWindow()));
+    QVERIFY(mini->isVisible());
+    QVERIFY(!mini->transientParent());
+    QVERIFY(!host.window());
+    QVERIFY(captureSurface(mini, "mini-without-main"));
+    for (int i = 0; i < 5; ++i) {
+        shortcuts.triggered(ShortcutService::ToggleWindow);
+        QVERIFY(host.window());
+        QVERIFY(desktop && desktop->isVisible());
+        main = host.window();
+        shortcuts.triggered(ShortcutService::ToggleWindow);
+        QTRY_VERIFY(main.isNull());
+        QCOMPARE(plugins.context(installation), plugin.data());
+    }
+    QSignalSpy selections(&session.windows, &WindowController::lyricSelectionRequested);
+    session.windows.floating()->selectLyrics();
+    QTRY_VERIFY(host.window());
+    QTRY_COMPARE(selections.size(), 1);
+    QPointer<QObject> selection;
+    QTRY_VERIFY((selection = host.window()->findChild<QObject *>("lyricSourceDialog")));
+    QTRY_VERIFY(selection->property("opened").toBool());
+    QVERIFY(playbackClosed.isEmpty());
+    QVERIFY(pluginsClosed.isEmpty());
+}
+
+void DesktopPagesTest::mainWindowRecoveryRejectsStaleRetirementAndRetriesFailure()
+{
+    Session session;
+    ShortcutService shortcuts(session.preferences, false);
+    bool fail = true;
+    int creations = 0;
+    MainWindowHost host(session.engine, session.windows, shortcuts, [&]() -> QQuickWindow * {
+        ++creations;
+        return fail ? nullptr : new QQuickWindow;
+    });
+    QSignalSpy errors(&host, &MainWindowHost::creationFailed);
+    host.show();
+    QCOMPARE(errors.size(), 1);
+    QCOMPARE(host.state(), MainWindowHost::State::Absent);
+    QTest::qWait(30);
+    QCOMPARE(creations, 1);
+    fail = false;
+    host.show();
+    QPointer<QQuickWindow> first = host.window();
+    QVERIFY(first);
+    session.windows.toggleVisibility();
+    session.windows.showWindow(); // A real foreground action cancels retirement.
+    QTest::qWait(10);
+    QCOMPARE(host.window(), first.data());
+    QVERIFY(first->isVisible());
+    host.unload();
+    host.show(); // A newer show supersedes a queued unload.
+    QTest::qWait(10);
+    QCOMPARE(host.window(), first.data());
+    bool requestedDuringRetirement = false;
+    const auto reversal = connect(&host, &MainWindowHost::stateChanged, &host, [&] {
+        if (host.state() == MainWindowHost::State::Retiring) {
+            requestedDuringRetirement = true;
+            host.show(); // Cannot create over a window awaiting DeferredDelete.
+            QCOMPARE(creations, 2);
+        }
+    });
+    host.unload();
+    QTRY_VERIFY(first.isNull());
+    QVERIFY(requestedDuringRetirement);
+    QTRY_VERIFY(host.window());
+    QCOMPARE(creations, 3);
+    disconnect(reversal);
+    QObject content;
+    session.windows.beginContentFullscreen(&content);
+    QTRY_VERIFY(session.windows.fullscreen());
+    QPointer<QQuickWindow> fullscreen = host.window();
+    session.windows.toggleVisibility();
+    QTRY_VERIFY(fullscreen.isNull());
+    host.show();
+    QVERIFY(!session.windows.fullscreen());
+    QCOMPARE(creations, 4);
+    host.shutdown();
+    host.show();
+    host.unload();
+    QTest::qWait(10);
+    QCOMPARE(creations, 4);
+    QCOMPARE(host.state(), MainWindowHost::State::Closed);
+    int forbiddenCreations = 0;
+    MainWindowHost interrupted(session.engine, session.windows, shortcuts, [&] {
+        ++forbiddenCreations;
+        return new QQuickWindow;
+    });
+    connect(&interrupted, &MainWindowHost::stateChanged, &interrupted, [&] {
+        if (interrupted.state() == MainWindowHost::State::Creating)
+            interrupted.shutdown();
+    });
+    interrupted.show();
+    QCOMPARE(forbiddenCreations, 0);
+    QCOMPARE(interrupted.state(), MainWindowHost::State::Closed);
+}

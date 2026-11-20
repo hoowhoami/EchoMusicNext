@@ -52,6 +52,7 @@ ShortcutActions::ShortcutActions(ShortcutService &shortcuts, PlaybackService &pl
                     settings.toggleSidebar();
                     break;
                 case Shortcut::ToggleMainLyric:
+                    window.requestPlaybackPage();
                     break;
                 case Shortcut::ToggleMiniPlayer:
                     window.floating()->toggleMini();

@@ -12,16 +12,7 @@ type Error = serde_json::Error;
 /// Shared wire shapes retain required/default data and error-key distinctions.
 /// Endpoint-specific proofs and optional-error envelopes remain local types.
 #[derive(Deserialize)]
-pub struct Envelope<T> {
-    #[serde(deserialize_with = "scalar")]
-    pub status: u32,
-    #[serde(deserialize_with = "scalar")]
-    pub error_code: i64,
-    pub data: T,
-}
-
-#[derive(Deserialize)]
-pub struct DefaultDataEnvelope<T: Default> {
+pub struct Envelope<T: Default> {
     #[serde(deserialize_with = "scalar")]
     pub status: u32,
     #[serde(deserialize_with = "scalar")]
@@ -30,12 +21,16 @@ pub struct DefaultDataEnvelope<T: Default> {
     pub data: T,
 }
 
+/// Kept as an alias for callers that already name the missing-data behavior.
+pub type DefaultDataEnvelope<T> = Envelope<T>;
+
 #[derive(Deserialize)]
-pub struct ErrcodeEnvelope<T> {
+pub struct ErrcodeEnvelope<T: Default> {
     #[serde(deserialize_with = "scalar")]
     pub status: u32,
     #[serde(deserialize_with = "scalar")]
     pub errcode: i64,
+    #[serde(default)]
     pub data: T,
 }
 
@@ -83,7 +78,9 @@ pub fn number_map<'de, D: Deserializer<'de>, T: DeserializeOwned>(
 }
 pub fn list<'de, D: Deserializer<'de>, T: DeserializeOwned>(d: D) -> Result<Vec<T>, D::Error> {
     let value = Value::deserialize(d)?;
-    if value.is_null() {
+    // The provider also serializes empty collections as {} (for example,
+    // top_playlist tags). No entries are discarded by normalizing that form.
+    if value.is_null() || value.as_object().is_some_and(|fields| fields.is_empty()) {
         return Ok(Vec::new());
     }
     from_value(value).map_err(de::Error::custom)
@@ -309,6 +306,32 @@ mod tests {
         flag: Option<bool>,
         #[serde(default, deserialize_with = "optional_map")]
         map: Option<std::collections::BTreeMap<String, Option<u64>>>,
+    }
+    #[test]
+    fn empty_list_containers_do_not_reject_their_parent_record() {
+        #[derive(Deserialize)]
+        struct Lists {
+            #[serde(default, deserialize_with = "list")]
+            tags: Vec<String>,
+        }
+        for body in [
+            r#"{}"#,
+            r#"{"tags":null}"#,
+            r#"{"tags":[]}"#,
+            r#"{"tags":{}}"#,
+        ] {
+            assert!(serde_json::from_str::<Lists>(body).unwrap().tags.is_empty());
+        }
+        assert_eq!(
+            serde_json::from_str::<Lists>(r#"{"tags":["known"]}"#)
+                .unwrap()
+                .tags,
+            ["known"]
+        );
+        // Nonempty objects and unreadable entries must not be silently erased.
+        for body in [r#"{"tags":{"unknown":"value"}}"#, r#"{"tags":[{}]}"#] {
+            assert!(serde_json::from_str::<Lists>(body).is_err());
+        }
     }
     #[test]
     fn exact_scalars_and_unknown_neighbors_do_not_round_or_erase_known_facts() {

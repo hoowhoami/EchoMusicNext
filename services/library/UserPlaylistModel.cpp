@@ -184,7 +184,7 @@ QVariant UserPlaylistModel::data(const QModelIndex &index, int role) const
     case PrivateRole:
         return v.isPrivate;
     case RevisionRole:
-        return QVariant::fromValue(v.revision);
+        return v.revision ? QVariant::fromValue(*v.revision) : QVariant{};
     case SortIndexRole:
         return v.sortIndex;
     case CreatorIdRole:
@@ -294,7 +294,8 @@ void UserPlaylistModel::resetState()
     m_rows.clear();
     m_page = 0;
     m_total = 0;
-    m_listRevision = 0;
+    m_listRevision.reset();
+    m_revisionsKnown = true;
     m_exhausted = false;
     m_error.clear();
     m_state = m_api.currentAccountUserId() && !m_closed ? State::Idle : State::SignedOut;
@@ -327,7 +328,8 @@ UserPlaylistModel::Row UserPlaylistModel::readRow(const QJsonObject &item)
     // A model index identifies the row; incomplete or repeated provider IDs
     // must not discard its title, provenance or other available facts.
     row.songCount = quint64(qMax<qint64>(0, item.value("song_count").toInteger()));
-    row.revision = quint64(qMax<qint64>(0, item.value("revision").toInteger()));
+    if (item.value("revision").isDouble() && item.value("revision").toInteger(-1) >= 0)
+        row.revision = quint64(item.value("revision").toInteger());
     row.creatorId = quint64(qMax<qint64>(0, item.value("creator_id").toInteger()));
     row.creatorListId = quint64(qMax<qint64>(0, item.value("creator_list_id").toInteger()));
     const auto source = item.value("source_code").toInteger();
@@ -387,30 +389,25 @@ void UserPlaylistModel::applyLibrarySnapshot(const QJsonObject &snapshot, quint6
     if (m_closed || m_mutating || !m_api.currentAccountUserId() ||
         session != m_api.sessionRevision())
         return;
-    const auto revision = quint64(snapshot["total_revision"].toInteger(qint64(m_listRevision)));
-    if (m_sessionRevision == session && revision < m_listRevision)
+    const auto revision =
+        snapshot["total_revision"].isDouble()
+            ? std::optional<quint64>(quint64(snapshot["total_revision"].toInteger()))
+            : std::nullopt;
+    if (m_sessionRevision == session && revision && m_listRevision && *revision < *m_listRevision)
         return;
     QList<Row> rows;
     QSet<quint64> wanted, previous;
-    const auto ambiguous = [this] {
-        m_state = State::RestartRequired;
-        m_error = tr("歌单身份无法增量核对，请刷新目录后重试");
-        emit changed();
-    };
+    bool incremental = true;
     for (const auto &value : page["items"].toArray()) {
         auto row = readRow(value.toObject());
-        if (!row.cloudId.value || wanted.contains(row.cloudId.value)) {
-            ambiguous();
-            return; // Ambiguous identities cannot safely address existing delegates.
-        }
+        if (!row.cloudId.value || wanted.contains(row.cloudId.value))
+            incremental = false;
         wanted.insert(row.cloudId.value);
         rows.append(std::move(row));
     }
     for (const auto &row : std::as_const(m_rows)) {
-        if (!row.cloudId.value || previous.contains(row.cloudId.value)) {
-            ambiguous();
-            return;
-        }
+        if (!row.cloudId.value || previous.contains(row.cloudId.value))
+            incremental = false;
         previous.insert(row.cloudId.value);
     }
     if (m_request)
@@ -426,50 +423,61 @@ void UserPlaylistModel::applyLibrarySnapshot(const QJsonObject &snapshot, quint6
     const auto interrupted = [&] {
         return !guard || m_resetPending || session != m_api.sessionRevision();
     };
-    for (int row = m_rows.size() - 1; row >= 0; --row)
-        if (!wanted.contains(m_rows[row].cloudId.value)) {
-            beginRemoveRows({}, row, row);
-            m_rows.removeAt(row);
-            endRemoveRows();
-            if (interrupted())
-                return;
-        }
-    const auto roles = roleNames().keys();
-    for (int row = 0; row < rows.size(); ++row) {
-        int from = row;
-        while (from < m_rows.size() && m_rows[from].cloudId.value != rows[row].cloudId.value)
-            ++from;
-        if (from == m_rows.size()) {
-            beginInsertRows({}, row, row);
-            m_rows.insert(row, rows[row]);
-            endInsertRows();
-            if (interrupted())
-                return;
-        } else {
-            if (from != row) {
-                beginMoveRows({}, from, from, {}, row);
-                m_rows.move(from, row);
-                endMoveRows();
+    if (!incremental) {
+        // A complete snapshot can still be displayed when account-local IDs
+        // cannot address individual delegates. Preserve every row via reset.
+        beginResetModel();
+        m_rows = rows;
+        endResetModel();
+        if (interrupted())
+            return;
+    } else {
+        for (int row = m_rows.size() - 1; row >= 0; --row)
+            if (!wanted.contains(m_rows[row].cloudId.value)) {
+                beginRemoveRows({}, row, row);
+                m_rows.removeAt(row);
+                endRemoveRows();
                 if (interrupted())
                     return;
             }
-            QHash<int, QVariant> before;
-            for (int role : roles)
-                before.insert(role, data(index(row), role));
-            m_rows[row] = rows[row];
-            QList<int> changedRoles;
-            for (int role : roles)
-                if (before.value(role) != data(index(row), role))
-                    changedRoles.append(role);
-            if (!changedRoles.isEmpty()) {
-                emit dataChanged(index(row), index(row), changedRoles);
+        const auto roles = roleNames().keys();
+        for (int row = 0; row < rows.size(); ++row) {
+            int from = row;
+            while (from < m_rows.size() && m_rows[from].cloudId.value != rows[row].cloudId.value)
+                ++from;
+            if (from == m_rows.size()) {
+                beginInsertRows({}, row, row);
+                m_rows.insert(row, rows[row]);
+                endInsertRows();
                 if (interrupted())
                     return;
+            } else {
+                if (from != row) {
+                    beginMoveRows({}, from, from, {}, row);
+                    m_rows.move(from, row);
+                    endMoveRows();
+                    if (interrupted())
+                        return;
+                }
+                QHash<int, QVariant> before;
+                for (int role : roles)
+                    before.insert(role, data(index(row), role));
+                m_rows[row] = rows[row];
+                QList<int> changedRoles;
+                for (int role : roles)
+                    if (before.value(role) != data(index(row), role))
+                        changedRoles.append(role);
+                if (!changedRoles.isEmpty()) {
+                    emit dataChanged(index(row), index(row), changedRoles);
+                    if (interrupted())
+                        return;
+                }
             }
         }
     }
     m_sessionRevision = session;
     m_listRevision = revision;
+    m_revisionsKnown = revision.has_value();
     m_total = page["total"].isDouble() ? quint64(page["total"].toInteger()) : rows.size();
     m_page = quint32((rows.size() + PageSize - 1) / PageSize);
     m_exhausted = true;
@@ -492,11 +500,14 @@ void UserPlaylistModel::succeed(quint64 id, const QByteArray &payload)
     // Rust already decodes the domain response. Do not duplicate the schema
     // or constrain pagination to a recorded response shape.
     const auto total = quint64(qMax<qint64>(0, page.value("total").toInteger()));
-    const auto revision = quint64(qMax<qint64>(0, object.value("total_revision").toInteger()));
+    const auto revision =
+        object.value("total_revision").isDouble()
+            ? std::optional<quint64>(quint64(object["total_revision"].toInteger()))
+            : std::nullopt;
     const auto number = m_page + 1;
     // Never append pages from different cloud revisions. Retain the old complete
     // prefix for display and require an explicit fresh reload.
-    if (m_page && (revision != m_listRevision)) {
+    if (m_page && revision && m_listRevision && *revision != *m_listRevision) {
         m_state = State::RestartRequired;
         m_error = tr("歌单已更新，请重新加载");
         emit changed();
@@ -518,7 +529,10 @@ void UserPlaylistModel::succeed(quint64 id, const QByteArray &payload)
         return;
     }
     m_page = quint32(number);
-    m_listRevision = revision;
+    if (revision)
+        m_listRevision = revision;
+    else
+        m_revisionsKnown = false;
     m_total = total;
     m_exhausted = rows.isEmpty() || (total > 0 && quint64(m_rows.size()) >= total);
     m_state = State::Ready;

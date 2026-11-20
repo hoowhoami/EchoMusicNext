@@ -1,5 +1,8 @@
 #include "SettingsKeys.h"
 #include "WindowController.h"
+#include "MainWindowHost.h"
+#include "ShortcutService.h"
+#include <QQmlEngine>
 #include <QGuiApplication>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -113,6 +116,74 @@ class WindowGeometryTest final : public QObject
         return result;
     }
 private slots:
+    void backgroundRetirementPreservesGeometry_data()
+    {
+        QTest::addColumn<QString>("mode");
+        for (const auto *mode : {"normal", "left-edge", "oversized", "hidden-change", "minimized",
+                                 "maximized", "maximized-minimized"})
+            QTest::newRow(mode) << QString::fromLatin1(mode);
+    }
+    void backgroundRetirementPreservesGeometry()
+    {
+        QFETCH(QString, mode);
+        QTemporaryDir directory;
+        SettingsStore settings(directory.filePath("settings.ini"));
+        QQmlEngine engine;
+        WindowController windows(settings, false);
+        ShortcutService shortcuts(settings, false);
+        MainWindowHost host(engine, windows, shortcuts, [&] {
+            auto *window = new QQuickWindow;
+            auto flags = windows.mainWindowFlags();
+            // Offscreen adds a synthetic 2px frame repeatedly to negative
+            // positions. Isolate geometry from that emulation; Cocoa uses the
+            // production expanded titlebar and its real native frame below.
+            if (QGuiApplication::platformName() == "offscreen")
+                flags |= Qt::FramelessWindowHint;
+            window->setFlags(flags);
+            window->resize(1150, 750);
+            return window;
+        });
+        host.show();
+        auto *window = host.window();
+        QVERIFY(window);
+        const auto area = window->screen()->availableGeometry();
+        auto requested = testBounds(*window, true);
+        if (mode == "left-edge")
+            requested.moveLeft(area.left() - 80);
+        if (mode == "oversized")
+            requested.setWidth(area.width() + 80);
+        window->setGeometry(requested);
+        QTest::qWait(50);
+        const auto normal = window->geometry();
+        for (int iteration = 0; iteration < 10; ++iteration) {
+            const bool maximized = mode.startsWith("maximized");
+            if (maximized) {
+                windows.toggleMaximized();
+                QTRY_VERIFY(windows.maximized());
+            }
+            if (mode.endsWith("minimized")) {
+                windows.minimize();
+                QTRY_VERIFY(window->windowStates().testFlag(Qt::WindowMinimized));
+                windows.floating()->showMini(); // Retire during native minimize.
+            } else {
+                windows.toggleVisibility();
+            }
+            QPointer<QQuickWindow> retired = window;
+            if (mode == "hidden-change")
+                window->setGeometry(normal.adjusted(15, 15, 45, 45));
+            QTRY_VERIFY(retired.isNull());
+            windows.showWindow();
+            window = host.window();
+            QVERIFY(window);
+            if (maximized) {
+                QTRY_VERIFY(windows.maximized());
+                windows.toggleMaximized();
+                QTRY_VERIFY(!windows.maximized());
+            }
+            QTRY_COMPARE_WITH_TIMEOUT(window->geometry(), normal, 3000);
+        }
+        host.shutdown();
+    }
     void restartPreservesNormalGeometry_data()
     {
         QTest::addColumn<QString>("phase");

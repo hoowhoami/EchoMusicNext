@@ -18,7 +18,7 @@ class UserPlaylistModel final : public QAbstractListModel
     Q_PROPERTY(State state READ state NOTIFY changed)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY changed)
     Q_PROPERTY(quint64 totalCount READ totalCount NOTIFY changed)
-    Q_PROPERTY(quint64 totalRevision READ totalRevision NOTIFY changed)
+    Q_PROPERTY(QVariant totalRevision READ totalRevision NOTIFY changed)
 public:
     enum class State
     {
@@ -99,9 +99,10 @@ public:
     {
         return m_total;
     }
-    quint64 totalRevision() const
+    QVariant totalRevision() const
     {
-        return m_listRevision;
+        return m_revisionsKnown && m_listRevision ? QVariant::fromValue(*m_listRevision)
+                                                  : QVariant{};
     }
     /// Session owning the catalog, also while an ordinary reload has no rows.
     quint64 sessionRevision() const
@@ -120,7 +121,8 @@ private:
         ApiClient::CloudPlaylistId cloudId;
         QString globalId, creatorGlobalId, title, description, cover, creatorName, tags;
         QString kind = QStringLiteral("owned");
-        quint64 songCount = 0, revision = 0, creatorId = 0, creatorListId = 0;
+        quint64 songCount = 0, creatorId = 0, creatorListId = 0;
+        std::optional<quint64> revision;
         qint64 sortIndex = 0;
         std::optional<quint32> defaultKind;
         quint32 sourceCode = 0;
@@ -140,7 +142,9 @@ private:
     QList<Row> m_rows;
     State m_state = State::SignedOut;
     QString m_error;
-    quint64 m_request = 0, m_sessionRevision = 0, m_listRevision = 0, m_total = 0;
+    quint64 m_request = 0, m_sessionRevision = 0, m_total = 0;
+    std::optional<quint64> m_listRevision;
+    bool m_revisionsKnown = true;
     quint32 m_page = 0;
     static constexpr quint32 PageSize = 30;
     bool m_exhausted = false, m_closed = false, m_mutating = false, m_resetPending = false,

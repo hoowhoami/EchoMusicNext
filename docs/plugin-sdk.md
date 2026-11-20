@@ -28,6 +28,8 @@
 
 播放器快照中的 `quality` 是当前歌曲的首选音质，`resolvedQuality` 与 `effectiveQuality` 表示引擎已确认采用的实际音源。取到候选地址尚不更新这两个值；同曲切换失败时保留旧音源的结果。Automatic 兜底无法确认返回文件的档位时，后两者使用 `unknown`；呈现时不要把它替换成首选音质。该值仅用于报告结果，不是可选择的音质。
 
+主窗口进入后台后可以完整释放并在返回时重建。插件激活、音源和后台服务继续运行；挂载于主窗口的呈现实例会退休，重新显示时按需创建。不要长期持有旧主窗的区域引用或把播放编排放在可销毁的呈现组件里。独立插件窗口及用户开启的桌面歌词、Mini 沿各自生命周期运行。
+
 `ctx.ui.setState` 发布最多 1 MiB 的 JSON 对象，供同一插件的设置和绘制组件共享只读界面状态。`registerSurface(id, target, packageRelativeQml)` 支持 `playerbar.background`、`mini.background` 和 `lyrics.aboveControls`。宿主隐藏、最小化或插件停用时销毁挂载实例，恢复显示时按需创建。
 
 声明 `audio.spectrum` feature 和 `audioSpectrum` capability 后，可订阅播放器实际输出的 PCM 频谱。订阅提供帧、状态及暂停/释放操作；`dispose` 后句柄失效。多个订阅共享分析，暂停或没有可见订阅时停止采集与 FFT 请求。

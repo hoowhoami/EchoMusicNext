@@ -12,14 +12,14 @@ use std::collections::BTreeMap;
 type Wire = crate::util::response::ErrcodeEnvelope<serde_json::Value>;
 #[derive(Deserialize)]
 struct Data {
-    #[serde(deserialize_with = "crate::util::response::list")]
+    #[serde(default, deserialize_with = "crate::util::response::list")]
     list: Vec<Item>,
 }
 #[derive(Deserialize)]
 struct Item {
     #[serde(rename = "type")]
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    kind: u32,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    kind: Option<u32>,
     #[serde(default, deserialize_with = "crate::util::response::text")]
     title: String,
     #[serde(default, deserialize_with = "crate::util::response::text")]
@@ -47,7 +47,7 @@ pub fn convert(bytes: &[u8]) -> Result<Vec<PlaylistCard>, ApiError> {
     Ok(data
         .list
         .into_iter()
-        .filter(|p| p.kind == 1)
+        .filter(|p| p.kind == Some(1))
         .map(|p| PlaylistCard {
             id: p.extra.global_collection_id.unwrap_or_default(),
             title: p.title,
@@ -59,7 +59,7 @@ pub fn convert(bytes: &[u8]) -> Result<Vec<PlaylistCard>, ApiError> {
                 alternate_global_id: p.extra.global_special_id,
                 creator_id: p.extra.suid,
                 play_count: p.extra.play_count,
-                kind_code: Some(p.kind),
+                kind_code: p.kind,
                 ..Default::default()
             },
         })

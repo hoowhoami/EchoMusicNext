@@ -67,6 +67,21 @@ RouteController::RouteController(QObject *parent) : QAbstractListModel(parent)
         m_definitions.insert(name, definition);
     }
 }
+void RouteController::setPresentationActive(bool active)
+{
+    if (m_closed || m_presentationActive == active)
+        return;
+    m_presentationActive = active;
+    QList<QPointer<RouteContext>> pages;
+    for (auto *page : std::as_const(m_pages))
+        pages.append(page);
+    for (auto page : std::as_const(pages)) {
+        if (m_closed || m_presentationActive != active)
+            break;
+        if (page)
+            page->setPresentationActive(active);
+    }
+}
 int RouteController::rowCount(const QModelIndex &parent) const
 {
     return parent.isValid() ? 0 : int(m_pages.size());
@@ -325,6 +340,7 @@ void RouteController::present(const Location &location)
     // Publish the new identity before pruning the outgoing object. Animation and
     // refresh never retain a reference to an invalidated page's QML item.
     m_current = next;
+    next->setPresentationActive(m_presentationActive);
     next->m_used = ++m_clock;
     if (previous) {
         previous->setActive(false);

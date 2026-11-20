@@ -29,9 +29,11 @@ pub struct DownloadedLyrics {
     pub content: String,
 }
 pub fn convert(bytes: &[u8]) -> Result<DownloadedLyrics, ApiError> {
-    let wire: Wire = request::decode(bytes)?;
+    let wire: Wire = request::decode_envelope(bytes, "error_code")?;
     if wire.status != 200 || wire.error_code != 0 {
-        return Err(ApiError::new("business", "歌词获取失败"));
+        let mut error = ApiError::business(wire.error_code);
+        error.message = "歌词获取失败".into();
+        return Err(error);
     }
     let format = match wire.contenttype {
         0 => "krc",

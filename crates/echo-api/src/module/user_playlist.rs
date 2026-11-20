@@ -11,11 +11,12 @@ use std::collections::BTreeMap;
 type Wire = crate::util::response::DefaultDataEnvelope<serde_json::Value>;
 #[derive(Deserialize)]
 struct Data {
+    #[serde(default)]
     info: serde_json::Value,
     #[serde(default, deserialize_with = "crate::util::response::optional")]
     userid: Option<u64>,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    total_ver: u64,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    total_ver: Option<u64>,
     #[serde(default, deserialize_with = "crate::util::response::optional")]
     list_count: Option<u64>,
     #[serde(default, deserialize_with = "crate::util::response::optional")]
@@ -47,8 +48,8 @@ struct Item {
     list_create_listid: Option<u64>,
     #[serde(default, deserialize_with = "crate::util::response::optional")]
     count: Option<u64>,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    list_ver: u64,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    list_ver: Option<u64>,
     #[serde(default, deserialize_with = "crate::util::response::optional")]
     sort: Option<i64>,
     #[serde(default, deserialize_with = "crate::util::response::optional")]
@@ -97,7 +98,7 @@ pub struct UserPlaylist {
     pub creator_name: String,
     pub creator_list_id: Option<u64>,
     pub song_count: Option<u64>,
-    pub revision: u64,
+    pub revision: Option<u64>,
     pub sort_index: Option<i64>,
     pub source_code: Option<u32>,
     pub kind: CloudPlaylistKind,
@@ -127,7 +128,7 @@ pub struct PlaylistFlagCodes {
 pub struct UserPlaylists {
     pub page: Page<UserPlaylist>,
     pub user_id: Option<u64>,
-    pub total_revision: u64,
+    pub total_revision: Option<u64>,
     pub collection_count: Option<u64>,
     pub album_count: Option<u64>,
 }
@@ -152,7 +153,7 @@ pub fn convert(bytes: &[u8], page: u32, page_size: u32) -> Result<UserPlaylists,
         vec![]
     } else {
         crate::util::response::from_value(data.info).map_err(|_| ApiError::decode())?
-    }; // The row container is required; explicit null has no returned rows.
+    }; // Missing/null info carries no returned rows.
 
     let items = items
         .into_iter()

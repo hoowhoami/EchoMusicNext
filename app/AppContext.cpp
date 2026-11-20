@@ -53,6 +53,7 @@
 #include "ThemeStore.h"
 #include "UserPlaylistModel.h"
 #include "WindowController.h"
+#include "MainWindowHost.h"
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QQmlApplicationEngine>
@@ -101,6 +102,8 @@ AppContext::~AppContext()
     for (const auto &connection : m_connections)
         QObject::disconnect(connection);
     // QML bindings must release references before their injected service owners.
+    m_mainUi.reset();
+    m_auxiliaryWindows.reset();
     if (m_engine)
         qDeleteAll(m_engine->rootObjects());
 }

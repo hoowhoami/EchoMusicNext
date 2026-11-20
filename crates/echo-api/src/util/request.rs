@@ -938,6 +938,34 @@ pub fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, ApiError> {
     }
     serde_json::from_slice(bytes).map_err(|_| ApiError::decode())
 }
+/// A rejected response need not carry a decodable success payload. Recover only
+/// its endpoint's named business code if decoding that payload failed; normal
+/// endpoint handling (including special status codes) remains authoritative.
+pub fn decode_envelope<T: DeserializeOwned>(
+    bytes: &[u8],
+    error_field: &str,
+) -> Result<T, ApiError> {
+    decode(bytes).map_err(|error| {
+        if error.kind != "decode" {
+            return error;
+        }
+        let Ok(value) = serde_json::from_slice::<serde_json::Value>(bytes) else {
+            return error;
+        };
+        let code = value
+            .get(error_field)
+            .and_then(|value| super::response::from_value::<i64>(value.clone()).ok());
+        let rejected = value
+            .get("status")
+            .and_then(|value| super::response::from_value::<u32>(value.clone()).ok())
+            == Some(0);
+        if code.is_some_and(|code| code != 0) || rejected {
+            ApiError::business(code.unwrap_or_default())
+        } else {
+            error
+        }
+    })
+}
 /// Report only whitelisted protocol field names and array positions. Never
 /// include a rejected value or arbitrary map key in logs/user-facing errors.
 pub fn decode_value<T: DeserializeOwned>(

@@ -11,6 +11,7 @@ pub struct Query {
 }
 #[derive(Deserialize)]
 struct Wire {
+    #[serde(deserialize_with = "crate::util::response::scalar")]
     status: u32,
     #[serde(default)]
     data: BTreeMap<String, Url>,

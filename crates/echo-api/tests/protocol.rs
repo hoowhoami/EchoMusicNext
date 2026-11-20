@@ -179,3 +179,177 @@ fn avatar_transport_and_account_submission_are_distinct_requests() {
     let combined = serde_json::json!({"operation":"user_update_avatar","identity":identity,"query":{"image_base64":"AA==","local_date":"20261023"}});
     assert!(serde_json::from_value::<Request>(combined).is_err());
 }
+
+#[test]
+fn rejected_envelopes_keep_the_business_code_without_a_success_payload() {
+    use echo_api::module::*;
+    // Failure-shape boundary cases, not invented successful provider captures.
+    for data in [
+        None,
+        Some(serde_json::Value::Null),
+        Some(serde_json::json!("rejected")),
+    ] {
+        let mut value = serde_json::json!({"status":0,"error_code":12345,"errcode":12345});
+        if let Some(data) = data {
+            value["data"] = data;
+        }
+        let body = serde_json::to_vec(&value).unwrap();
+        macro_rules! check {
+            ($call:expr) => {{
+                let error = $call.err().expect(stringify!($call));
+                assert_eq!(error.kind, "business", "{}", stringify!($call));
+                assert_eq!(error.code, Some(12345), "{}", stringify!($call));
+            }};
+        }
+        check!(top_playlist::convert(&body));
+        check!(top_ip::convert(&body));
+        check!(top_album::convert(&body));
+        check!(top_song::convert(&body));
+        check!(album_detail::convert(&body));
+        check!(album_dycover::convert(&body, 1));
+        check!(album_songs::convert(&body, 1, 30));
+        check!(artist_detail::convert(&body));
+        check!(artist_albums::convert(&body, 1, 30));
+        check!(artist_audios_new::convert(&body, 1, 30));
+        check!(artist_lists::convert(&body));
+        check!(rank_list::convert(&body));
+        check!(rank_top::convert(&body));
+        check!(rank_audio::convert(&body));
+        check!(everyday_recommend::convert(&body));
+        check!(everyday_style_recommend::convert(&body));
+        check!(home_discover::convert(&body));
+        check!(ai_recommend_song::convert(&body));
+        check!(personal_fm::convert(&body));
+        check!(images_audio::convert(&body));
+        check!(kmr_audio_mv::convert(&body));
+        check!(video_detail::convert(&body));
+        check!(video_privilege::convert(&body));
+        check!(privilege_lite::convert(&body));
+        check!(playlist_detail::convert(&body));
+        check!(playlist_tags::convert(&body));
+        check!(playlist_track_all::convert(&body, 1, 30));
+        check!(playlist_track_all_new::convert(&body));
+        check!(user_playlist::convert(&body, 1, 30));
+        check!(user_cloud::convert(&body, 1, 30));
+        check!(user_cloud_del::convert(&body));
+        check!(user_cloud_match::convert(&body));
+        check!(user_cloud_url::convert(&body));
+        check!(user_detail::convert(&body, 1));
+        check!(user_grade_info::convert(&body));
+        check!(user_vip_detail::convert(&body));
+        check!(user_info::convert(&body));
+        check!(user_fans::convert(&body));
+        check!(user_follow::convert(&body));
+        check!(user_friends::convert(&body));
+        check!(user_visitors::convert(&body));
+        check!(user_purchased_songs::convert(&body, 1, 30));
+        check!(user_purchased_albums::convert(&body, 1, 30));
+        check!(user_video_collect::convert(&body, 1, 30));
+        check!(search_hot::convert(&body));
+        check!(search_default::convert(&body));
+        check!(search_suggest::convert(&body));
+        check!(effects_brand::convert(&body, 1, 20));
+        check!(effects_brand_detail::convert(&body, 1, 20));
+        check!(effects_match::convert(&body));
+        check!(get_model::convert(&body, 1, 20));
+        check!(effects_artist::convert(&body, 1, 20));
+        check!(lyric::convert(&body));
+    }
+}
+
+#[test]
+fn absent_optional_lists_do_not_reject_an_empty_content_page() {
+    use echo_api::module::*;
+    let body = br#"{"status":1,"error_code":0,"errcode":0,"data":{}}"#;
+    assert!(top_playlist::convert(body).unwrap().is_empty());
+    assert!(top_ip::convert(body).unwrap().is_empty());
+    assert!(rank_list::convert(body).unwrap().is_empty());
+    assert!(rank_top::convert(body).unwrap().is_empty());
+    assert!(search_hot::convert(body).unwrap().is_empty());
+    assert!(user_fans::convert(body).unwrap().users.is_empty());
+    assert!(user_follow::convert(body).unwrap().users.is_empty());
+    assert!(user_visitors::convert(body).unwrap().users.is_empty());
+    assert!(
+        album_songs::convert(body, 1, 30)
+            .unwrap()
+            .page
+            .items
+            .is_empty()
+    );
+    assert!(
+        playlist_track_all::convert(body, 1, 30)
+            .unwrap()
+            .items
+            .is_empty()
+    );
+}
+
+#[test]
+fn unfamiliar_editor_entries_do_not_reject_known_playlists() {
+    let body = br#"{"status":1,"errcode":0,"data":{"list":[{"title":"unknown provider item"},{"type":"future"},{"type":1,"title":"known","extra":{"global_collection_id":"known-id"}}]}}"#;
+    let cards = echo_api::module::top_ip::convert(body).unwrap();
+    assert_eq!(cards.len(), 1);
+    assert_eq!(cards[0].id, "known-id");
+    assert_eq!(cards[0].title, "known");
+}
+
+#[test]
+fn import_acknowledgements_and_progress_do_not_require_echo_metadata() {
+    use echo_api::module::import_playlist;
+    let created =
+        import_playlist::convert_created(br#"{"status":1,"errcode":0,"data":{"id":"71"}}"#)
+            .unwrap();
+    assert_eq!(created.task_id, Some(71));
+    assert_eq!(created.user_id, None);
+    assert_eq!(created.cloud_list_id, None);
+    assert_eq!(created.source, None);
+    assert_eq!(created.status, None);
+    let rows = import_playlist::convert_status(
+        br#"{"status":1,"errcode":0,"data":[{"status":"3","songs_num":2,"imported_num":2}]}"#,
+    )
+    .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].task_id, None);
+    assert_eq!(rows[0].user_id, None);
+    assert_eq!(rows[0].status, Some(3));
+    assert_eq!(rows[0].imported, Some(2));
+    let result = import_playlist::convert_result(
+        br#"{"status":1,"error_code":0,"data":{"status":3,"imported_num":2}}"#,
+        1,
+        100,
+    )
+    .unwrap();
+    assert_eq!(result.task.task_id, None);
+    assert_eq!(result.task.imported, Some(2));
+    assert!(result.missed_tracks.is_empty());
+    let denied = import_playlist::convert_created(br#"{"status":0,"errcode":12345}"#)
+        .err()
+        .unwrap();
+    assert_eq!(denied.kind, "business");
+    assert_eq!(denied.code, Some(12345));
+}
+
+#[test]
+fn missing_playlist_versions_do_not_reject_readable_rows() {
+    use echo_api::module::{playlist_track_all_new, user_playlist};
+    let library = user_playlist::convert(
+        br#"{"status":1,"error_code":0,"data":{"info":[{"listid":7,"name":"known playlist"}]}}"#,
+        1,
+        30,
+    )
+    .unwrap();
+    assert_eq!(library.total_revision, None);
+    assert_eq!(library.page.items.len(), 1);
+    assert_eq!(library.page.items[0].revision, None);
+    assert_eq!(library.page.items[0].cloud_list_id, Some(7));
+    assert_eq!(library.page.items[0].title, "known playlist");
+    let tracks = playlist_track_all_new::convert(br#"{"status":1,"error_code":0,"data":{"info":[{"mixsongid":"71","name":"known song","hash":"0123456789abcdef0123456789abcdef"}]}}"#).unwrap();
+    assert_eq!(tracks.revision, None);
+    assert_eq!(tracks.cloud_list_id, None);
+    assert_eq!(tracks.page.items.len(), 1);
+    assert_eq!(tracks.page.items[0].song.id, "71");
+    assert_eq!(
+        tracks.page.items[0].song.hash,
+        "0123456789abcdef0123456789abcdef"
+    );
+}

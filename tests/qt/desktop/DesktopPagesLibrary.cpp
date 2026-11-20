@@ -153,12 +153,11 @@ void DesktopPagesTest::playlistImportBackgroundResultsStopAndSessionIsolation()
     PlaylistImportTaskCoordinator coordinator(importer, tasks, preferences);
     QVERIFY(importer.startLink("https://example.invalid/playlist"));
     QCOMPARE(tasks.count(), 1);
-    PlaylistImportServiceTestAccess::complete(
-        importer, R"({"task_id":71,"user_id":900001,"cloud_list_id":0})");
+    PlaylistImportServiceTestAccess::complete(importer, R"({"task_id":71})");
     QCOMPARE(importer.phase(), PlaylistImportService::Cloud);
     PlaylistImportServiceTestAccess::complete(
         importer,
-        R"([{"task_id":71,"user_id":900001,"cloud_list_id":101,"status":3,"title":"领域导入结果","total":3,"imported":2,"missed":1}])");
+        R"([{"cloud_list_id":101,"status":3,"title":"领域导入结果","total":3,"imported":2,"missed":1}])");
     PlaylistImportServiceTestAccess::complete(
         importer,
         R"({"task":{"task_id":71,"user_id":900001,"cloud_list_id":101},"page":1,"page_size":100,"missed_tracks":[{"title":"未匹配歌曲","artist":"歌手","reason":"没有结果"}]})");

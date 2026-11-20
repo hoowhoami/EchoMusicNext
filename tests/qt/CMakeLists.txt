@@ -728,6 +728,7 @@ target_sources(
             desktop/DesktopPagesSettings1.cpp
             desktop/DesktopPagesSettings2.cpp
             desktop/DesktopPagesSettingsHandoff.cpp
+            desktop/DesktopPagesBackground.cpp
             desktop/DesktopPagesPlayback1.cpp
             desktop/DesktopPagesPlayback2.cpp
             desktop/DesktopPagesPlayback3.cpp
@@ -803,6 +804,17 @@ target_link_libraries(
             Qt6::QuickControls2
             Qt6::Sql
             Qt6::Test
+)
+add_test(
+    NAME background-playback
+    COMMAND
+        echo-desktop-pages-test mainWindowUnloadRestoresProductionUi
+        mainWindowBackgroundKeepsPluginPlaybackAndFloating
+        mainWindowRecoveryRejectsStaleRetirementAndRetriesFailure
+)
+set_tests_properties(
+    background-playback
+    PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Basic" TIMEOUT 180
 )
 set(ECHO_DESKTOP_TEST_GROUPS
     desktop-pages-settings

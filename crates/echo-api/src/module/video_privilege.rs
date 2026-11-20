@@ -12,8 +12,9 @@ pub struct Query {
 }
 #[derive(Deserialize)]
 struct Wire {
+    #[serde(deserialize_with = "crate::util::response::scalar")]
     status: u32,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::util::response::scalar")]
     error_code: i64,
     #[serde(default, deserialize_with = "crate::util::response::list")]
     data: Vec<Row>,
@@ -42,7 +43,7 @@ pub struct Row {
     pub extension: BTreeMap<String, serde_json::Value>,
 }
 pub fn convert(b: &[u8]) -> Result<Vec<Row>, ApiError> {
-    let w: Wire = request::decode(b)?;
+    let w: Wire = request::decode_envelope(b, "error_code")?;
     request::success(w.status, w.error_code)?;
     Ok(w.data)
 }

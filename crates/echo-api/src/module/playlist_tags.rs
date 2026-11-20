@@ -14,7 +14,7 @@ struct Wire {
     status: u32,
     #[serde(deserialize_with = "crate::util::response::scalar")]
     error_code: i64,
-    #[serde(deserialize_with = "crate::util::response::list")]
+    #[serde(default, deserialize_with = "crate::util::response::list")]
     data: Vec<Group>,
 }
 #[derive(Deserialize)]
@@ -50,7 +50,7 @@ pub struct Category {
     pub children: Vec<Category>,
 }
 pub fn convert(bytes: &[u8]) -> Result<Vec<Category>, ApiError> {
-    let w: Wire = request::decode(bytes)?;
+    let w: Wire = request::decode_envelope(bytes, "error_code")?;
     request::success(w.status, w.error_code)?;
     w.data
         .into_iter()

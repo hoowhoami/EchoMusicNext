@@ -7,6 +7,7 @@
 #include "ShellSettings.h"
 #include "StartupController.h"
 #include "StorageService.h"
+#include "WindowController.h"
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QQmlApplicationEngine>
@@ -24,7 +25,6 @@ void AppContext::wireSmoke()
     auto &api = *m_api;
     auto &storage = *m_storage;
     auto &startup = *m_startup;
-    auto &engine = *m_engine;
     auto &plugins = *m_plugins;
     finishSmoke = [&] {
         // QML construction can process events before start() imports any package.
@@ -48,11 +48,8 @@ void AppContext::wireSmoke()
                     return true;
             return false;
         };
-        for (auto *root : engine.rootObjects()) {
-            auto *surface = qobject_cast<QQuickWindow *>(root);
-            pageCreated = pageCreated || findPage(surface ? surface->contentItem()
-                                                          : qobject_cast<QQuickItem *>(root));
-        }
+        if (auto *surface = m_window->mainWindow())
+            pageCreated = findPage(surface->contentItem());
         // RouteHost incubates real pages asynchronously. API readiness alone
         // previously let a normal smoke finish before its startup page existed.
         if (!pageCreated)
@@ -88,8 +85,7 @@ void AppContext::wireSmoke()
                     for (auto *child : item->childItems())
                         self(self, child);
             };
-            for (auto *root : engine.rootObjects())
-                visit(visit, root);
+            visit(visit, m_window->mainWindow());
             // Fresh smoke preferences exercise the real first-home consent
             // trigger, then audit zero idle popups only after full disposal.
             if (!shell.userAgreementAccepted()) {

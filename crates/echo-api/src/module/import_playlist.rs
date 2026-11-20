@@ -39,35 +39,36 @@ struct AssetWire {
     status: u32,
     #[serde(deserialize_with = "crate::util::response::scalar")]
     errcode: i64,
+    #[serde(default)]
     data: Value,
 }
 #[derive(Deserialize)]
 struct CreatedWire {
-    #[serde(default, deserialize_with = "crate::util::response::text")]
-    userid: String,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    id: u64,
-    #[serde(default, deserialize_with = "crate::util::response::text")]
-    listid: String,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    source: u32,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    task_type: u32,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    status: i32,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    userid: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    id: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    listid: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    source: Option<u32>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    task_type: Option<u32>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    status: Option<i32>,
 }
 #[derive(Deserialize)]
 struct StatusWire {
-    #[serde(default, deserialize_with = "crate::util::response::text")]
-    userid: String,
-    #[serde(default, deserialize_with = "crate::util::response::text")]
-    id: String,
-    #[serde(default, deserialize_with = "crate::util::response::text")]
-    listid: String,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    source: u32,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    status: i32,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    userid: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    id: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    listid: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    source: Option<u32>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    status: Option<i32>,
     #[serde(default, deserialize_with = "crate::util::response::text")]
     name: String,
     #[serde(default, deserialize_with = "crate::util::response::optional")]
@@ -90,20 +91,21 @@ struct ResultWire {
     status: u32,
     #[serde(deserialize_with = "crate::util::response::scalar")]
     error_code: i64,
+    #[serde(default)]
     data: Value,
 }
 #[derive(Deserialize)]
 struct ResultData {
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    userid: u64,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    listid: u64,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    id: u64,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    source: u32,
-    #[serde(deserialize_with = "crate::util::response::scalar")]
-    status: i32,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    userid: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    listid: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    id: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    source: Option<u32>,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    status: Option<i32>,
     #[serde(default, deserialize_with = "crate::util::response::text")]
     name: String,
     #[serde(default, deserialize_with = "crate::util::response::optional")]
@@ -128,8 +130,8 @@ struct MissedWire {
 }
 #[derive(Deserialize)]
 struct CountWire {
-    #[serde(default, deserialize_with = "crate::util::response::text")]
-    userid: String,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    userid: Option<u64>,
     #[serde(default, deserialize_with = "crate::util::response::optional")]
     count: Option<u64>,
     #[serde(default, deserialize_with = "crate::util::response::optional")]
@@ -137,12 +139,12 @@ struct CountWire {
 }
 #[derive(Serialize)]
 pub struct ImportTask {
-    pub task_id: u64,
-    pub user_id: u64,
-    pub cloud_list_id: u64,
-    pub source: u32,
+    pub task_id: Option<u64>,
+    pub user_id: Option<u64>,
+    pub cloud_list_id: Option<u64>,
+    pub source: Option<u32>,
     pub task_type: Option<u32>,
-    pub status: i32,
+    pub status: Option<i32>,
     pub title: String,
     pub total: Option<u64>,
     pub matched: Option<u64>,
@@ -164,9 +166,6 @@ pub struct ImportResult {
     pub page: u32,
     pub page_size: u32,
 }
-fn decimal(value: &str) -> Result<u64, ApiError> {
-    value.parse().map_err(|_| ApiError::decode())
-}
 fn asset(bytes: &[u8]) -> Result<Value, ApiError> {
     let wire: AssetWire = request::decode(bytes)?;
     request::success(wire.status, wire.errcode)?;
@@ -177,10 +176,10 @@ pub fn convert_created(bytes: &[u8]) -> Result<ImportTask, ApiError> {
         crate::util::response::from_value(asset(bytes)?).map_err(|_| ApiError::decode())?;
     Ok(ImportTask {
         task_id: data.id,
-        user_id: decimal(&data.userid)?,
-        cloud_list_id: decimal(&data.listid)?,
+        user_id: data.userid,
+        cloud_list_id: data.listid,
         source: data.source,
-        task_type: Some(data.task_type),
+        task_type: data.task_type,
         status: data.status,
         title: String::new(),
         total: None,
@@ -200,11 +199,11 @@ pub fn convert_status(bytes: &[u8]) -> Result<Vec<ImportTask>, ApiError> {
 
     rows.into_iter()
         .map(|data| {
-            let id = decimal(&data.id)?;
+            let id = data.id;
             Ok(ImportTask {
                 task_id: id,
-                user_id: decimal(&data.userid)?,
-                cloud_list_id: decimal(&data.listid)?,
+                user_id: data.userid,
+                cloud_list_id: data.listid,
                 source: data.source,
                 task_type: data.task_type,
                 status: data.status,
@@ -260,7 +259,7 @@ pub fn convert_upload(bytes: &[u8]) -> Result<Value, ApiError> {
 pub fn convert_count(bytes: &[u8]) -> Result<Value, ApiError> {
     let data: CountWire =
         crate::util::response::from_value(asset(bytes)?).map_err(|_| ApiError::decode())?;
-    Ok(json!({"user_id":decimal(&data.userid)?,"count":data.count,"failed_count":data.fail_count}))
+    Ok(json!({"user_id":data.userid,"count":data.count,"failed_count":data.fail_count}))
 }
 pub async fn execute(
     client: &ApiClient,

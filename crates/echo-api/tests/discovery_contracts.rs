@@ -70,6 +70,44 @@ fn live_category_captures_keep_populated_and_omitted_lists_distinct() {
         }
     }
 }
+
+#[test]
+fn live_category_empty_tag_object_keeps_every_playlist_and_known_tag() {
+    for category in ["0", "11292"] {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/api/top_playlist")
+            .join(format!("current-{category}-20261119.json"));
+        let record: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+        assert_eq!(record["http_status"], 200);
+        let payload = &record["payload"];
+        let rows = payload["data"]["special_list"].as_array().unwrap();
+        if category == "0" {
+            assert_eq!(rows.len(), 40);
+            assert_eq!(rows[33]["tags"], serde_json::json!({}));
+            // Isolate the observed empty-object variant from other response facts.
+            let mut array_variant = payload.clone();
+            array_variant["data"]["special_list"][33]["tags"] = serde_json::json!([]);
+            assert_eq!(
+                top_playlist::convert(&bytes(&array_variant)).unwrap().len(),
+                40
+            );
+        }
+        let cards = top_playlist::convert(&bytes(payload)).unwrap();
+        assert_eq!(cards.len(), rows.len());
+        for (card, row) in cards.iter().zip(rows) {
+            assert_eq!(card.id, row["global_collection_id"].as_str().unwrap());
+            assert_eq!(card.title, row["specialname"].as_str().unwrap());
+            assert_eq!(card.metadata.public_id, row["specialid"].as_u64());
+            assert_eq!(card.metadata.play_count, row["play_count"].as_u64());
+            let tags = row["tags"].as_array().map(Vec::as_slice).unwrap_or(&[]);
+            assert_eq!(card.metadata.tags.len(), tags.len());
+            for (tag, wire) in card.metadata.tags.iter().zip(tags) {
+                assert_eq!(tag.id, wire["tag_id"].as_u64().unwrap().to_string());
+                assert_eq!(tag.name, wire["tag_name"].as_str().unwrap());
+            }
+        }
+    }
+}
 #[test]
 fn daily_current_and_anonymous_preserve_seconds_and_metadata() {
     for name in ["daily-current", "daily-anonymous"] {

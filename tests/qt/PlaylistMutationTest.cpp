@@ -1,5 +1,6 @@
 #include "PlaylistMutationService.h"
 #include "UserPlaylistModel.h"
+#include <QAbstractItemModelTester>
 #include <QBuffer>
 #include <QElapsedTimer>
 #include <QImage>
@@ -175,11 +176,15 @@ private slots:
         PlaylistMutationServiceTestAccess::succeed(service, first, payload(items));
         QVERIFY(snapshots.isEmpty());
         QCOMPARE(service.state(), PlaylistMutationService::State::Ready);
+        auto last = QJsonDocument::fromJson(payload({})).object();
+        last.remove("total_revision");
         PlaylistMutationServiceTestAccess::succeed(
-            service, PlaylistMutationServiceTestAccess::background(service), payload({}));
+            service, PlaylistMutationServiceTestAccess::background(service),
+            QJsonDocument(last).toJson());
         QCOMPARE(snapshots.size(), 1);
         QCOMPARE(snapshots.first()[0].toJsonObject()["page"].toObject()["items"].toArray().size(),
                  100);
+        QVERIFY(snapshots.first()[0].toJsonObject()["total_revision"].isNull());
         api.shutdown();
     }
     void repeatedBackgroundPageUpdatesRowsAndStopsWithoutBlockingWrites()
@@ -213,6 +218,12 @@ private slots:
         QVERIFY(api.setNetworkTransport(1));
         QVERIFY(api.setAccount(1, "fixture-token"));
         PlaylistMutationService service(api);
+        UserPlaylistModel library(api);
+        QAbstractItemModelTester tester(&library,
+                                        QAbstractItemModelTester::FailureReportingMode::QtTest);
+        tester.setUseFetchMore(false);
+        connect(&service, &PlaylistMutationService::libraryReconciled, &library,
+                &UserPlaylistModel::applyLibrarySnapshot);
         QSignalSpy snapshots(&service, &PlaylistMutationService::libraryReconciled);
         const QByteArray page = R"({"total_revision":8,"page":{"total":1000,"items":[
             {"global_id":"a"},{"global_id":"b"},
@@ -227,6 +238,13 @@ private slots:
         QCOMPARE(snapshots.first()[0].toJsonObject()["page"].toObject()["items"].toArray().size(),
                  6);
         QCOMPARE(PlaylistMutationServiceTestAccess::background(service), quint64(0));
+        QCOMPARE(library.rowCount(), 6);
+        QCOMPARE(library.state(), UserPlaylistModel::State::Ready);
+        QVERIFY(library.errorMessage().isEmpty());
+        QCOMPARE(library.data(library.index(0), UserPlaylistModel::GlobalIdRole).toString(),
+                 QStringLiteral("a"));
+        QCOMPARE(library.data(library.index(1), UserPlaylistModel::GlobalIdRole).toString(),
+                 QStringLiteral("b"));
         api.shutdown();
     }
     void completeDirectoryReadbackIsMergedWithoutAnotherReload()

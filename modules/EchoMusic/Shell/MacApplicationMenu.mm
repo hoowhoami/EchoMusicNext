@@ -57,11 +57,8 @@ QMenuBar *createMacApplicationMenu(WindowController *controller)
     auto *about = application->addAction(QStringLiteral("关于 EchoMusicNext"), controller,
                                          [] { [NSApp orderFrontStandardAboutPanel:nil]; });
     about->setMenuRole(QAction::AboutRole);
-    auto *preferences =
-        application->addAction(QStringLiteral("偏好设置…"), controller, [controller] {
-            controller->showWindow();
-            emit controller->settingsRequested({});
-        });
+    auto *preferences = application->addAction(QStringLiteral("偏好设置…"), controller,
+                                               [controller] { controller->requestSettings(); });
     preferences->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Comma));
     preferences->setMenuRole(QAction::PreferencesRole);
     auto *quit = application->addAction(QStringLiteral("退出 EchoMusicNext"), controller,

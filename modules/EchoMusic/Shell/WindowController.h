@@ -59,7 +59,18 @@ public:
     {
         return m_appIcons;
     }
+    void initializeSystemIntegration();
     void attach(QQuickWindow *window);
+    void detach();
+    QQuickWindow *mainWindow() const
+    {
+        return m_window;
+    }
+    /// Dispatch presentation commands only after the rebuilt shell exists.
+    Q_INVOKABLE void mainContentReady();
+    void requestSettings(const QString &section = {});
+    void requestLyricSelection();
+    void requestPlaybackPage();
     void attachPluginWindow(QQuickWindow *window);
     bool mainWindowActive() const;
 
@@ -180,6 +191,10 @@ signals:
     void changed();
     void presentationReadyChanged();
     void mainWindowActivated();
+    void mainWindowRequested();
+    void backgroundRequested();
+    void lyricSelectionRequested();
+    void playbackPageRequested();
     void contentFullscreenExitRequested(QObject *owner);
     void quitRequested();
     void settingsRequested(const QString &section);
@@ -192,6 +207,7 @@ private:
     void captureNormalGeometry();
     void updateNormalGeometry();
     void updateIncubationController();
+    void dispatchMainActions();
     void save();
     bool eventFilter(QObject *watched, QEvent *event) override;
     void setBackground(bool background);
@@ -218,11 +234,16 @@ private:
     // Window mode intent outlives the Mini surface. Closing Mini releases its
     // complete UI; tray activation recreates that last mode as EchoMusic does.
     bool m_restoreMini = false;
-    bool m_presentationReady = false;
+    bool m_presentationReady = false, m_firstPresentation = false;
+    bool m_systemIntegrationReady = false, m_mainContentReady = false;
+    bool m_pendingSettings = false, m_pendingLyrics = false, m_pendingPlaybackPage = false;
+    QString m_pendingSettingsSection;
     bool m_systemMoveActive = false;
     QTimer m_saveTimer;
     QTimer m_geometryTimer;
+    QTimer m_contentReadyTimer;
     QRect m_normal;
+    QList<QRect> m_screenAreas;
     bool m_persist, m_remember = true, m_restoring = false, m_wasMaximized = false;
     bool m_closeToTray = true, m_hideDock = false, m_hideMenu = false, m_startMinimized = false,
          m_background = false, m_shuttingDown = false;

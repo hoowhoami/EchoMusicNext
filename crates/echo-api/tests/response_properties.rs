@@ -49,7 +49,7 @@ proptest! {
 }
 
 #[test]
-fn envelope_shapes_keep_required_data_and_error_keys_distinct() {
+fn envelope_shapes_allow_missing_data_but_keep_error_keys_distinct() {
     let valid = json!({"status": "1", "error_code": "0", "data": null});
     let wire: response::Envelope<Value> = serde_json::from_value(valid).unwrap();
     assert_eq!(
@@ -57,7 +57,12 @@ fn envelope_shapes_keep_required_data_and_error_keys_distinct() {
         (1, 0, Value::Null)
     );
     let no_data = json!({"status": 1, "error_code": 0});
-    assert!(serde_json::from_value::<response::Envelope<Value>>(no_data.clone()).is_err());
+    assert!(
+        serde_json::from_value::<response::Envelope<Value>>(no_data.clone())
+            .unwrap()
+            .data
+            .is_null()
+    );
     assert_eq!(
         serde_json::from_value::<response::DefaultDataEnvelope<Value>>(no_data.clone())
             .unwrap()
