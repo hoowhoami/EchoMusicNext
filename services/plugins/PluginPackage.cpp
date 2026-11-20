@@ -488,10 +488,20 @@ PluginPackage PluginPackage::inspectManifest(const QByteArray &bytes)
                              : currentPlatform() == "linux" ? QStringLiteral("Linux")
                                                             : currentPlatform()));
     }
-    if (!rangeContains(requirements.value("hostVersion").toString(), hostVersion()) ||
-        !rangeContains(requirements.value("sdkVersion").toString(), sdkVersion())) {
+    QStringList versionErrors;
+    const auto hostRange = requirements.value("hostVersion").toString();
+    const auto sdkRange = requirements.value("sdkVersion").toString();
+    if (!rangeContains(hostRange, hostVersion()))
+        versionErrors.append(QObject::tr("需要 EchoMusicNext %1，当前版本为 %2")
+                                 .arg(hostRange.isEmpty() ? QObject::tr("未声明") : hostRange,
+                                      hostVersion().toString()));
+    if (!rangeContains(sdkRange, sdkVersion()))
+        versionErrors.append(QObject::tr("需要插件 SDK %1，当前版本为 %2")
+                                 .arg(sdkRange.isEmpty() ? QObject::tr("未声明") : sdkRange,
+                                      sdkVersion().toString()));
+    if (!versionErrors.isEmpty()) {
         result.incompatible = true;
-        return fail("Host or SDK version requirement is not satisfied");
+        return fail(QObject::tr("版本不兼容：%1").arg(versionErrors.join(QStringLiteral("；"))));
     }
     for (const auto &feature : result.features)
         if (!supportedFeatures().contains(feature)) {

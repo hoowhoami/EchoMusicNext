@@ -22,8 +22,8 @@ Rectangle {
     readonly property bool currentFailure: !marketplace && !!record.compatible && !!record.error && !record.dependencyBlocked
     readonly property bool hasFailure: !marketplace && !!record.failure?.message
     readonly property bool historicalFailure: hasFailure && !currentFailure && !record.dependencyBlocked
-    // One state decision feeds the badge, explanation and tone. Buttons name
-    // actions; platform metadata and an unavailable reason never repeat.
+    // One state decision feeds the badge, explanation and tone. Buttons express
+    // action availability; platform metadata and an unavailable reason never repeat.
     readonly property var presentation: {
         if (!record.compatible)
             return {
@@ -574,7 +574,7 @@ Rectangle {
                     accent: true
                     glyph: card.managingInstalled ? "adjustments-horizontal" : card.record.updateAvailable ? "refresh" : "arrow-bar-to-down"
                     loading: !!card.record.busy
-                    text: card.managingInstalled ? qsTr("管理") : card.record.updateAvailable ? qsTr("更新") : qsTr("安装")
+                    text: card.managingInstalled ? qsTr("管理") : !card.record.compatible ? qsTr("不兼容") : card.record.updateAvailable ? qsTr("更新") : qsTr("安装")
                     enabled: card.managingInstalled || !card.busy && !!card.record.compatible
                     onClicked: card.managingInstalled ? card.manageRequested(card.record.id) : card.manager.install(card.record.key)
                 }

@@ -12917,6 +12917,11 @@
         <source>启用 %1</source>
         <translation>启用 %1</translation>
     </message>
+    <message>
+        <location filename="../modules/EchoMusic/Plugins/PluginCard.qml" line="577"/>
+        <source>不兼容</source>
+        <translation>不兼容</translation>
+    </message>
 </context>
 <context>
     <name>PluginFailureDialog</name>
@@ -14177,6 +14182,27 @@
         <location filename="../modules/EchoMusic/History/HistoryService.cpp" line="207"/>
         <source>夜晚</source>
         <translation>夜晚</translation>
+    </message>
+    <message>
+        <location filename="../services/plugins/PluginPackage.cpp" line="495"/>
+        <source>需要 EchoMusicNext %1，当前版本为 %2</source>
+        <translation>需要 EchoMusicNext %1，当前版本为 %2</translation>
+    </message>
+    <message>
+        <location filename="../services/plugins/PluginPackage.cpp" line="496"/>
+        <location filename="../services/plugins/PluginPackage.cpp" line="500"/>
+        <source>未声明</source>
+        <translation>未声明</translation>
+    </message>
+    <message>
+        <location filename="../services/plugins/PluginPackage.cpp" line="499"/>
+        <source>需要插件 SDK %1，当前版本为 %2</source>
+        <translation>需要插件 SDK %1，当前版本为 %2</translation>
+    </message>
+    <message>
+        <location filename="../services/plugins/PluginPackage.cpp" line="504"/>
+        <source>版本不兼容：%1</source>
+        <translation>版本不兼容：%1</translation>
     </message>
 </context>
 <context>
