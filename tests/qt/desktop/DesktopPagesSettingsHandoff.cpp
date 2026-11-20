@@ -159,4 +159,106 @@ void DesktopPagesTest::lyricSkinGlobalSettingsHandoff()
     QVERIFY2(errors.isEmpty(), qPrintable(errors.join('\n')));
 }
 
+void DesktopPagesTest::lyricSkinSwitchKeepsCatalogAndPageStable_data()
+{
+    QTest::addColumn<bool>("motion");
+    QTest::addColumn<bool>("dark");
+    for (bool motion : {false, true})
+        for (bool dark : {false, true})
+            QTest::newRow(qPrintable(QString("%1-%2").arg(dark ? "dark-125" : "light-100",
+                                                          motion ? "animated" : "reduced")))
+                << motion << dark;
+}
+
+void DesktopPagesTest::lyricSkinSwitchKeepsCatalogAndPageStable()
+{
+    QFETCH(bool, motion);
+    QFETCH(bool, dark);
+    Session session;
+    session.shell.acceptUserAgreement();
+    session.shell.setMotionEnabled(motion);
+    session.theme.setMotionEnabled(motion);
+    session.theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    if (dark)
+        for (int step = 0; step < 5; ++step)
+            session.shell.zoomIn();
+    PlaybackService playback(session.api, session.preferences);
+    QVERIFY(session.create(&playback));
+    const auto cleanup = qScopeGuard([&] {
+        session.root.reset();
+        session.auxiliary.reset();
+        session.window = nullptr;
+    });
+    QVERIFY(Test::prepareNativeInput(session.window));
+    auto page = session.openOwnedPopup("playbackPageOwner");
+    QVERIFY(page);
+    QVERIFY(QMetaObject::invokeMethod(page, "openSkins"));
+    auto *owner = page->findChild<QObject *>("lyricSkinDrawerOwner");
+    QVERIFY(owner);
+    QPointer<QObject> drawer;
+    QTRY_VERIFY((drawer = owner->property("item").value<QObject *>()) &&
+                drawer->property("opened").toBool());
+    auto *catalog = visual(session.window->contentItem(), "lyricSkinCatalog");
+    QVERIFY(catalog);
+    QVERIFY(session.settleScene());
+    QList<QPointer<QQuickItem>> cards;
+    QList<QRectF> rectangles;
+    for (const auto *name :
+         {"coverLyricSkinCard", "portraitLyricSkinCard", "simpleLyricSkinCard"}) {
+        auto *card = visual(catalog, name);
+        QVERIFY(card);
+        cards.append(card);
+        rectangles.append(card->mapRectToScene(card->boundingRect()));
+    }
+    const auto windowGeometry = session.window->geometry();
+    const auto catalogRect = catalog->mapRectToScene(catalog->boundingRect());
+    QSignalSpy resets(session.theme.extensions()->skins(), &QAbstractItemModel::modelReset);
+    QSignalSpy themeResets(session.theme.extensions()->themes(), &QAbstractItemModel::modelReset);
+    QSignalSpy pageClosed(page, SIGNAL(closed()));
+    QSignalSpy drawerClosed(drawer, SIGNAL(closed()));
+    const auto capture = qEnvironmentVariable("ECHO_SKIN_SWITCH_CAPTURES");
+    if (!capture.isEmpty())
+        QVERIFY(QDir().mkpath(capture));
+    for (int cycle = 0; cycle < 3; ++cycle) {
+        for (int index : {2, 1, 0}) {
+            auto *card = visual(catalog, index == 0   ? "coverLyricSkinCard"
+                                         : index == 1 ? "portraitLyricSkinCard"
+                                                      : "simpleLyricSkinCard");
+            QVERIFY(card);
+            QVERIFY(session.clickItem(card));
+            for (int frame = 0; frame < 4; ++frame) {
+                session.window->update();
+                QTest::qWait(16);
+                if (!capture.isEmpty() && cycle == 0) {
+                    QVERIFY(session.window->grabWindow().save(capture +
+                                                              QString("/%1-%2-%3.png")
+                                                                  .arg(QTest::currentDataTag())
+                                                                  .arg(index)
+                                                                  .arg(frame)));
+                }
+            }
+            qInfo() << "Skin switch scope" << index << "catalog resets" << resets.size()
+                    << "page closed" << pageClosed.size() << "drawer closed" << drawerClosed.size();
+            QCOMPARE(session.window->geometry(), windowGeometry);
+            QVERIFY(page && drawer);
+            QCOMPARE(pageClosed.size(), 0);
+            QCOMPARE(drawerClosed.size(), 0);
+            QCOMPARE(catalog->mapRectToScene(catalog->boundingRect()), catalogRect);
+            for (int row = 0; row < cards.size(); ++row) {
+                QVERIFY2(cards[row], "Selecting a skin destroyed an unchanged thumbnail card");
+                QCOMPARE(cards[row]->mapRectToScene(cards[row]->boundingRect()), rectangles[row]);
+                QCOMPARE(cards[row]->property("selected").toBool(), row == index);
+            }
+            QCOMPARE(resets.size(), 0);
+            QCOMPARE(themeResets.size(), 0);
+        }
+    }
+    QVERIFY(QMetaObject::invokeMethod(page, "close"));
+    QTRY_VERIFY(page.isNull() && drawer.isNull());
+    for (const auto &card : cards)
+        QVERIFY(card.isNull());
+    QCOMPARE(warnings.size(), 0);
+}
+
 #include "DesktopPagesSettingsHandoff.moc"

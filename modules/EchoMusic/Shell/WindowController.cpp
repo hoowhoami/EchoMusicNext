@@ -28,6 +28,7 @@ namespace EchoMusic
 namespace
 {
 Q_LOGGING_CATEGORY(pointerLog, "echo.shell.pointer")
+Q_LOGGING_CATEGORY(windowLog, "echo.shell.window")
 Qt::WindowState restoreState(Qt::WindowStates states)
 {
     if (states.testFlag(Qt::WindowFullScreen))
@@ -299,11 +300,10 @@ void WindowController::dispatchMainActions()
         emit settingsRequested(std::exchange(m_pendingSettingsSection, {}));
     if (std::exchange(m_pendingLyrics, false))
         emit lyricSelectionRequested();
-    if (std::exchange(m_pendingPlaybackPage, false))
-        emit playbackPageRequested();
 }
 void WindowController::requestSettings(const QString &section)
 {
+    qCInfo(windowLog) << "main_action settings_requested section=" << section.left(80);
     m_pendingSettings = true;
     m_pendingSettingsSection = section;
     showWindow();
@@ -312,6 +312,7 @@ void WindowController::requestSettings(const QString &section)
 }
 void WindowController::requestLyricSelection()
 {
+    qCInfo(windowLog) << "main_action lyric_selection_requested";
     m_pendingLyrics = true;
     showWindow();
     if (m_mainContentReady)
@@ -319,10 +320,16 @@ void WindowController::requestLyricSelection()
 }
 void WindowController::requestPlaybackPage()
 {
-    m_pendingPlaybackPage = !m_pendingPlaybackPage;
+    setPlaybackPageOpen(!m_playbackPageOpen);
     showWindow();
-    if (m_mainContentReady)
-        mainContentReady();
+}
+void WindowController::setPlaybackPageOpen(bool open)
+{
+    if (m_shuttingDown || m_playbackPageOpen == open)
+        return;
+    m_playbackPageOpen = open;
+    qCInfo(windowLog) << "playback_page open=" << open << "background=" << m_background;
+    emit playbackPageOpenChanged();
 }
 void WindowController::attach(QQuickWindow *window)
 {
@@ -930,6 +937,9 @@ void WindowController::setAutoLaunch(bool value)
 }
 void WindowController::setBackground(bool value)
 {
+    if (m_background != value)
+        qCInfo(windowLog) << "main_window background=" << value
+                          << "mini=" << m_floating.miniActive();
     m_background = value;
     updateTrayVisibility();
 #ifdef Q_OS_MACOS
@@ -977,6 +987,9 @@ void WindowController::showWindow()
     }
     m_window->raise();
     m_window->requestActivate();
+    qCInfo(windowLog) << "main_window shown visibility=" << m_window->visibility()
+                      << "geometry=" << m_window->geometry()
+                      << "playback_page=" << m_playbackPageOpen;
 }
 void WindowController::quit()
 {
@@ -1043,7 +1056,7 @@ void WindowController::shutdown()
 {
     m_shuttingDown = true;
     m_contentReadyTimer.stop();
-    m_pendingSettings = m_pendingLyrics = m_pendingPlaybackPage = false;
+    m_pendingSettings = m_pendingLyrics = false;
     m_menuBarLyrics.shutdown();
     if (m_trayMenu) {
         m_trayMenu->close();

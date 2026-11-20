@@ -30,6 +30,8 @@ Popup {
     objectName: "playbackPage"
     required property PlaybackService playback
     property real uiScale: 1
+    property bool restoringPresentation: false
+    property bool coverBodyAllowed: true
     property EchoCover sourceCover: null
     readonly property bool coverMoving: motion.coverFlight
     readonly property bool enteringPage: motion.entering
@@ -42,7 +44,9 @@ Popup {
     property Component windowActions: null
     property rect nativeWindowControlsBounds: Qt.rect(0, 0, 0, 0)
     readonly property bool hasNativeWindowControls: Qt.platform.os === "osx" && nativeWindowControlsBounds.width > 0
-    readonly property bool presentationActive: visible && !playbackPart.replaced && !playbackPart.contentReplaced && (!contentItem.Window.window || (contentItem.Window.window.visible && contentItem.Window.window.visibility !== Window.Minimized))
+    readonly property bool hostWindowPresented: !contentItem.Window.window || (contentItem.Window.window.visible && contentItem.Window.window.visibility !== Window.Minimized)
+    readonly property bool hostPresented: visible && hostWindowPresented
+    readonly property bool presentationActive: hostPresented && !playbackPart.replaced && !playbackPart.contentReplaced
     readonly property bool resourceActive: presentationActive && !skinHost.loaded
     readonly property bool portraitSelected: Theme.store.extensions.selectedSkin === "portrait"
     readonly property bool simpleSelected: Theme.store.extensions.selectedSkin === "lyric"
@@ -104,6 +108,14 @@ Popup {
         playback.ensureLyrics();
     }
     onAboutToShow: {
+        coverBodyAllowed = true;
+        if (restoringPresentation) {
+            motion.finish();
+            motion.hostOpacity = 1;
+            motion.contentOpacity = 1;
+            motion.contentOffset = 0;
+            motion.progress = 1;
+        }
         syncClock(true);
         playback.ensureLyrics();
     }
@@ -116,6 +128,7 @@ Popup {
     onOpened: {
         motion.finish();
         acceptingInput = true;
+        restoringPresentation = false;
     }
     onClosed: {
         motion.finish();
@@ -129,6 +142,9 @@ Popup {
         onTriggered: page.acceptingInput = true
     }
     onAboutToHide: {
+        // Keep a completed cover for the exit flight. Releasing a plugin skin
+        // must not start a new native fallback while its context is retiring.
+        coverBodyAllowed = coverBody.status === Loader.Ready;
         skinsOwner.close();
         sourceDialogOwner.close();
     }
@@ -261,13 +277,15 @@ Popup {
                 script: {
                     closingMotion.stop();
                     openingMotion.stop();
-                    motion.prepare(true);
-                    openingMotion.start();
+                    if (!page.restoringPresentation) {
+                        motion.prepare(true);
+                        openingMotion.start();
+                    }
                 }
             }
             PauseAnimation {
                 // The transition job captures this before ScriptAction runs.
-                duration: !Theme.store.motionEnabled ? 0 : !page.portraitSelected && !page.simpleSelected && page.sourceCover && page.sourceCover.width > 0 && page.sourceCover.height > 0 ? 460 : 400
+                duration: page.restoringPresentation || !Theme.store.motionEnabled ? 0 : !page.portraitSelected && !page.simpleSelected && page.sourceCover && page.sourceCover.width > 0 && page.sourceCover.height > 0 ? 460 : 400
             }
         }
     }
@@ -392,10 +410,9 @@ Popup {
                     y: 96
                     width: Math.min(1400, parent.width) - 64
                     height: Math.max(0, transport.y - y)
-                    // The actual Popup is created on demand. Keep its cover layout
-                    // stable through open/close transitions; decoders and lyric rows
-                    // still follow resourceActive, and other skins unload this body.
-                    active: !page.portraitSelected && !page.simpleSelected && !skinHost.loaded
+                    // An existing cover survives a foreground exit flight; a
+                    // hidden/retiring popup never bootstraps a fallback body.
+                    active: page.hostWindowPresented && page.coverBodyAllowed && !page.portraitSelected && !page.simpleSelected && !skinHost.loaded
                     sourceComponent: CoverPlayback {
                         playback: page.playback
                         colors: page.colors

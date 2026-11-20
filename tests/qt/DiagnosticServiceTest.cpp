@@ -4,6 +4,7 @@
 #include "DiagnosticService.h"
 #include "LogService.h"
 #include "LogFiles.h"
+#include "DiagnosticLogIndex.h"
 #include "echo_ffi.h"
 #include <QAbstractItemModelTester>
 #include <QCryptographicHash>
@@ -77,6 +78,54 @@ class DiagnosticServiceTest final : public QObject
         return true;
     }
 private slots:
+    void logIndexKeepsQmlIncubationMessagesAtInfo()
+    {
+        QTemporaryDir temporary;
+        QVERIFY(QDir().mkpath(temporary.filePath("logs")));
+        QVERIFY(write(temporary.filePath("logs/qml.log"),
+                      "2026-11-20 11:18:08.300 INFO  [default] ordinary info\n"
+                      "2026-11-20 11:18:08.373 INFO  [default] "
+                      "qrc:/qt/qml/EchoMusic/Playback/PlaybackPage.qml:388:17: QML Loader: Cannot "
+                      "create delegate\n"
+                      "2026-11-20 11:18:08.373 INFO  [default] "
+                      "qrc:/qt/qml/EchoMusic/Playback/PlaybackLyricViewport.qml: Object or context "
+                      "destroyed during incubation\n"));
+        const std::atomic_bool cancel{false};
+        const auto index = diagnosticLogIndex(temporary.path(), {"logs/qml.log"}, cancel);
+        QCOMPARE(index.value("warnings").toInteger(), 0);
+        QCOMPARE(index.value("errors").toInteger(), 0);
+        QCOMPARE(index.value("qmlInfoDiagnostics").toInteger(), 2);
+        const auto events = index.value("recentEvents").toArray();
+        QCOMPARE(events.size(), 2);
+        QCOMPARE(events.first().toObject().value("level").toString(), QString("INFO"));
+        QCOMPARE(events.first().toObject().value("line").toInteger(), 3);
+        QCOMPARE(events.last().toObject().value("line").toInteger(), 2);
+    }
+    void logIndexMergesRotationsAndBoundsRecentEvents()
+    {
+        QTemporaryDir temporary;
+        QVERIFY(QDir().mkpath(temporary.filePath("logs")));
+        QByteArray recent;
+        for (int row = 0; row < 110; ++row)
+            recent += "2026-11-20 10:33:31.293 WARN  [qt.core.qobject.connect] probe-" +
+                      QByteArray::number(row) + '\n';
+        recent += "2026-11-20 10:33:32.000 INFO  [echo.shell.window] main_surface state=Present\n";
+        QVERIFY(write(temporary.filePath("logs/session.log"), recent));
+        QVERIFY(write(temporary.filePath("logs/session.1.log"),
+                      "2026-11-20 10:33:30.000 ERROR [native] decode failed\n"));
+        const std::atomic_bool cancel{false};
+        const auto index = diagnosticLogIndex(temporary.path(),
+                                              {"logs/session.log", "logs/session.1.log"}, cancel);
+        QCOMPARE(index.value("warnings").toInteger(), 110);
+        QCOMPARE(index.value("errors").toInteger(), 1);
+        const auto events = index.value("recentEvents").toArray();
+        QCOMPARE(events.size(), 100);
+        QCOMPARE(events.first().toObject().value("line").toInteger(), 111);
+        QCOMPARE(events.at(1).toObject().value("message").toString(), QString("probe-109"));
+        QCOMPARE(events.last().toObject().value("message").toString(), QString("probe-11"));
+        const std::atomic_bool cancelled{true};
+        QVERIFY(diagnosticLogIndex(temporary.path(), {"logs/session.log"}, cancelled).isEmpty());
+    }
     void historyDistinguishesLiveFatalAndUncleanSessions()
     {
         QTemporaryDir temporary;
@@ -182,6 +231,8 @@ private slots:
         QVERIFY(write(temporary.filePath("account.sqlite"), "private-account-data"));
         QVERIFY(write(logs + "/unrelated.log", "unrelated-private-data"));
         qWarning("diagnostic-flush-boundary 中文");
+        QObject receiver;
+        QObject::connect(static_cast<QObject *>(nullptr), &QObject::destroyed, &receiver, [] {});
         const auto zip = temporary.filePath("current.zip");
         service->exportCurrent(QUrl::fromLocalFile(zip), "t1=do-not-export");
         QTRY_VERIFY_WITH_TIMEOUT(!service->busy(), 20000);
@@ -191,6 +242,20 @@ private slots:
         const auto body = read(temporary.filePath("unpacked/logs/") + sessionLogFileName());
         QVERIFY(body.contains("diagnostic-flush-boundary"));
         QVERIFY(body.contains(QStringLiteral("中文").toUtf8()));
+        QVERIFY(body.contains("connect_stack="));
+        const auto index =
+            QJsonDocument::fromJson(read(temporary.filePath("unpacked/log-index.json"))).object();
+        QCOMPARE(index.value("warnings").toInteger(), 2);
+        const auto events = index.value("recentEvents").toArray();
+        QCOMPARE(events.size(), 2);
+        for (const auto &value : events) {
+            const auto event = value.toObject();
+            const auto line = event.value("line").toInteger();
+            const auto lines =
+                read(temporary.filePath("unpacked/") + event.value("file").toString()).split('\n');
+            QVERIFY(line > 0 && line <= lines.size());
+            QVERIFY(lines.at(line - 1).contains(event.value("message").toString().toUtf8()));
+        }
         QVERIFY(!QFileInfo::exists(temporary.filePath("unpacked/logs/unrelated.log")));
         QVERIFY(!read(temporary.filePath("unpacked/report.txt")).contains("do-not-export"));
         const auto context = read(temporary.filePath("unpacked/context.json"));

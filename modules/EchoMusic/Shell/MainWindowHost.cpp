@@ -4,9 +4,12 @@
 #include "RouteController.h"
 #include <QQmlEngine>
 #include <QQuickWindow>
+#include <QLoggingCategory>
+#include <QMetaEnum>
 #include <utility>
 namespace EchoMusic
 {
+Q_LOGGING_CATEGORY(mainWindowLog, "echo.shell.window")
 MainWindowHost::MainWindowHost(QQmlEngine &engine, WindowController &controller,
                                ShortcutService &shortcuts, Factory factory, RouteController *routes,
                                QObject *parent)
@@ -40,6 +43,9 @@ void MainWindowHost::setState(State state)
     if (m_state == state)
         return;
     m_state = state;
+    qCInfo(mainWindowLog).nospace()
+        << "main_surface state=" << QMetaEnum::fromType<State>().valueToKey(int(state))
+        << " playback_page=" << m_controller.playbackPageOpen();
     emit stateChanged();
 }
 void MainWindowHost::show()
@@ -77,6 +83,7 @@ void MainWindowHost::reconcile()
                 return;
             }
             if (!created) {
+                qCWarning(mainWindowLog) << "main_surface creation_failed; awaiting explicit retry";
                 setState(State::Absent);
                 // Retry only on a new user action, never a background loop.
                 m_wantsWindow = false;

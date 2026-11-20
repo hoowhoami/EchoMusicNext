@@ -4,6 +4,7 @@
 #include "DiagnosticRecords.h"
 #include "LogRedaction.h"
 #include "LogFiles.h"
+#include "QtLogContext.h"
 #include "echo_ffi.h"
 #include <QStandardPaths>
 #include <QDebug>
@@ -84,6 +85,7 @@ struct Record
     QString target;
     QString message;
     bool fatal = false;
+    QString details = {};
 };
 } // namespace
 // The QThread object is host-owned, not used as a worker QObject. Only run()
@@ -115,7 +117,7 @@ public:
         m_level.store(level, std::memory_order_relaxed);
     }
     void enqueue(uint32_t level, const QString &target, const QString &message, qint64 time = 0,
-                 bool fatal = false)
+                 bool fatal = false, const QString &details = {})
     {
         if (!accepts(level))
             return;
@@ -124,15 +126,29 @@ public:
             return;
         }
         if (!m_stopping && m_queue.size() < capacity) {
+            auto metadata = details;
+            if (!metadata.isEmpty()) {
+                const auto budget = qMax(qsizetype(0), 8192 - message.toUtf8().size());
+                while (metadata.toUtf8().size() > budget)
+                    metadata.truncate(metadata.size() / 2);
+            }
             m_queue.push_back(
                 {time ? time : QDateTime::currentMSecsSinceEpoch(), level, target.left(80),
-                 message.size() > 8192 ? QStringLiteral("[oversized log omitted]") : message,
-                 fatal});
+                 message.size() > 8192 ? QStringLiteral("[oversized log omitted]") : message, fatal,
+                 std::move(metadata)});
             m_ready.wakeOne();
         } else {
             m_dropped.fetch_add(1);
         }
         m_mutex.unlock();
+    }
+    void enqueueQt(QtMsgType type, const QMessageLogContext &context, const QString &message,
+                   qint64 time)
+    {
+        if (accepts(logLevel(type)))
+            enqueue(logLevel(type), QString::fromLatin1(context.category ? context.category : "qt"),
+                    message, time, type == QtFatalMsg,
+                    m_qtContext.describe(type, context, message));
     }
     void finish()
     {
@@ -223,7 +239,7 @@ protected:
                 (stamp + ' ' +
                  QString::fromLatin1(levelName(record.level, record.fatal)).leftJustified(5) +
                  " [" + singleLine(record.target) + "] " +
-                 singleLine(safeLogMessage(record.message)))
+                 singleLine(safeLogMessage(record.message)) + singleLine(record.details))
                     .toUtf8();
             bytes.append('\n');
             if (fileAlive && file.size() > 0 && file.size() + bytes.size() > fileLimit) {
@@ -351,6 +367,7 @@ private:
         return int(level) <= threshold;
     }
     QString m_directory;
+    QtLogContext m_qtContext;
     std::atomic_int m_level;
     std::atomic<qint64> m_diagnosticUntil{0};
     bool m_console;
@@ -380,9 +397,7 @@ void messageHandler(QtMsgType type, const QMessageLogContext &context, const QSt
     auto writer = sink;
     sinkMutex.unlock();
     if (writer)
-        writer->enqueue(logLevel(type),
-                        QString::fromLatin1(context.category ? context.category : "qt"), message,
-                        rustEmissionTime, type == QtFatalMsg);
+        writer->enqueueQt(type, context, message, rustEmissionTime);
 }
 void rustRecord(void *, const EchoLogEntry *entry)
 {

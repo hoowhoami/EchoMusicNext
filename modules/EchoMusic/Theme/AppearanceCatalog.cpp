@@ -2,8 +2,11 @@
 #include "SettingsKeys.h"
 #include <algorithm>
 #include <QTimer>
+#include <QLoggingCategory>
+#include <utility>
 namespace EchoMusic
 {
+Q_LOGGING_CATEGORY(appearanceLog, "echo.appearance")
 namespace
 {
 const QList<QPair<QString, QString>> builtinSkins{
@@ -63,13 +66,19 @@ AppearanceListModel *AppearanceCatalog::themeGroup(const QString &type)
     model->setTypeFilter(type);
     return model;
 }
-void AppearanceCatalog::notify(bool theme)
+void AppearanceCatalog::notify(bool theme, bool structureChanged)
 {
-    m_themes.reload();
-    m_skins.reload();
+    const auto refresh = [structureChanged](AppearanceListModel *model) {
+        if (structureChanged)
+            model->reload();
+        else
+            model->updateSelection();
+    };
+    refresh(&m_themes);
+    refresh(&m_skins);
     for (auto *model : findChildren<AppearanceListModel *>(Qt::FindDirectChildrenOnly))
         if (model != &m_themes && model != &m_skins)
-            model->reload();
+            refresh(model);
     emit changed();
     if (theme)
         emit themeChanged();
@@ -90,7 +99,7 @@ bool AppearanceCatalog::insert(AppearanceEntry *entry)
                 emit themeChanged();
         }
     });
-    notify(entry->kind == "theme");
+    notify(entry->kind == "theme", true);
     return true;
 }
 void AppearanceCatalog::remove(const QString &token)
@@ -110,7 +119,7 @@ void AppearanceCatalog::remove(const QString &token)
             }
             if (m_preview == e->key)
                 cancelPreview();
-            notify(theme);
+            notify(theme, true);
             if (e->configuration()->busy())
                 connect(e->configuration(), &AppearanceConfiguration::drained, e,
                         &QObject::deleteLater);
@@ -135,12 +144,16 @@ bool AppearanceCatalog::chooseTheme(const QString &key)
     auto e = find(key);
     if (!e || e->kind != "theme")
         return false;
-    e->error.clear();
+    if (!e->error.isEmpty()) {
+        e->error.clear();
+        emit e->changed();
+    }
     disconnect(m_previewOwnerConnection);
     m_preview.clear();
     m_previewOwner = nullptr;
     ++m_previewRevision;
     m_selectedTheme = key;
+    qCInfo(appearanceLog) << "theme_selected key=" << key.left(160);
     m_settings.setValue(SettingsKeys::Appearance::ExtensionTheme, key);
     notify(true);
     return true;
@@ -200,9 +213,12 @@ bool AppearanceCatalog::chooseSkin(const QString &key)
                                      [&key](const auto &skin) { return skin.first == key; });
     if (!builtin && (!e || e->kind != "skin"))
         return false;
-    if (e)
+    if (e && !e->error.isEmpty()) {
         e->error.clear();
+        emit e->changed();
+    }
     m_selectedSkin = key;
+    qCInfo(appearanceLog) << "skin_selected key=" << key.left(160);
     m_settings.setValue(SettingsKeys::Appearance::ExtensionSkin, key);
     notify(false);
     return true;
@@ -257,6 +273,7 @@ QVariantMap AppearanceCatalog::resolveTheme(const QVariantMap &input)
 AppearanceListModel::AppearanceListModel(AppearanceCatalog &c, QString k)
     : QAbstractListModel(&c), m_catalog(c), m_kind(std::move(k))
 {
+    m_selectedKey = selectedKey();
 }
 int AppearanceListModel::rowCount(const QModelIndex &p) const
 {
@@ -338,7 +355,32 @@ void AppearanceListModel::setTypeFilter(const QString &value)
 void AppearanceListModel::reload()
 {
     beginResetModel();
+    m_selectedKey = selectedKey();
     endResetModel();
     emit countChanged();
+}
+QString AppearanceListModel::selectedKey() const
+{
+    return m_kind == "skin"                      ? m_catalog.selectedSkin()
+           : m_catalog.selectedTheme().isEmpty() ? QStringLiteral("echo")
+                                                 : m_catalog.selectedTheme();
+}
+void AppearanceListModel::updateSelection()
+{
+    const auto selected = selectedKey();
+    if (m_selectedKey == selected)
+        return;
+    const auto previous = std::exchange(m_selectedKey, selected);
+    const auto entries = filtered();
+    const auto builtins = builtinCount();
+    // Selection does not replace recipes, previews or catalog identities. Only
+    // the former/new selection changes; keep virtual delegates and textures.
+    for (int row = 0; row < builtins + entries.size(); ++row) {
+        const auto key = row < builtins ? (m_kind == "skin" ? builtinSkins.at(row).first
+                                                            : QStringLiteral("echo"))
+                                        : entries.at(row - builtins)->key;
+        if (key == previous || key == selected)
+            emit dataChanged(index(row), index(row), {Qt::UserRole + 5});
+    }
 }
 } // namespace EchoMusic

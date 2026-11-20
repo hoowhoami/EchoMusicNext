@@ -810,7 +810,7 @@ add_test(
     COMMAND
         echo-desktop-pages-test mainWindowUnloadRestoresProductionUi
         mainWindowBackgroundKeepsPluginPlaybackAndFloating
-        mainWindowRecoveryRejectsStaleRetirementAndRetriesFailure
+        mainWindowRecoveryRejectsStaleRetirementAndRetriesFailure backgroundRestoresPlaybackPage
 )
 set_tests_properties(
     background-playback
@@ -825,8 +825,9 @@ set(ECHO_DESKTOP_TEST_GROUPS
     desktop-pages-popups
     desktop-pages-library
 )
-add_test(NAME desktop-pages-settings-handoff COMMAND echo-desktop-pages-test
-                                                     lyricSkinGlobalSettingsHandoff
+add_test(NAME desktop-pages-settings-handoff
+         COMMAND echo-desktop-pages-test lyricSkinGlobalSettingsHandoff
+                 lyricSkinSwitchKeepsCatalogAndPageStable
 )
 add_test(
     NAME desktop-pages-settings
@@ -1279,8 +1280,8 @@ add_test(
     NAME plugin-runtime-appearance
     COMMAND
         echo-plugin-runtime-test appearanceCatalogConfigurationAndRetirement
-        appearanceProductionThemeSkinAndMini appearanceErrorsAndActivationRollback
-        playbackPresentationAndFloatingSdk
+        appearanceProductionThemeSkinAndMini appearanceNativeFallbackRetirement
+        appearanceErrorsAndActivationRollback playbackPresentationAndFloatingSdk
 )
 
 add_test(

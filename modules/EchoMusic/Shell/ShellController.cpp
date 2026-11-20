@@ -208,6 +208,10 @@ ShellActionModel::Handle ShellController::bindPlayerAction(QObject &provider, Pl
 }
 void ShellController::attachWindows(WindowController &window)
 {
+    connect(this, &ShellController::songPageOpened, &window,
+            [&window] { window.setPlaybackPageOpen(false); });
+    connect(this, &ShellController::mvPageOpened, &window,
+            [&window] { window.setPlaybackPageOpen(false); });
     auto *floating = window.floating();
     const auto handle =
         bindPlayerAction(*floating, DesktopLyric, [floating] { floating->toggleDesktop(); });

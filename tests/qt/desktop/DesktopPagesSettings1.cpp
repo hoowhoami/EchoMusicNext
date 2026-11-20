@@ -1328,6 +1328,28 @@ void DesktopPagesTest::productionDiagnosticRecordsAndExport()
     QTRY_VERIFY(exportDialog->property("opened").toBool());
     QVERIFY(!exportDialog->property("currentSession").toBool());
     QVERIFY(exportDialog->property("includeDump").toBool());
+    auto *saveCurrent = visual(session.window->contentItem(), "diagnosticSaveCurrentZip");
+    QVERIFY(saveCurrent && saveCurrent->isVisible());
+    QVERIFY(session.clickItem(saveCurrent));
+    auto *pickerOwner = exportDialog->findChild<QObject *>("diagnosticSavePickerOwner");
+    QVERIFY(pickerOwner);
+    QPointer<QObject> picker;
+    QTRY_VERIFY((picker = pickerOwner->property("item").value<QObject *>()));
+    QVERIFY(picker->property("currentFile").toString().contains("current-session"));
+    QVERIFY(exportDialog->property("exportingCurrentSession").toBool());
+    QVERIFY(QMetaObject::invokeMethod(pickerOwner, "close"));
+    QTRY_VERIFY(picker.isNull());
+    auto *saveSelected = visual(session.window->contentItem(), "diagnosticSaveZip");
+    QVERIFY(saveSelected);
+    QVERIFY(QMetaObject::invokeMethod(saveSelected, "clicked"));
+    QTRY_VERIFY((picker = pickerOwner->property("item").value<QObject *>()));
+    QVERIFY(!exportDialog->property("exportingCurrentSession").toBool());
+    QVERIFY(picker->property("currentFile")
+                .toString()
+                .contains(exportDialog->property("event").toMap().value("id").toString()));
+    QVERIFY(QMetaObject::invokeMethod(pickerOwner, "close"));
+    QTRY_VERIFY(picker.isNull());
+    QCOMPARE(exportDialog->property("event").toMap().value("kind").toString(), "native_crash");
     QVERIFY(visual(session.window->contentItem(), "diagnosticIncludeDump"));
     QVERIFY(visual(session.window->contentItem(), "diagnosticNotes"));
     QVERIFY(visual(session.window->contentItem(), "diagnosticSaveZip"));

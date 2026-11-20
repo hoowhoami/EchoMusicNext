@@ -40,6 +40,8 @@ class WindowController final : public QObject
     Q_PROPERTY(bool closeToTray READ closeToTray WRITE setCloseToTray NOTIFY changed)
     Q_PROPERTY(bool trayAvailable READ trayAvailable NOTIFY changed)
     Q_PROPERTY(bool background READ background NOTIFY changed)
+    Q_PROPERTY(bool playbackPageOpen READ playbackPageOpen WRITE setPlaybackPageOpen NOTIFY
+                   playbackPageOpenChanged)
     Q_PROPERTY(bool hideDockInBackground READ hideDockInBackground WRITE setHideDockInBackground
                    NOTIFY changed)
     Q_PROPERTY(bool hideMenuBarInBackground READ hideMenuBarInBackground WRITE
@@ -71,6 +73,11 @@ public:
     void requestSettings(const QString &section = {});
     void requestLyricSelection();
     void requestPlaybackPage();
+    bool playbackPageOpen() const
+    {
+        return m_playbackPageOpen;
+    }
+    void setPlaybackPageOpen(bool open);
     void attachPluginWindow(QQuickWindow *window);
     bool mainWindowActive() const;
 
@@ -194,7 +201,7 @@ signals:
     void mainWindowRequested();
     void backgroundRequested();
     void lyricSelectionRequested();
-    void playbackPageRequested();
+    void playbackPageOpenChanged();
     void contentFullscreenExitRequested(QObject *owner);
     void quitRequested();
     void settingsRequested(const QString &section);
@@ -236,7 +243,8 @@ private:
     bool m_restoreMini = false;
     bool m_presentationReady = false, m_firstPresentation = false;
     bool m_systemIntegrationReady = false, m_mainContentReady = false;
-    bool m_pendingSettings = false, m_pendingLyrics = false, m_pendingPlaybackPage = false;
+    bool m_pendingSettings = false, m_pendingLyrics = false;
+    bool m_playbackPageOpen = false;
     QString m_pendingSettingsSection;
     bool m_systemMoveActive = false;
     QTimer m_saveTimer;

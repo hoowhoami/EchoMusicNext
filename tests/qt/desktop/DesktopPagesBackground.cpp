@@ -428,3 +428,144 @@ void DesktopPagesTest::mainWindowRecoveryRejectsStaleRetirementAndRetriesFailure
     QCOMPARE(forbiddenCreations, 0);
     QCOMPARE(interrupted.state(), MainWindowHost::State::Closed);
 }
+
+void DesktopPagesTest::backgroundRestoresPlaybackPage_data()
+{
+    QTest::addColumn<bool>("motion");
+    QTest::addColumn<QString>("skin");
+    for (const auto &skin : {QString("cover"), QString("portrait"), QString("lyric")})
+        for (bool motion : {true, false})
+            QTest::newRow(qPrintable(skin + (motion ? "-animated" : "-reduced"))) << motion << skin;
+}
+
+void DesktopPagesTest::backgroundRestoresPlaybackPage()
+{
+    QFETCH(bool, motion);
+    QFETCH(QString, skin);
+    Session session;
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    session.shell.acceptUserAgreement();
+    session.shell.setMotionEnabled(motion);
+    session.theme.setMotionEnabled(motion);
+    session.api.addInterceptor(100, [](const QJsonObject &, ApiInterceptNext, ApiInterceptDone) {
+        return std::function<void()>([] {});
+    });
+    PlaybackService playback(session.api, session.preferences);
+    const auto selectedSkin = skin;
+    QVERIFY(session.theme.extensions()->chooseSkin(selectedSkin));
+    QVERIFY(session.create(&playback));
+    const auto properties = detachMain(session);
+    ShortcutService shortcuts(session.preferences, false);
+    QList<bool> restoredFirstFrames;
+    MainWindowHost host(
+        session.engine, session.windows, shortcuts,
+        [&] {
+            auto *window = createMain(session, properties);
+            if (window && session.windows.playbackPageOpen()) {
+                connect(window, &QQuickWindow::afterAnimating, window,
+                        [&, window, firstFrame = true]() mutable {
+                            if (!firstFrame)
+                                return;
+                            firstFrame = false;
+                            auto *page = window->findChild<QObject *>("playbackPage");
+                            auto *motion =
+                                page ? page->findChild<QObject *>("playbackPageMotion") : nullptr;
+                            qInfo() << "Restored first frame"
+                                    << window->property("restoringPlaybackPresentation")
+                                    << window->property("playbackCoversShell") << "page" << page
+                                    << "opened" << (page ? page->property("opened") : QVariant{})
+                                    << "restoring"
+                                    << (page ? page->property("restoringPresentation") : QVariant{})
+                                    << "host opacity"
+                                    << (motion ? motion->property("hostOpacity") : QVariant{})
+                                    << "content opacity"
+                                    << (motion ? motion->property("contentOpacity") : QVariant{});
+                            restoredFirstFrames.append(
+                                window->property("playbackCoversShell").toBool() && page &&
+                                page->property("visible").toBool() && motion &&
+                                motion->property("hostOpacity").toReal() == 1 &&
+                                motion->property("contentOpacity").toReal() == 1 &&
+                                !page->property("coverMoving").toBool());
+                        });
+            }
+            return window;
+        },
+        &session.router);
+    const auto cleanup = qScopeGuard([&] {
+        host.shutdown();
+        session.auxiliary.reset();
+        session.window = nullptr;
+    });
+    host.show();
+    QPointer<QObject> owner;
+    QTRY_VERIFY((owner = host.window()->findChild<QObject *>("playbackPageOwner")));
+    QVERIFY(QMetaObject::invokeMethod(owner, "open", Q_ARG(QVariant, QVariantMap{})));
+    QPointer<QObject> page;
+    QTRY_VERIFY((page = owner->property("item").value<QObject *>()) &&
+                page->property("opened").toBool());
+    auto *route = session.router.current();
+    QSignalSpy activated(&session.router, &RouteController::pageActivated);
+    for (int cycle = 0; cycle < 6; ++cycle) {
+        QPointer<QQuickWindow> retired = host.window();
+        if (cycle % 2)
+            session.windows.floating()->showMini();
+        else
+            session.windows.toggleVisibility();
+        QTRY_VERIFY(retired.isNull() && page.isNull() && owner.isNull());
+        session.windows.showWindow();
+        QTRY_VERIFY((owner = host.window()->findChild<QObject *>("playbackPageOwner")));
+        QTRY_VERIFY_WITH_TIMEOUT((page = owner->property("item").value<QObject *>()) &&
+                                     page->property("opened").toBool(),
+                                 3000);
+        QTRY_COMPARE(restoredFirstFrames.size(), cycle + 1);
+        QVERIFY2(restoredFirstFrames.last(),
+                 "The first restored frame exposed the shell or playback entry transition");
+        QCOMPARE(session.router.current(), route);
+        QCOMPARE(activated.size(), 0);
+        QCOMPARE(session.theme.extensions()->selectedSkin(), selectedSkin);
+        const auto capture = qEnvironmentVariable("ECHO_SKIN_SWITCH_CAPTURES");
+        if (!capture.isEmpty() && cycle == 3) {
+            QVERIFY(QDir().mkpath(capture));
+            QVERIFY(QTest::qWaitForWindowExposed(host.window()));
+            Test::FrameSpy rendered(host.window());
+            host.window()->update();
+            QVERIFY(rendered.wait(2000));
+            QVERIFY(host.window()->grabWindow().save(
+                capture + QString("/restored-playback-%1.png").arg(QTest::currentDataTag())));
+        }
+    }
+    // Restoration applies to the first entry only. Reopening the same surface
+    // during its exit must regain the ordinary user entry animation.
+    QVERIFY(!page->property("restoringPresentation").toBool());
+    if (motion) {
+        QVERIFY(QMetaObject::invokeMethod(page, "close"));
+        QVERIFY(QMetaObject::invokeMethod(owner, "open", Q_ARG(QVariant, QVariantMap{})));
+        QTest::qWait(16);
+        auto *pageMotion = page->findChild<QObject *>("playbackPageMotion");
+        QVERIFY(pageMotion);
+        QVERIFY(page->property("coverMoving").toBool() ||
+                pageMotion->property("contentOpacity").toReal() < 1);
+        QTRY_VERIFY(page->property("opened").toBool());
+    }
+    // Explicitly closing the playback page still returns to the ordinary shell.
+    QVERIFY(QMetaObject::invokeMethod(page, "close"));
+    QPointer<QQuickWindow> retired = host.window();
+    session.windows.toggleVisibility();
+    QTRY_VERIFY(retired.isNull() && page.isNull());
+    session.windows.showWindow();
+    QTRY_VERIFY((owner = host.window()->findChild<QObject *>("playbackPageOwner")));
+    QTest::qWait(100);
+    QVERIFY(!owner->property("item").value<QObject *>());
+    // A toggle command while absent changes the remembered mode exactly once.
+    session.windows.requestPlaybackPage();
+    QTRY_VERIFY((page = owner->property("item").value<QObject *>()) &&
+                page->property("opened").toBool());
+    retired = host.window();
+    session.windows.toggleVisibility();
+    QTRY_VERIFY(retired.isNull() && page.isNull());
+    session.windows.requestPlaybackPage();
+    QTRY_VERIFY((owner = host.window()->findChild<QObject *>("playbackPageOwner")));
+    QTest::qWait(100);
+    QVERIFY(!owner->property("item").value<QObject *>());
+    QCOMPARE(warnings.size(), 0);
+}

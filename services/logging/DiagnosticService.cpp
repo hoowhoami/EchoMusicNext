@@ -2,6 +2,7 @@
 #include "CrashDiagnostics.h"
 #include "LogFiles.h"
 #include "LogRedaction.h"
+#include "DiagnosticLogIndex.h"
 #include "echo_ffi.h"
 #include <QtConcurrentRun>
 #include <QCoreApplication>
@@ -246,13 +247,21 @@ DiagnosticExportResult createPackage(const QString &directory, DiagnosticRecord 
             .arg(record.id, current ? QObject::tr("当前会话") : kindText(record.kind),
                  record.timestamp, record.version, record.buildId, record.os, record.arch,
                  sanitizedLine(notes.left(2000)),
-                 scope + '\n' + limitations.join('\n') + '\n' +
+                 scope + '\n' +
+                     QObject::tr("日志问题索引：log-index.json（含原日志文件名和行号）") + '\n' +
+                     limitations.join('\n') + '\n' +
                      (missing.isEmpty()
                           ? QObject::tr("本次导出范围内的所选材料已收集")
                           : QObject::tr("缺失或未包含的材料：\n") + missing.join('\n')));
     if (!writeFile(staging + "/report.txt", text.toUtf8()))
         return {QObject::tr("无法写入诊断说明"), false};
     captured.append("report.txt");
+    const auto index = diagnosticLogIndex(staging, captured, cancel);
+    if (cancel)
+        return {{}, true};
+    if (!writeFile(staging + "/log-index.json", QJsonDocument(index).toJson()))
+        return {QObject::tr("无法写入日志问题索引"), false};
+    captured.append("log-index.json");
     QJsonArray files;
     quint64 total = 0;
     for (const auto &name : std::as_const(captured)) {

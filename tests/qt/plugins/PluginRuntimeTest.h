@@ -177,6 +177,8 @@ private slots:
     void pluginQueueValidationReportsFieldAndKeepsState();
     void appearanceCatalogConfigurationAndRetirement();
     void appearanceProductionThemeSkinAndMini();
+    void appearanceNativeFallbackRetirement_data();
+    void appearanceNativeFallbackRetirement();
     void builtDynamicThemePackage();
     void appearanceErrorsAndActivationRollback();
     void playbackPresentationAndFloatingSdk();

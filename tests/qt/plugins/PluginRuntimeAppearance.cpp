@@ -8,6 +8,7 @@
 #include "EchoPluginUiParts.h"
 #include "EchoUiContribution.h"
 #include <QWheelEvent>
+#include <QQmlIncubationController>
 namespace
 {
 bool routeTransitioning(QQuickItem *page)
@@ -422,6 +423,20 @@ void PluginRuntimeTest::appearanceCatalogConfigurationAndRetirement()
     auto *theme = catalog->entries("theme").first();
     auto *config = theme->configuration();
     QVERIFY(config->active());
+    QSignalSpy skinResets(catalog->skins(), &QAbstractItemModel::modelReset);
+    QSignalSpy skinCount(catalog->skins(), &AppearanceListModel::countChanged);
+    QSignalSpy selection(catalog->skins(), &QAbstractItemModel::dataChanged);
+    const auto selectedRole = catalog->skins()->roleNames().key("selected");
+    for (const auto &key :
+         QStringList{"lyric", "portrait", catalog->entries("skin").first()->key, "cover"}) {
+        selection.clear();
+        QVERIFY(catalog->chooseSkin(key));
+        QCOMPARE(selection.size(), 2);
+        for (const auto &change : selection)
+            QCOMPARE(change.at(2).value<QList<int>>(), QList<int>{selectedRole});
+    }
+    QCOMPARE(skinResets.size(), 0);
+    QCOMPARE(skinCount.size(), 0);
     QVERIFY(!config->patch({{"amount", -1}}));
     QCOMPARE(config->values().value("amount").toInt(), 1);
     QSignalSpy catalogResets(catalog->themes(), &QAbstractItemModel::modelReset);
@@ -434,6 +449,7 @@ void PluginRuntimeTest::appearanceCatalogConfigurationAndRetirement()
     QCOMPARE(config->values().value("amount").toDouble(), 1.5);
     QVERIFY(QFile::exists(scope->dataPath() + "/appearance/theme/ocean.json"));
     QVERIFY(scope->appearance()->useTheme("ocean"));
+    QCOMPARE(catalogResets.size(), 0);
     const auto metadata = scope->appearance()->snapshot().value("themeMetadata").toMap();
     QCOMPARE(metadata.value("key").toString(), theme->key);
     QCOMPARE(metadata.value("title").toString(), QString("海洋"));
@@ -718,6 +734,63 @@ void PluginRuntimeTest::appearanceProductionThemeSkinAndMini()
     QTRY_COMPARE(host.runtime.state(installation), PluginRuntime::Disabled);
     QTRY_VERIFY(!miniHost->property("loaded").toBool());
     QTRY_VERIFY(themeDialog.isNull());
+}
+void PluginRuntimeTest::appearanceNativeFallbackRetirement_data()
+{
+    QTest::addColumn<QString>("action");
+    for (const auto &action : {QString("close"), QString("hide"), QString("minimize")})
+        QTest::newRow(qPrintable(action)) << action;
+}
+void PluginRuntimeTest::appearanceNativeFallbackRetirement()
+{
+    QFETCH(QString, action);
+    Host host;
+    host.theme.setMotionEnabled(false);
+    ShellSettings settings(host.settings);
+    const auto installation = installAppearance(host, appearancePackage(host, definitions));
+    QCOMPARE(host.runtime.state(installation), PluginRuntime::Active);
+    auto root = productionWindow(host, settings);
+    QVERIFY(root);
+    auto *window = qobject_cast<QQuickWindow *>(root.get());
+    QVERIFY(window);
+    QVERIFY(host.runtime.context(installation)->appearance()->useSkin("wide"));
+    QVERIFY(QMetaObject::invokeMethod(root.get(), "openPlayback"));
+    auto *page = root->findChild<QObject *>("playbackPage");
+    QVERIFY(page);
+    auto *skin = page->findChild<AppearanceHost *>("pluginPlaybackSkinHost");
+    auto *native = page->findChild<QObject *>("coverPlaybackOwner");
+    QVERIFY(skin && native);
+    QTRY_VERIFY(skin->loaded());
+    QTRY_VERIFY(!native->property("item").value<QObject *>());
+    QSignalSpy warnings(&host.engine, &QQmlEngine::warnings);
+    QSignalSpy fallbackCreations(native, SIGNAL(itemChanged()));
+    for (int cycle = 0; cycle < 3; ++cycle) {
+        fallbackCreations.clear();
+        QQmlIncubationController held;
+        auto *normal = host.engine.incubationController();
+        host.engine.setIncubationController(&held);
+        const auto restore = qScopeGuard([&] { host.engine.setIncubationController(normal); });
+        if (action == "close")
+            QVERIFY(QMetaObject::invokeMethod(page, "close"));
+        else if (action == "hide")
+            window->hide();
+        else
+            window->showMinimized();
+        QTRY_VERIFY(!skin->loaded());
+        QVERIFY2(!native->property("active").toBool(),
+                 "A retiring plugin skin started the hidden native fallback");
+        QVERIFY(!native->property("item").value<QObject *>());
+        QCOMPARE(fallbackCreations.size(), 0);
+        held.incubateFor(1);
+        host.engine.setIncubationController(normal);
+        if (action == "close")
+            QVERIFY(QMetaObject::invokeMethod(root.get(), "openPlayback"));
+        else
+            window->showNormal();
+        QTRY_VERIFY(skin->loaded());
+        QCOMPARE(host.runtime.state(installation), PluginRuntime::Active);
+    }
+    QCOMPARE(warnings.size(), 0);
 }
 void PluginRuntimeTest::appearanceErrorsAndActivationRollback()
 {

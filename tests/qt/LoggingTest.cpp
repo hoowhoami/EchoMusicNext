@@ -30,6 +30,105 @@ class LoggingTest final : public QObject
 {
     Q_OBJECT
 private slots:
+    void workerScriptWarningsKeepOriginWhileMessagesComplete()
+    {
+        QTemporaryDir directory;
+        QFile script(directory.filePath("worker.js"));
+        QVERIFY(script.open(QIODevice::WriteOnly));
+        QVERIFY(
+            script.write(
+                "WorkerScript.onMessage = function(m) { WorkerScript.sendMessage({ok:true}); };") >
+            0);
+        script.close();
+        {
+            LogService logging(directory.path(), 2, false);
+            QQmlEngine engine;
+            QQmlComponent component(&engine);
+            component.setData(R"(
+import QtQml
+import QtQml.WorkerScript
+QtObject {
+ id: root
+ property int replies: 0
+ property WorkerScript first: WorkerScript { source: "worker.js"; onMessage: message => { if (message.ok) root.replies++ } }
+ property WorkerScript second: WorkerScript { source: "worker.js"; onMessage: message => { if (message.ok) root.replies++ } }
+ Component.onCompleted: { first.sendMessage({}); second.sendMessage({}); }
+})",
+                              QUrl::fromLocalFile(directory.filePath("WorkerProbe.qml")));
+            QScopedPointer<QObject> root(component.create());
+            QVERIFY2(root, qPrintable(component.errorString()));
+            QTRY_COMPARE(root->property("replies").toInt(), 2);
+        }
+        const auto files = QDir(directory.path()).entryList({"*.log"}, QDir::Files);
+        QCOMPARE(files.size(), 1);
+        QFile file(directory.filePath(files.first()));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const auto bytes = file.readAll();
+        // Qt 6.12's internal WorkerScript engine has no public QJSEngine.
+        // A future SDK may fix the warning; message completion remains required.
+        if (bytes.contains("QObject::connect(QJSEngine, QtObject)")) {
+            QVERIFY(bytes.contains("connect_stack="));
+            QVERIFY(bytes.contains("QmlWorkerScript"));
+            QVERIFY(bytes.contains("connection_origin=qt_workerscript_init"));
+        }
+        const auto sample = qEnvironmentVariable("ECHO_WORKER_LOG_SAMPLE");
+        if (!sample.isEmpty()) {
+            QFile output(sample);
+            QVERIFY(output.open(QIODevice::WriteOnly));
+            QCOMPARE(output.write(bytes), bytes.size());
+        }
+    }
+    void connectionWarningsIncludeBoundedOriginAndNativeStack()
+    {
+        QTemporaryDir directory;
+        {
+            LogService logging(directory.path(), 2, false);
+            QObject receiver;
+            // Exercise the real Qt warning with the same sender metaobject as
+            // the reported QJSEngine/QtObject failure, without crashing.
+            for (int index = 0; index < 10; ++index)
+                QObject::connect(static_cast<QJSEngine *>(nullptr), &QJSEngine::uiLanguageChanged,
+                                 &receiver, [] {});
+            QMessageLogger("/private/user-worktree/ConnectionProbe.cpp", 42, "connectionProbe",
+                           "qt.core.qobject.connect")
+                .warning("connection-origin-probe");
+            QQmlEngine engine;
+            QQmlComponent component(&engine);
+            component.setData("import QtQml\nQtObject { Component.onCompleted: "
+                              "console.warn('qml-location-probe') }",
+                              QUrl("qrc:/tests/WarningProbe.qml"));
+            QScopedPointer<QObject> root(component.create());
+            QVERIFY2(root, qPrintable(component.errorString()));
+        }
+        const auto files = QDir(directory.path()).entryList({"*.log"}, QDir::Files);
+        QCOMPARE(files.size(), 1);
+        QFile file(directory.filePath(files.first()));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const auto bytes = file.readAll();
+        QCOMPARE(bytes.count("invalid nullptr parameter"), 10);
+        QCOMPARE(bytes.count("connect_stack=limit_reached"), 3);
+        QVERIFY(bytes.contains("source=ConnectionProbe.cpp:42 function=connectionProbe"));
+        QVERIFY(bytes.contains("qml-location-probe source=WarningProbe.qml:2"));
+        QVERIFY(!bytes.contains("/private/user-worktree"));
+        int traces = 0;
+        for (const auto &line : bytes.split('\n')) {
+            if (line.isEmpty())
+                continue;
+            QVERIFY2(linePattern().match(QString::fromUtf8(line)).hasMatch(), line.constData());
+            QVERIFY(line.size() < 8192);
+            if (line.contains("connect_stack=") && !line.contains("limit_reached")) {
+                ++traces;
+                QVERIFY2(line.contains("+0x"), line.constData());
+            }
+        }
+        QCOMPARE(traces, 8);
+        const auto sample = qEnvironmentVariable("ECHO_LOG_CONTEXT_SAMPLE");
+        if (!sample.isEmpty()) {
+            QFile output(sample);
+            QVERIFY(output.open(QIODevice::WriteOnly));
+            QCOMPARE(output.write(bytes), bytes.size());
+        }
+    }
     void consoleAndFileUseIdenticalLocalSingleLineRecords()
     {
         QTemporaryDir directory;

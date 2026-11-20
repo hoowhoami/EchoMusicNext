@@ -17,6 +17,9 @@ ApplicationWindow {
     id: mainWindow
     property StartupController startup: null
     Component.onCompleted: {
+        // Freeze the creation-time mode. A later user open keeps its ordinary
+        // entry transition; only rebuilding an already-open page restores it.
+        restoringPlaybackPresentation = restoringPlaybackPresentation;
         initialStartupPresentation = startup !== null && !startup.entered;
         syncVerificationCover();
     }
@@ -49,6 +52,7 @@ ApplicationWindow {
     required property RouteController router
     required property ShellSettings shellSettings
     required property WindowController windowService
+    property bool restoringPlaybackPresentation: windowService.playbackPageOpen
     required property SearchModel searchService
     required property ShellController shellController
     required property AccountController accountController
@@ -119,10 +123,6 @@ ApplicationWindow {
         function onLyricSelectionRequested(): void {
             if (mainWindow.playbackService)
                 floatingLyricSource.open();
-        }
-        function onPlaybackPageRequested(): void {
-            if (mainWindow.mainShell)
-                mainWindow.mainShell.togglePlayback();
         }
     }
     EchoPopupLoader {
@@ -228,7 +228,7 @@ ApplicationWindow {
     component MainShell: EchoBackdropRoot {
         id: frame
         objectName: "shellFrame"
-        readonly property bool playbackCoversShell: playbackPageLoader.item !== null && (playbackPageLoader.item as PlaybackPage).visible && ((playbackPageLoader.item as PlaybackPage).opened || Theme.store.windowFrosted && (playbackPageLoader.item as PlaybackPage).enteringPage)
+        readonly property bool playbackCoversShell: mainWindow.restoringPlaybackPresentation && mainWindow.windowService.playbackPageOpen || playbackPageLoader.item !== null && (playbackPageLoader.item as PlaybackPage).visible && ((playbackPageLoader.item as PlaybackPage).opened || Theme.store.windowFrosted && (playbackPageLoader.item as PlaybackPage).enteringPage)
         // Qt blocks input for the modal playback page only once the popup has
         // finished entering, and a press during that window would otherwise be
         // claimed by the shell surface under the pointer - the cover, or the
@@ -250,12 +250,6 @@ ApplicationWindow {
             preferencesOwner.open({
                 initialSection: section
             });
-        }
-        function togglePlayback() {
-            if (playbackPageLoader.visible)
-                playbackPageLoader.close();
-            else
-                playbackPageLoader.open();
         }
         width: mainWindow.width / mainWindow.shellSettings.uiScale
         height: mainWindow.height / mainWindow.shellSettings.uiScale
@@ -537,8 +531,11 @@ ApplicationWindow {
             objectName: "playbackPageOwner"
             hostItem: mainWindow.contentItem
             keepOnMinimize: true
+            requestedVisible: mainWindow.windowService.playbackPageOpen
             sourceComponent: PlaybackPage {
                 id: nativePlaybackPage
+                Component.onCompleted: restoringPresentation = mainWindow.restoringPlaybackPresentation
+                onOpened: mainWindow.restoringPlaybackPresentation = false
                 controlsTopReserve: (nativePlaybackPage.controlsItem as PlayerBar)?.aboveControlsHeight ?? 0
                 onGlobalSettingsRequested: {
                     preferencesOwner.open({
@@ -620,6 +617,18 @@ ApplicationWindow {
                 sourceCover: playerBar.coverItem
                 playback: mainWindow.playbackService
                 uiScale: mainWindow.shellSettings.uiScale
+            }
+        }
+        Connections {
+            target: playbackPageLoader.item
+            function onAboutToShow(): void {
+                mainWindow.windowService.playbackPageOpen = true;
+            }
+            function onAboutToHide(): void {
+                // Hiding/unloading the host releases the popup, while its pure
+                // mode intent survives. A foreground user close clears intent.
+                if (mainWindow.visible && mainWindow.visibility !== Window.Minimized && mainWindow.windowService.presentationReady && !mainWindow.windowService.background)
+                    mainWindow.windowService.playbackPageOpen = false;
             }
         }
         EchoPopupLoader {

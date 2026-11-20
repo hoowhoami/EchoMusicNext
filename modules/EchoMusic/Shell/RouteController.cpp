@@ -4,10 +4,12 @@
 #include <QSet>
 #include <QThread>
 #include <QUrlQuery>
+#include <QLoggingCategory>
 #include <algorithm>
 
 namespace EchoMusic
 {
+Q_LOGGING_CATEGORY(routeLog, "echo.shell.route")
 RouteController::RouteController(QObject *parent) : QAbstractListModel(parent)
 {
     // Register routes only for available page components.
@@ -311,6 +313,9 @@ void RouteController::present(const Location &location)
             break;
         }
     auto *previous = m_current;
+    // Static route kind only: never record searches, resource IDs or query values.
+    qCInfo(routeLog) << "page_activate from=" << (previous ? previous->name().left(80) : QString{})
+                     << "to=" << location.name.left(80) << "reused=" << bool(next);
     if (next == previous && next) {
         next->m_query = location.query;
         emit next->queryChanged();

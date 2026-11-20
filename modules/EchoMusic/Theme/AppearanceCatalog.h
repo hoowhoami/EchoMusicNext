@@ -102,6 +102,7 @@ public:
         return rowCount();
     }
     void reload();
+    void updateSelection();
     QString typeFilter() const
     {
         return m_typeFilter;
@@ -114,6 +115,8 @@ signals:
 private:
     AppearanceCatalog &m_catalog;
     QString m_kind, m_typeFilter;
+    QString m_selectedKey;
+    QString selectedKey() const;
     QList<AppearanceEntry *> filtered() const;
     int builtinCount() const;
 };
@@ -188,7 +191,7 @@ signals:
     void contributionFailed(const QString &key, const QString &message);
 
 private:
-    void notify(bool theme);
+    void notify(bool theme, bool structureChanged = false);
     EchoMusic::SettingsStore &m_settings;
     QHash<QString, QPointer<AppearanceEntry>> m_entries;
     bool m_invalidationPending = false;

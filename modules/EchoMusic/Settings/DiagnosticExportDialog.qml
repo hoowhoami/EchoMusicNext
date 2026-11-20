@@ -15,6 +15,7 @@ EchoDialog {
     property bool includeDump: !currentSession && !!event.hasDump
     property string notes: ""
     property bool exportStarted: false
+    property bool exportingCurrentSession: false
     property bool showDetails: false
     objectName: "diagnosticExportDialog"
     heading: qsTr("故障诊断")
@@ -168,12 +169,26 @@ EchoDialog {
             onClicked: dialog.service.revealExport()
         }
         EchoSoftButton {
+            objectName: "diagnosticSaveCurrentZip"
+            visible: !dialog.currentSession
+            text: qsTr("导出本次运行")
+            enabled: !dialog.service.busy && !dialog.service.loading
+            colors: Theme.floating
+            onClicked: {
+                dialog.exportingCurrentSession = true;
+                pickerOwner.open();
+            }
+        }
+        EchoSoftButton {
             objectName: "diagnosticSaveZip"
             text: qsTr("选择位置并导出")
             enabled: !dialog.service.busy && !dialog.service.loading && (dialog.currentSession || !!dialog.event.id)
             accent: true
             colors: Theme.floating
-            onClicked: pickerOwner.open()
+            onClicked: {
+                dialog.exportingCurrentSession = false;
+                pickerOwner.open();
+            }
         }
     }
     EchoFileDialogLoader {
@@ -186,10 +201,11 @@ EchoDialog {
             fileMode: EchoFileDialog.SaveFile
             nameFilters: [qsTr("ZIP 压缩文件 (*.zip)")]
             defaultSuffix: "zip"
-            currentFile: dialog.service.suggestedFileName(dialog.event.id || "")
+            currentFile: dialog.service.suggestedFileName(dialog.exportingCurrentSession ? "" : dialog.event.id || "")
+            onRejected: dialog.exportingCurrentSession = false
             onAccepted: {
                 dialog.exportStarted = true;
-                if (dialog.currentSession)
+                if (dialog.currentSession || dialog.exportingCurrentSession)
                     dialog.service.exportCurrent(selectedFile, dialog.notes);
                 else
                     dialog.service.exportCrash(dialog.event.id, selectedFile, dialog.includeDump, dialog.notes);
