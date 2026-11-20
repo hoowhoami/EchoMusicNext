@@ -69,6 +69,17 @@ SettingsSection {
     }
     SettingsDivider {}
     SettingsRow {
+        heading: qsTr("磁盘缓存")
+        description: qsTr("缓存模式启用时将音频数据写入临时文件，结束读取后自动清理；重启生效")
+        EchoSwitch {
+            objectName: "settingsEngineCacheOnDisk"
+            checked: section.preferences.cacheOnDisk
+            Accessible.name: qsTr("磁盘缓存")
+            onToggled: section.preferences.cacheOnDisk = checked
+        }
+    }
+    SettingsDivider {}
+    SettingsRow {
         heading: qsTr("缓存耗尽时暂停")
         description: qsTr("网络缓存不足时等待，不影响音频输出缓冲")
         EchoSwitch {
@@ -99,7 +110,7 @@ SettingsSection {
     SettingsDivider {}
     SettingsRow {
         heading: qsTr("前向缓存上限")
-        description: qsTr("解复用 packet 队列的前向缓存大小上限")
+        description: section.preferences.cacheOnDisk ? qsTr("磁盘缓存启用时限制前向包索引的内存占用，不限制临时文件大小") : qsTr("解复用 packet 队列的前向缓存大小上限")
         EchoSpinBox {
             objectName: "settingsEngineDemuxerMaxMb"
             colors: Theme.floating
@@ -117,7 +128,7 @@ SettingsSection {
     SettingsDivider {}
     SettingsRow {
         heading: qsTr("回退缓存上限")
-        description: qsTr("保留已读 packet 的回退缓存字节上限")
+        description: section.preferences.cacheOnDisk ? qsTr("磁盘缓存启用时限制已读包索引的内存占用，不限制临时文件大小") : qsTr("保留已读 packet 的回退缓存字节上限")
         EchoSpinBox {
             objectName: "settingsEngineDemuxerMaxBackMb"
             colors: Theme.floating
@@ -198,12 +209,12 @@ SettingsSection {
     SettingsDivider {}
     SettingsRow {
         heading: qsTr("无缝播放")
-        description: qsTr("关闭后每首歌都会重新加载并重新协商输出设备")
+        description: qsTr("自动：采样率或声道变化时重开输出；开启：始终复用输出；关闭：每首歌重开输出")
         EchoSelect {
             objectName: "settingsEngineGaplessAudio"
             colors: Theme.floating
             implicitWidth: 180
-            model: [qsTr("弱"), qsTr("开启"), qsTr("关闭")]
+            model: [qsTr("自动"), qsTr("开启"), qsTr("关闭")]
             readonly property list<string> keys: ["weak", "yes", "no"]
             currentIndex: keys.indexOf(section.preferences.gaplessAudio)
             Accessible.name: qsTr("无缝播放")

@@ -7,6 +7,8 @@ use std::thread::JoinHandle;
 
 pub struct PlaybackSession {
     pub shared: Arc<SharedAudio>,
+    /// Intended filter output before hardware negotiation, retained with this output.
+    pub gapless_format: super::MixFormat,
     pub output_thread: Option<AudioOutputHandle>,
     pub filter_thread: Option<JoinHandle<()>>,
     pub decode_thread: Option<JoinHandle<Option<DecoderData>>>,

@@ -58,7 +58,6 @@ fn seek_acknowledged_before_sender_returns_keeps_decoder_reading() {
     let decoder = decoder::DecoderData::open(
         source.0.to_string_lossy().into_owned(),
         None,
-        Some(48_000),
         Arc::new(AtomicBool::new(false)),
         PacketCacheOptions::new(4096, 0, Duration::from_millis(1)),
         &StreamOptions::default(),

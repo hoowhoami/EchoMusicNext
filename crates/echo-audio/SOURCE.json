@@ -83,6 +83,8 @@
     "AirPlay PCM tap"
   ],
   "host_modifications": [
+    "Add mpv-style anonymous append-only packet payload/side-data caching; metadata budgets, file stats, failure fallback and OS-owned cleanup; host defaults enabled",
+    "Implement mpv-style weak gapless output reuse by intended filter rate/channels; retain convertible PCM formats and keep yes as the host default",
     "Remove N-API task/event/log wrappers; plain Work/Result and serialized sink",
     "Decode backpressure control wakeup allows at most one additional chunk",
     "Output configuration acknowledgements and disconnect recovery default fallback",

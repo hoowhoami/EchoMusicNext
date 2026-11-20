@@ -6598,9 +6598,9 @@
         <translation>播放引擎</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/SettingsCatalog.cpp" line="33"/>
-        <source>普通预读时长 网络缓存时长上限 网络缓存模式 缓存耗尽时暂停 缓存恢复等待 前向缓存上限 回退缓存上限 音频设备缓冲 音频采样率 音频声道 输出采样格式 无缝播放 播放恢复超时 播放卡死自动恢复 最大自动恢复次数</source>
-        <translation>普通预读时长 网络缓存时长上限 网络缓存模式 缓存耗尽时暂停 缓存恢复等待 前向缓存上限 回退缓存上限 音频设备缓冲 音频采样率 音频声道 输出采样格式 无缝播放 播放恢复超时 播放卡死自动恢复 最大自动恢复次数</translation>
+        <location filename="../modules/EchoMusic/Settings/SettingsCatalog.cpp" line="40"/>
+        <source>普通预读时长 网络缓存时长上限 网络缓存模式 磁盘缓存 缓存耗尽时暂停 缓存恢复等待 前向缓存上限 回退缓存上限 音频设备缓冲 音频采样率 音频声道 输出采样格式 无缝播放 播放恢复超时 播放卡死自动恢复 最大自动恢复次数</source>
+        <translation>普通预读时长 网络缓存时长上限 网络缓存模式 磁盘缓存 缓存耗尽时暂停 缓存恢复等待 前向缓存上限 回退缓存上限 音频设备缓冲 音频采样率 音频声道 输出采样格式 无缝播放 播放恢复超时 播放卡死自动恢复 最大自动恢复次数</translation>
     </message>
     <message>
         <location filename="../modules/EchoMusic/Settings/SettingsCatalog.cpp" line="37"/>
@@ -12052,10 +12052,10 @@
     <message>
         <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="31"/>
         <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="49"/>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="93"/>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="147"/>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="225"/>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="243"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="104"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="158"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="236"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="254"/>
         <source>秒</source>
         <translation>秒</translation>
     </message>
@@ -12083,219 +12083,236 @@
     </message>
     <message>
         <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="63"/>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="161"/>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="176"/>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="191"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="172"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="187"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="202"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="217"/>
         <source>自动</source>
         <translation>自动</translation>
     </message>
     <message>
         <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="63"/>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="206"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="217"/>
         <source>开启</source>
         <translation>开启</translation>
     </message>
     <message>
         <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="63"/>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="206"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="217"/>
         <source>关闭</source>
         <translation>关闭</translation>
     </message>
     <message>
         <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="72"/>
         <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="77"/>
+        <source>磁盘缓存</source>
+        <translation>磁盘缓存</translation>
+    </message>
+    <message>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="73"/>
+        <source>缓存模式启用时将音频数据写入临时文件，结束读取后自动清理；重启生效</source>
+        <translation>缓存模式启用时将音频数据写入临时文件，结束读取后自动清理；重启生效</translation>
+    </message>
+    <message>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="83"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="88"/>
         <source>缓存耗尽时暂停</source>
         <translation>缓存耗尽时暂停</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="73"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="84"/>
         <source>网络缓存不足时等待，不影响音频输出缓冲</source>
         <translation>网络缓存不足时等待，不影响音频输出缓冲</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="83"/>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="95"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="94"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="106"/>
         <source>缓存恢复等待</source>
         <translation>缓存恢复等待</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="84"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="95"/>
         <source>进入缓冲后，恢复播放前等待的可播放缓存时长</source>
         <translation>进入缓冲后，恢复播放前等待的可播放缓存时长</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="101"/>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="113"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="112"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="124"/>
         <source>前向缓存上限</source>
         <translation>前向缓存上限</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="102"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="113"/>
         <source>解复用 packet 队列的前向缓存大小上限</source>
         <translation>解复用 packet 队列的前向缓存大小上限</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="111"/>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="129"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="113"/>
+        <source>磁盘缓存启用时限制前向包索引的内存占用，不限制临时文件大小</source>
+        <translation>磁盘缓存启用时限制前向包索引的内存占用，不限制临时文件大小</translation>
+    </message>
+    <message>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="122"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="140"/>
         <source>MB</source>
         <translation>MB</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="119"/>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="131"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="130"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="142"/>
         <source>回退缓存上限</source>
         <translation>回退缓存上限</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="120"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="131"/>
         <source>保留已读 packet 的回退缓存字节上限</source>
         <translation>保留已读 packet 的回退缓存字节上限</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="137"/>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="149"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="131"/>
+        <source>磁盘缓存启用时限制已读包索引的内存占用，不限制临时文件大小</source>
+        <translation>磁盘缓存启用时限制已读包索引的内存占用，不限制临时文件大小</translation>
+    </message>
+    <message>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="148"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="160"/>
         <source>音频设备缓冲</source>
         <translation>音频设备缓冲</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="138"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="149"/>
         <source>输出设备侧的小缓冲，蓝牙设备可适当调高以减少断续，但会增加响应延迟</source>
         <translation>输出设备侧的小缓冲，蓝牙设备可适当调高以减少断续，但会增加响应延迟</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="155"/>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="164"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="166"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="175"/>
         <source>音频采样率</source>
         <translation>音频采样率</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="156"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="167"/>
         <source>自动时优先对齐输出设备，固定后由引擎重采样到目标采样率</source>
         <translation>自动时优先对齐输出设备，固定后由引擎重采样到目标采样率</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="161"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="172"/>
         <source>44.1 kHz</source>
         <translation>44.1 kHz</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="161"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="172"/>
         <source>48 kHz</source>
         <translation>48 kHz</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="161"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="172"/>
         <source>96 kHz</source>
         <translation>96 kHz</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="161"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="172"/>
         <source>192 kHz</source>
         <translation>192 kHz</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="170"/>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="179"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="181"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="190"/>
         <source>音频声道</source>
         <translation>音频声道</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="171"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="182"/>
         <source>安全自动会在音效需要立体声时升到双声道</source>
         <translation>安全自动会在音效需要立体声时升到双声道</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="176"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="187"/>
         <source>安全自动</source>
         <translation>安全自动</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="176"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="187"/>
         <source>立体声</source>
         <translation>立体声</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="176"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="187"/>
         <source>单声道</source>
         <translation>单声道</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="185"/>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="194"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="196"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="205"/>
         <source>输出采样格式</source>
         <translation>输出采样格式</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="186"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="197"/>
         <source>仅独占输出下生效，普通输出使用系统混音格式</source>
         <translation>仅独占输出下生效，普通输出使用系统混音格式</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="191"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="202"/>
         <source>32-bit Float</source>
         <translation>32-bit Float</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="191"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="202"/>
         <source>16-bit Integer</source>
         <translation>16-bit Integer</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="191"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="202"/>
         <source>32-bit Integer</source>
         <translation>32-bit Integer</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="200"/>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="209"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="211"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="220"/>
         <source>无缝播放</source>
         <translation>无缝播放</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="201"/>
-        <source>关闭后每首歌都会重新加载并重新协商输出设备</source>
-        <translation>关闭后每首歌都会重新加载并重新协商输出设备</translation>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="212"/>
+        <source>自动：采样率或声道变化时重开输出；开启：始终复用输出；关闭：每首歌重开输出</source>
+        <translation>自动：采样率或声道变化时重开输出；开启：始终复用输出；关闭：每首歌重开输出</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="206"/>
-        <source>弱</source>
-        <translation>弱</translation>
-    </message>
-    <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="215"/>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="227"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="226"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="238"/>
         <source>播放恢复超时</source>
         <translation>播放恢复超时</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="216"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="227"/>
         <source>长时间暂停后恢复播放可能卡住，超时后自动重新加载音频源。设为 0 禁用</source>
         <translation>长时间暂停后恢复播放可能卡住，超时后自动重新加载音频源。设为 0 禁用</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="233"/>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="245"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="244"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="256"/>
         <source>播放卡死自动恢复</source>
         <translation>播放卡死自动恢复</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="234"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="245"/>
         <source>播放中进度超过该秒数无推进则判定为卡死，自动重取地址并从断点续播。设为 0 禁用</source>
         <translation>播放中进度超过该秒数无推进则判定为卡死，自动重取地址并从断点续播。设为 0 禁用</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="254"/>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="266"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="265"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="277"/>
         <source>最大自动恢复次数</source>
         <translation>最大自动恢复次数</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="255"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="266"/>
         <source>同一首歌连续卡死时最多自动恢复的次数，超过则提示并按设置自动切下一首</source>
         <translation>同一首歌连续卡死时最多自动恢复的次数，超过则提示并按设置自动切下一首</translation>
     </message>
     <message>
-        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="264"/>
+        <location filename="../modules/EchoMusic/Settings/PlayerSettingsSection.qml" line="275"/>
         <source>次</source>
         <translation>次</translation>
     </message>

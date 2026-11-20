@@ -114,6 +114,7 @@ fn source_change_retains_output_session_but_drains_and_invalidates_old_audio() {
     let old_request = next_source_open_request_seq();
     call_core_command("test-source-change-session", move |runtime| {
         runtime.session = Some(PlaybackSession {
+            gapless_format: session_shared.mix_format,
             shared: session_shared.clone(),
             output_thread: None,
             filter_thread: None,
@@ -185,6 +186,7 @@ fn latest_load_produces_new_audio_and_an_advancing_clock_after_rapid_skips() {
     let session_shared = shared.clone();
     call_core_command("test-latest-load-session", move |runtime| {
         runtime.session = Some(PlaybackSession {
+            gapless_format: session_shared.mix_format,
             shared: session_shared.clone(),
             output_thread: None,
             filter_thread: Some(filter::spawn_filter_thread(session_shared.clone())),
@@ -253,4 +255,103 @@ fn latest_load_produces_new_audio_and_an_advancing_clock_after_rapid_skips() {
     assert!(shared.position_secs() > 0.0);
     destroy().unwrap();
     std::fs::remove_file(path).unwrap();
+}
+
+struct GaplessTestWav(std::path::PathBuf);
+
+impl GaplessTestWav {
+    fn new(sample_rate: u32, channels: u16, float: bool) -> Self {
+        static NEXT_FILE: AtomicU64 = AtomicU64::new(0);
+        let bits = if float { 32u16 } else { 16u16 };
+        let align = channels * bits / 8;
+        let data_len = sample_rate * u32::from(align) * 2;
+        let mut wav = Vec::with_capacity(44 + data_len as usize);
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(36 + data_len).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        wav.extend_from_slice(&(if float { 3u16 } else { 1u16 }).to_le_bytes());
+        wav.extend_from_slice(&channels.to_le_bytes());
+        wav.extend_from_slice(&sample_rate.to_le_bytes());
+        wav.extend_from_slice(&(sample_rate * u32::from(align)).to_le_bytes());
+        wav.extend_from_slice(&align.to_le_bytes());
+        wav.extend_from_slice(&bits.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&data_len.to_le_bytes());
+        wav.resize(44 + data_len as usize, 0);
+        let path = std::env::temp_dir().join(format!(
+            "echo-gapless-policy-{}-{}.wav",
+            std::process::id(),
+            NEXT_FILE.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::write(&path, wav).unwrap();
+        Self(path)
+    }
+
+    fn url(&self) -> String {
+        self.0.to_string_lossy().into_owned()
+    }
+}
+
+impl Drop for GaplessTestWav {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+#[test]
+fn gapless_policy_controls_real_load_and_prepared_handoffs() {
+    let _guard = crate::transition_tests::TEST_SERIAL
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let a = GaplessTestWav::new(44_100, 2, false);
+    // Same PCM format, rate change, channel change, convertible sample format,
+    // and explicit output overrides: exercise both manual load and EOF preparation.
+    for (policy, next_rate, channels, float, fixed_rate, fixed_channels, reuse) in [
+        ("weak", 44_100, 2, false, "auto", "auto-safe", true),
+        ("weak", 48_000, 2, false, "auto", "auto-safe", false),
+        ("weak", 44_100, 1, false, "auto", "auto-safe", false),
+        ("weak", 44_100, 2, true, "auto", "auto-safe", true),
+        ("weak", 48_000, 1, false, "48000", "stereo", true),
+        ("yes", 48_000, 1, false, "auto", "auto-safe", true),
+        ("no", 44_100, 2, false, "auto", "auto-safe", false),
+    ] {
+        let b = GaplessTestWav::new(next_rate, channels, float);
+        let options = serde_json::from_value(serde_json::json!({
+            "gapless_audio": policy, "audio_samplerate": fixed_rate, "audio_channels": fixed_channels
+        })).unwrap();
+        initialize(Some(options)).unwrap();
+        set_transition_settings(Some(TransitionSettingsOptions {
+            mode: Some("none".to_string()),
+            fade_secs: None,
+            match_tempo: None,
+        }))
+        .unwrap();
+        load_file_task_for_test(a.url(), 1).compute().unwrap();
+        stop_output_for_test();
+        let previous = current_shared().unwrap();
+        let generation = previous.current_decode_generation();
+        let request = begin_next_source_preparation().unwrap() as u64;
+        let prepared = prepare_next_source_task_for_test(b.url(), 2, request, 0.0)
+            .compute()
+            .unwrap();
+        assert_eq!(
+            prepared, reuse,
+            "prepare {policy}, {next_rate}, {channels}, float={float}"
+        );
+        assert!(Arc::ptr_eq(&previous, &current_shared().unwrap()));
+        assert_eq!(previous.current_decode_generation(), generation);
+        begin_source_change().unwrap();
+        load_file_task_for_test(b.url(), 2).compute().unwrap();
+        stop_output_for_test();
+        let current = current_shared().unwrap();
+        assert_eq!(
+            Arc::ptr_eq(&previous, &current),
+            reuse,
+            "load {policy}, {next_rate}, {channels}"
+        );
+        assert_eq!(current.current_track_seq(), 2);
+        assert!(with_runtime(|runtime| Ok(runtime.source_open_interrupt.is_none())).unwrap());
+        destroy().unwrap();
+    }
 }

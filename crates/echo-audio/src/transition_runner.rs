@@ -981,7 +981,6 @@ mod tests {
         DecoderData::open(
             path.to_string_lossy().into_owned(),
             None,
-            None,
             std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             ffmpeg_audio::PacketCacheOptions::default(),
             &crate::stream::StreamOptions::default(),

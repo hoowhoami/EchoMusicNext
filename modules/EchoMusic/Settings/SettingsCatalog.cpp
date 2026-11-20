@@ -37,7 +37,8 @@ SettingsCatalog::SettingsCatalog(QObject *parent) : QAbstractListModel(parent)
         {"player",
          tr("播放引擎"),
          "cpu",
-         tr("普通预读时长 网络缓存时长上限 网络缓存模式 缓存耗尽时暂停 缓存恢复等待 前向缓存上限 "
+         tr("普通预读时长 网络缓存时长上限 网络缓存模式 磁盘缓存 缓存耗尽时暂停 缓存恢复等待 "
+            "前向缓存上限 "
             "回退缓存上限 音频设备缓冲 音频采样率 音频声道 输出采样格式 无缝播放 播放恢复超时 "
             "播放卡死自动恢复 最大自动恢复次数"),
          "PlayerSettingsSection",

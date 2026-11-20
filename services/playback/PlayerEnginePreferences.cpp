@@ -1,6 +1,8 @@
 #include "SettingsKeys.h"
 #include "PlayerEnginePreferences.h"
 #include <cmath>
+#include <QDir>
+#include <QStandardPaths>
 namespace EchoMusic
 {
 namespace
@@ -52,10 +54,12 @@ PlayerEnginePreferences::PlayerEnginePreferences(EchoMusic::SettingsStore &setti
     if (QStringList{"auto", "float", "s16", "s32"}.contains(audioFormat))
         m_audioFormat = audioFormat;
     const auto gaplessAudio =
-        settings.value(EchoMusic::SettingsKeys::PlayerEngine::GaplessAudio, "weak").toString();
+        settings.value(EchoMusic::SettingsKeys::PlayerEngine::GaplessAudio, "yes").toString();
     if (QStringList{"weak", "yes", "no"}.contains(gaplessAudio))
         m_gaplessAudio = gaplessAudio;
     m_cachePause = settings.value(EchoMusic::SettingsKeys::PlayerEngine::CachePause, true).toBool();
+    m_cacheOnDisk =
+        settings.value(EchoMusic::SettingsKeys::PlayerEngine::CacheOnDisk, true).toBool();
     m_attempts = qBound(
         1,
         settings.value(EchoMusic::SettingsKeys::PlayerEngine::PlaybackStallMaxAttempts, 3).toInt(),
@@ -209,8 +213,19 @@ void PlayerEnginePreferences::setCachePause(bool enabled)
     m_settings.setValue(EchoMusic::SettingsKeys::PlayerEngine::CachePause, enabled);
     emit changed();
 }
+void PlayerEnginePreferences::setCacheOnDisk(bool enabled)
+{
+    if (enabled == m_cacheOnDisk)
+        return;
+    m_cacheOnDisk = enabled;
+    m_settings.setValue(EchoMusic::SettingsKeys::PlayerEngine::CacheOnDisk, enabled);
+    emit changed();
+}
 QJsonObject PlayerEnginePreferences::startupOptions() const
 {
+    const auto cacheRoot = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+    const auto cacheDirectory =
+        cacheRoot.isEmpty() ? QString{} : QDir(cacheRoot).filePath("audio-packets");
     return {{"audio_buffer_secs", m_audioBufferSecs},
             {"audio_samplerate", m_audioSamplerate},
             {"audio_channels", m_audioChannels},
@@ -218,6 +233,8 @@ QJsonObject PlayerEnginePreferences::startupOptions() const
             {"gapless_audio", m_gaplessAudio},
             {"demuxer_readahead_secs", m_demuxerReadaheadSecs},
             {"cache", m_cacheMode},
+            {"cache_on_disk", m_cacheOnDisk},
+            {"demuxer_cache_dir", cacheDirectory},
             {"cache_pause", m_cachePause},
             {"cache_secs", m_cacheSecs},
             {"cache_pause_wait_secs", m_cachePauseWaitSecs},

@@ -88,7 +88,6 @@ fn open(url: &str) -> DecoderData {
     DecoderData::open(
         url.to_string(),
         None,
-        Some(SR),
         Arc::new(AtomicBool::new(false)),
         ffmpeg_audio::PacketCacheOptions::default(),
         &crate::stream::StreamOptions::default(),
@@ -1422,7 +1421,6 @@ fn http_flac_reader_replacement_keeps_frames_and_timestamps() {
         DecoderData::open(
             url.clone(),
             None,
-            Some(SR),
             cancellation.reader_interrupt(),
             config.packet_cache_options_for_url(&url),
             &config.stream_options(),
@@ -1500,7 +1498,6 @@ fn analysis_reader_teardown_does_not_cancel_playback_or_the_request() {
     let mut analysis = DecoderData::open(
         wav.url(),
         None,
-        Some(SR),
         analysis_interrupt.clone(),
         ffmpeg_audio::PacketCacheOptions::default(),
         &crate::stream::StreamOptions::default(),
@@ -1613,7 +1610,6 @@ fn probe_http_flac_seek_behaviour() {
     let mut decoder = DecoderData::open(
         url.clone(),
         None,
-        None,
         interrupt.clone(),
         config.packet_cache_options_for_url(&url),
         &config.stream_options(),
@@ -1642,7 +1638,6 @@ fn probe_http_flac_seek_behaviour() {
         .into_owned();
     let mut local_decoder = DecoderData::open(
         local.clone(),
-        None,
         None,
         Arc::new(AtomicBool::new(false)),
         config.packet_cache_options_for_url(&local),

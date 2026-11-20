@@ -72,7 +72,6 @@ pub(crate) fn open_decoder_at_position(
         decoder::DecoderData::open(
             plan.url.clone(),
             plan.audio_stream_ordinal,
-            Some(plan.shared.mix_format.sample_rate),
             interrupt.clone(),
             plan.config.packet_cache_options_for_url(&plan.url),
             &plan.config.stream_options(),
@@ -81,7 +80,6 @@ pub(crate) fn open_decoder_at_position(
         open_decoder(
             plan.url.clone(),
             plan.audio_stream_ordinal,
-            Some(plan.shared.mix_format.sample_rate),
             plan.config.packet_cache_options_for_url(&plan.url),
             &plan.config.stream_options(),
         )

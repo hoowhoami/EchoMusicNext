@@ -427,12 +427,22 @@ private slots:
         PlayerEnginePreferences preferences(settings);
         QCOMPARE(preferences.audioBufferSecs(), .2);
         QCOMPARE(preferences.audioSamplerate(), QString("auto"));
+        QCOMPARE(preferences.gaplessAudio(), QString("yes"));
+        QVERIFY(preferences.cacheOnDisk());
+        QVERIFY(preferences.startupOptions().value("cache_on_disk").toBool());
+        QVERIFY(preferences.startupOptions()
+                    .value("demuxer_cache_dir")
+                    .toString()
+                    .endsWith("audio-packets"));
+        QCOMPARE(preferences.startupOptions().value("gapless_audio").toString(), QString("yes"));
         preferences.setAudioBufferSecs(.35);
         preferences.setCachePauseWaitSecs(.7);
         preferences.setDemuxerMaxMb(256.5);
         preferences.setCachePause(false);
+        preferences.setCacheOnDisk(false);
         preferences.setAudioSamplerate("44100");
         preferences.setAudioChannels("mono");
+        preferences.setGaplessAudio("no");
         preferences.setPlaybackStallMaxAttempts(200);
         preferences.setAudioBufferSecs(std::numeric_limits<double>::quiet_NaN());
         preferences.setAudioSamplerate("unsupported");
@@ -441,8 +451,12 @@ private slots:
         PlayerEnginePreferences reopened(second);
         QCOMPARE(reopened.audioBufferSecs(), .35);
         QCOMPARE(reopened.audioSamplerate(), QString("44100"));
+        QCOMPARE(reopened.gaplessAudio(), QString("no"));
+        QVERIFY(!reopened.cacheOnDisk());
         QCOMPARE(reopened.playbackStallMaxAttempts(), 10);
         const auto options = reopened.startupOptions();
+        QCOMPARE(options.value("gapless_audio").toString(), QString("no"));
+        QVERIFY(!options.value("cache_on_disk").toBool());
         QCOMPARE(options.value("cache_pause_wait_secs").toDouble(), .7);
         QCOMPARE(options.value("demuxer_max_bytes").toDouble(), 256.5 * 1024 * 1024);
         QVERIFY(!options.value("cache_pause").toBool());

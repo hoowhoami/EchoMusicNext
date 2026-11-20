@@ -170,6 +170,7 @@ ECHO_SETTING(PlayerEngine, AudioChannels, "playerEngine/audioChannels", Portable
 ECHO_SETTING(PlayerEngine, AudioFormat, "playerEngine/audioFormat", Portable)
 ECHO_SETTING(PlayerEngine, AudioSamplerate, "playerEngine/audioSamplerate", Portable)
 ECHO_SETTING(PlayerEngine, CacheMode, "playerEngine/cacheMode", Portable)
+ECHO_SETTING(PlayerEngine, CacheOnDisk, "playerEngine/cacheOnDisk", Portable)
 ECHO_SETTING(PlayerEngine, CachePause, "playerEngine/cachePause", Portable)
 ECHO_SETTING(PlayerEngine, CachePauseWaitSecs, "playerEngine/cachePauseWaitSecs", Portable)
 ECHO_SETTING(PlayerEngine, CacheSecs, "playerEngine/cacheSecs", Portable)

@@ -11,6 +11,7 @@ class PlayerEnginePreferences final : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(bool cachePause READ cachePause WRITE setCachePause NOTIFY changed)
+    Q_PROPERTY(bool cacheOnDisk READ cacheOnDisk WRITE setCacheOnDisk NOTIFY changed)
     Q_PROPERTY(double demuxerReadaheadSecs READ demuxerReadaheadSecs WRITE setDemuxerReadaheadSecs
                    NOTIFY changed)
     Q_PROPERTY(double cacheSecs READ cacheSecs WRITE setCacheSecs NOTIFY changed)
@@ -34,6 +35,11 @@ class PlayerEnginePreferences final : public QObject
 public:
     explicit PlayerEnginePreferences(EchoMusic::SettingsStore &settings, QObject *parent = nullptr);
     QJsonObject startupOptions() const;
+    bool cacheOnDisk() const
+    {
+        return m_cacheOnDisk;
+    }
+    void setCacheOnDisk(bool enabled);
     bool cachePause() const
     {
         return m_cachePause;
@@ -127,8 +133,9 @@ private:
     QString m_audioSamplerate = "auto";
     QString m_audioChannels = "auto-safe";
     QString m_audioFormat = "auto";
-    QString m_gaplessAudio = "weak";
+    QString m_gaplessAudio = "yes";
     bool m_cachePause = true;
+    bool m_cacheOnDisk = true;
     int m_attempts = 3;
 };
 } // namespace EchoMusic

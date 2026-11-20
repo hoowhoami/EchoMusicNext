@@ -28,6 +28,8 @@ pub struct PacketCacheSeekableRange {
 
 #[derive(serde::Serialize, Clone, Debug, Default, PartialEq)]
 pub struct PacketCacheStats {
+    pub file_cache_bytes: Option<f64>,
+    pub disk_cache_error: Option<String>,
     pub forward_bytes: f64,
     pub back_bytes: f64,
     pub total_bytes: f64,

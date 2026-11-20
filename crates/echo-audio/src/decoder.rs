@@ -96,7 +96,6 @@ pub struct DecoderData {
     duration: Option<Duration>,
     pending_playback_restart_position: Option<f64>,
     seeked_to_end: bool,
-    mix_sample_rate: u32,
     source_channels: usize,
     source_sample_format: AudioSampleFormat,
     discard_before_secs: Option<f64>,
@@ -106,26 +105,17 @@ impl DecoderData {
     pub fn open(
         url: String,
         audio_stream_ordinal: Option<usize>,
-        mix_sample_rate: Option<u32>,
         interrupt: Arc<AtomicBool>,
         packet_cache: PacketCacheOptions,
         stream_options: &StreamOptions,
     ) -> Result<Self, String> {
         let source = open_stream(&url, interrupt.clone(), stream_options)?;
-        Self::from_source(
-            url,
-            audio_stream_ordinal,
-            mix_sample_rate,
-            interrupt,
-            source,
-            packet_cache,
-        )
+        Self::from_source(url, audio_stream_ordinal, interrupt, source, packet_cache)
     }
 
     fn from_source(
         _url: String,
         audio_stream_ordinal: Option<usize>,
-        mix_sample_rate: Option<u32>,
         interrupt: Arc<AtomicBool>,
         source: Box<dyn ReadSeek>,
         packet_cache: PacketCacheOptions,
@@ -143,7 +133,6 @@ impl DecoderData {
         let source_info = reader.source_info();
         let source_sample_format = source_sample_format(source_info);
         let source_channels = source_channels(source_info);
-        let mix_sample_rate = mix_sample_rate.unwrap_or_else(|| source_sample_rate(source_info));
         Ok(Self {
             reader,
             chunk_end: None,
@@ -153,7 +142,6 @@ impl DecoderData {
             duration,
             pending_playback_restart_position: None,
             seeked_to_end: false,
-            mix_sample_rate,
             source_channels,
             source_sample_format,
             discard_before_secs: None,
@@ -178,8 +166,8 @@ impl DecoderData {
         self.source_sample_format
     }
 
-    pub fn mix_sample_rate(&self) -> u32 {
-        self.mix_sample_rate
+    pub fn source_sample_rate(&self) -> u32 {
+        source_sample_rate(self.reader.source_info())
     }
 
     pub fn source_channels(&self) -> usize {
@@ -626,6 +614,8 @@ fn source_channels(info: &ffmpeg_audio::SourceAudioInfo) -> usize {
 fn packet_cache_stats_from_reader(reader: &AudioReader) -> PacketCacheStats {
     let stats = reader.packet_cache_stats();
     PacketCacheStats {
+        file_cache_bytes: stats.file_cache_bytes.map(|bytes| bytes as f64),
+        disk_cache_error: stats.disk_cache_error,
         forward_bytes: stats.forward_bytes as f64,
         back_bytes: stats.back_bytes as f64,
         total_bytes: stats.total_bytes as f64,
@@ -649,14 +639,12 @@ fn packet_cache_stats_from_reader(reader: &AudioReader) -> PacketCacheStats {
 pub fn open_decoder(
     url: String,
     audio_stream_ordinal: Option<usize>,
-    mix_sample_rate: Option<u32>,
     packet_cache: PacketCacheOptions,
     stream_options: &StreamOptions,
 ) -> Result<DecoderData, String> {
     open_decoder_with_interrupt(
         url,
         audio_stream_ordinal,
-        mix_sample_rate,
         Arc::new(AtomicBool::new(false)),
         packet_cache,
         stream_options,
@@ -666,7 +654,6 @@ pub fn open_decoder(
 pub fn open_decoder_with_interrupt(
     url: String,
     audio_stream_ordinal: Option<usize>,
-    mix_sample_rate: Option<u32>,
     interrupt: Arc<AtomicBool>,
     packet_cache: PacketCacheOptions,
     stream_options: &StreamOptions,
@@ -674,7 +661,6 @@ pub fn open_decoder_with_interrupt(
     DecoderData::open(
         url,
         audio_stream_ordinal,
-        mix_sample_rate,
         interrupt,
         packet_cache,
         stream_options,
@@ -2261,7 +2247,6 @@ mod tests {
         let mut decoder = DecoderData::open(
             path.to_string_lossy().into_owned(),
             None,
-            Some(48_000),
             Arc::new(AtomicBool::new(false)),
             PacketCacheOptions::default(),
             &StreamOptions::default(),
@@ -2290,7 +2275,6 @@ mod tests {
         DecoderData::open(
             path.to_string_lossy().into_owned(),
             None,
-            Some(48_000),
             Arc::new(AtomicBool::new(false)),
             PacketCacheOptions::default(),
             &StreamOptions::default(),
@@ -2312,7 +2296,6 @@ mod tests {
                         .to_string_lossy()
                         .into_owned(),
                     None,
-                    Some(48_000),
                     Arc::new(AtomicBool::new(false)),
                     PacketCacheOptions::default(),
                     &StreamOptions::default(),
@@ -2782,7 +2765,6 @@ mod tests {
             .join("vendor/ffmpeg-audio/crates/ffmpeg_audio/tests/assets/seek_test.aac");
         let mut decoder = DecoderData::open(
             path.to_string_lossy().into_owned(),
-            None,
             None,
             Arc::new(AtomicBool::new(false)),
             PacketCacheOptions::default(),

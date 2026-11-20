@@ -276,6 +276,8 @@ pub(crate) struct GaplessDecoderActivation {
 
 struct ContinuousLoadPlan {
     shared: Arc<SharedAudio>,
+    gapless_format: MixFormat,
+    pause_on_device_disconnect: bool,
     request_seq: u64,
     was_playing: bool,
     config: PlayerConfig,
@@ -752,15 +754,18 @@ fn prepare_source(
     spatial_file_path: Option<String>,
     pause_on_device_disconnect: bool,
     interrupt: Arc<AtomicBool>,
+    decoder: Option<decoder::DecoderData>,
 ) -> Result<PreparedSource, String> {
-    let mut decoder = open_decoder_with_interrupt(
-        url.clone(),
-        audio_stream_ordinal,
-        None,
-        interrupt.clone(),
-        config.packet_cache_options_for_url(&url),
-        &config.stream_options(),
-    )?;
+    let mut decoder = match decoder {
+        Some(decoder) => decoder,
+        None => open_decoder_with_interrupt(
+            url.clone(),
+            audio_stream_ordinal,
+            interrupt.clone(),
+            config.packet_cache_options_for_url(&url),
+            &config.stream_options(),
+        )?,
+    };
     if interrupt.load(Ordering::Acquire) {
         return Err("source open cancelled".to_string());
     }
@@ -769,7 +774,7 @@ fn prepare_source(
     }
     let embedded_metadata = decoder.embedded_metadata();
     let duration = decoder.duration_secs();
-    let source_sample_rate = decoder.mix_sample_rate();
+    let source_sample_rate = decoder.source_sample_rate();
     let output_sample_rate =
         device::preferred_output_sample_rate(&config.audio_device, config.exclusive_output);
     let requested_mix_sample_rate =
@@ -1036,6 +1041,11 @@ fn prepare_source(
     );
     let mut session = PlaybackSession {
         shared: shared.clone(),
+        gapless_format: config.gapless_filter_format(
+            source_sample_rate,
+            decoder.source_channels(),
+            dsp_settings.requires_stereo_graph(),
+        ),
         output_thread: Some(output_thread),
         filter_thread: None,
         decode_thread: None,
@@ -1210,6 +1220,7 @@ fn replace_source_async(
     pause_on_device_disconnect: bool,
     open_request_seq: u64,
     interrupt: Arc<AtomicBool>,
+    decoder: Option<decoder::DecoderData>,
 ) -> crate::Result<()> {
     let failed_url = url.clone();
     let prepared = prepare_source(
@@ -1223,6 +1234,7 @@ fn replace_source_async(
         spatial_file_path,
         pause_on_device_disconnect,
         interrupt.clone(),
+        decoder,
     );
     let mut prepared = match prepared {
         Ok(prepared) => Some(prepared),
@@ -1688,7 +1700,6 @@ impl Command for SwitchSourceTask {
             let mut decoder = open_decoder_with_interrupt(
                 url.clone(),
                 audio_stream,
-                Some(shared.mix_format.sample_rate),
                 interrupt.clone(),
                 config.packet_cache_options_for_url(&url),
                 &config.stream_options(),
@@ -1880,6 +1891,8 @@ impl Command for LoadFileTask {
                 let shared = session.shared.clone();
                 LoadPlan::Continuous(ContinuousLoadPlan {
                     shared,
+                    gapless_format: session.gapless_format,
+                    pause_on_device_disconnect: runtime.pause_on_device_disconnect,
                     request_seq: seq,
                     was_playing: runtime.state.playing && !runtime.state.paused,
                     config: runtime.config.clone(),
@@ -1920,12 +1933,12 @@ impl Command for LoadFileTask {
                 pause_on_device_disconnect,
                 open_request_seq,
                 interrupt,
+                None,
             ),
             LoadPlan::Continuous(plan) => {
                 let new_decoder = open_decoder_with_interrupt(
                     url.clone(),
                     audio_stream,
-                    Some(plan.shared.mix_format.sample_rate),
                     interrupt.clone(),
                     plan.config.packet_cache_options_for_url(&url),
                     &plan.config.stream_options(),
@@ -1972,6 +1985,64 @@ impl Command for LoadFileTask {
                                 return Err(crate::EngineError::from_reason(err));
                             }
                         };
+                        let next_format = plan.config.gapless_filter_format(
+                            decoder.source_sample_rate(),
+                            decoder.source_channels(),
+                            dsp_settings.requires_stereo_graph(),
+                        );
+                        if !plan
+                            .config
+                            .gapless_audio
+                            .reuses_output(plan.gapless_format, next_format)
+                        {
+                            let shared_for_reopen = plan.shared.clone();
+                            let interrupt_for_reopen = interrupt.clone();
+                            let previous = call_core_command(
+                                "detach-output-for-format-change",
+                                move |runtime| {
+                                    if !runtime.source_open_is_current(
+                                        open_request_seq,
+                                        &interrupt_for_reopen,
+                                    ) || runtime.latest_load_seq != seq
+                                        || !runtime.session.as_ref().is_some_and(|session| {
+                                            Arc::ptr_eq(&session.shared, &shared_for_reopen)
+                                        })
+                                    {
+                                        return Ok(None);
+                                    }
+                                    runtime.cancel_idle_output_release();
+                                    set_current_shared(None);
+                                    runtime.state.playing = false;
+                                    runtime.state.paused = true;
+                                    Ok(runtime.session.take())
+                                },
+                            )?;
+                            let Some(previous) = previous else {
+                                return Ok(());
+                            };
+                            // Join on this source worker, outside the core and realtime threads,
+                            // before opening another backend (including exclusive devices).
+                            previous.stop_blocking();
+                            if interrupt.load(Ordering::Acquire)
+                                || !is_latest_source_open_request_seq(open_request_seq)
+                            {
+                                return Ok(());
+                            }
+                            return replace_source_async(
+                                url,
+                                audio_stream,
+                                seq,
+                                0.0,
+                                false,
+                                plan.config,
+                                dsp_settings,
+                                plan.spatial_file_path,
+                                plan.pause_on_device_disconnect,
+                                open_request_seq,
+                                interrupt,
+                                Some(decoder),
+                            );
+                        }
                         let interrupt_for_commit = interrupt.clone();
                         let shared_for_validation = plan.shared.clone();
                         let valid =
@@ -2383,6 +2454,22 @@ impl Command for PrepareNextSourceTask {
                     "prepared next source already committed".to_string(),
                 )
             })?;
+            let session = runtime.session.as_ref().expect("validated session");
+            let next_format = runtime.config.gapless_filter_format(
+                prepared.decoder.source_sample_rate(),
+                prepared.decoder.source_channels(),
+                session.shared.dsp_settings().requires_stereo_graph(),
+            );
+            if !runtime
+                .config
+                .gapless_audio
+                .reuses_output(session.gapless_format, next_format)
+            {
+                // EOF continues through the normal load path, which renegotiates output.
+                // Never arm an overlap or splice across incompatible weak-policy formats.
+                retire_prepared_next_background(Some(prepared), "prepare-next-format-change");
+                return Ok(false);
+            }
             runtime.gapless_prepare_interrupt = None;
             let has_transition = prepared.transition.is_some();
             let predecoded_chunks = prepared.predecoded.len();

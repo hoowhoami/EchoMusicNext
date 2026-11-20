@@ -331,7 +331,6 @@ fn ensure_tail_analysis(
     let mut decoder = open_decoder_with_interrupt(
         url.to_string(),
         audio_stream_ordinal,
-        None,
         interrupt.reader_interrupt(),
         config.packet_cache_options_for_url(url),
         &config.stream_options(),
@@ -352,7 +351,6 @@ fn ensure_tail_analysis(
             let mut retry = open_decoder_with_interrupt(
                 url.to_string(),
                 audio_stream_ordinal,
-                None,
                 interrupt.reader_interrupt(),
                 config.packet_cache_options_for_url(url),
                 &config.stream_options(),
@@ -418,7 +416,6 @@ pub(crate) fn prepare_transition_audio(
         open_decoder_with_interrupt(
             inputs.next_url.to_string(),
             inputs.next_audio_stream_ordinal,
-            Some(sample_rate),
             inputs.interrupt.reader_interrupt(),
             inputs.config.packet_cache_options_for_url(inputs.next_url),
             &inputs.config.stream_options(),
@@ -492,7 +489,6 @@ fn plan_prepared_transition(
                 let current = open_decoder_with_interrupt(
                     current_url.to_string(),
                     inputs.current_audio_stream_ordinal,
-                    None,
                     inputs.interrupt.reader_interrupt(),
                     inputs.config.packet_cache_options_for_url(current_url),
                     &inputs.config.stream_options(),
@@ -782,7 +778,6 @@ mod tests {
             .join("vendor/ffmpeg-audio/crates/ffmpeg_audio/tests/assets/seek_test.aac");
         decoder::DecoderData::open(
             path.to_string_lossy().into_owned(),
-            None,
             None,
             Arc::new(AtomicBool::new(false)),
             ffmpeg_audio::PacketCacheOptions::default(),

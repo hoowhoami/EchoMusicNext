@@ -1,8 +1,9 @@
 use crate::device::normalize_device_name;
 use crate::events::SpectrumOptions;
-use crate::shared::AudioSampleFormat;
+use crate::shared::{AudioSampleFormat, MixFormat};
 use crate::stream::{self, StreamOptions};
 use ffmpeg_audio::PacketCacheOptions;
+use std::path::PathBuf;
 use std::time::Duration;
 
 const PACKET_CACHE_SEEK_REPLY_MARGIN: Duration = Duration::from_millis(500);
@@ -35,6 +36,8 @@ pub struct PlayerConfigOptions {
     pub cache: Option<String>,
     pub cache_secs: Option<f64>,
     pub cache_pause: Option<bool>,
+    pub cache_on_disk: Option<bool>,
+    pub demuxer_cache_dir: Option<String>,
     pub cache_pause_wait_secs: Option<f64>,
     pub demuxer_max_bytes: Option<f64>,
     pub demuxer_max_back_bytes: Option<f64>,
@@ -188,7 +191,21 @@ impl GaplessAudioPolicy {
         {
             Some("no") | Some("false") | Some("0") => Self::No,
             Some("yes") | Some("true") | Some("1") => Self::Yes,
-            _ => Self::Weak,
+            Some("weak") => Self::Weak,
+            _ => Self::Yes,
+        }
+    }
+
+    /// Like mpv's weak policy, compare the intended filter output rate/channels,
+    /// before device negotiation. All sample formats in this engine are PCM and
+    /// mutually convertible, so a bit-depth change alone does not reopen output.
+    pub(crate) fn reuses_output(self, current: MixFormat, next: MixFormat) -> bool {
+        match self {
+            Self::No => false,
+            Self::Weak => {
+                current.sample_rate == next.sample_rate && current.channels == next.channels
+            }
+            Self::Yes => true,
         }
     }
 }
@@ -204,6 +221,8 @@ pub struct PlayerConfig {
     pub cache: CacheMode,
     pub cache_secs: f64,
     pub cache_pause: bool,
+    pub cache_on_disk: bool,
+    pub demuxer_cache_dir: Option<PathBuf>,
     pub cache_pause_wait_secs: f64,
     pub demuxer_max_bytes: usize,
     pub demuxer_max_back_bytes: usize,
@@ -222,11 +241,13 @@ impl Default for PlayerConfig {
             audio_samplerate: AudioSampleratePolicy::Auto,
             audio_channels: AudioChannelPolicy::AutoSafe,
             audio_format: AudioFormatPolicy::Auto,
-            gapless_audio: GaplessAudioPolicy::Weak,
+            gapless_audio: GaplessAudioPolicy::Yes,
             demuxer_readahead_secs: DEFAULT_DEMUXER_READAHEAD_SECS,
             cache: CacheMode::Auto,
             cache_secs: DEFAULT_CACHE_SECS,
             cache_pause: DEFAULT_CACHE_PAUSE,
+            cache_on_disk: true,
+            demuxer_cache_dir: None,
             cache_pause_wait_secs: DEFAULT_CACHE_PAUSE_WAIT_SECS,
             demuxer_max_bytes: DEFAULT_DEMUXER_MAX_BYTES,
             demuxer_max_back_bytes: DEFAULT_DEMUXER_MAX_BACK_BYTES,
@@ -244,6 +265,13 @@ impl PlayerConfig {
     pub fn from_options(options: Option<PlayerConfigOptions>) -> Self {
         let mut config = Self::default();
         if let Some(options) = options {
+            if let Some(enabled) = options.cache_on_disk {
+                config.cache_on_disk = enabled;
+            }
+            config.demuxer_cache_dir = options
+                .demuxer_cache_dir
+                .filter(|path| !path.is_empty())
+                .map(PathBuf::from);
             if let Some(value) = options.audio_buffer_secs {
                 config.audio_buffer_secs =
                     finite_clamp(value, 0.0, MAX_BUFFER_SECS, DEFAULT_BUFFER_SECS);
@@ -316,6 +344,18 @@ impl PlayerConfig {
             .resolve_engine_channels(source_channels, requires_stereo)
     }
 
+    pub(crate) fn gapless_filter_format(
+        &self,
+        source_sample_rate: u32,
+        source_channels: usize,
+        requires_stereo: bool,
+    ) -> MixFormat {
+        MixFormat::f32(
+            self.resolve_initial_mix_sample_rate(source_sample_rate, None),
+            self.resolve_mix_channels(source_channels, requires_stereo),
+        )
+    }
+
     pub fn resolve_output_sample_format(
         &self,
         source_format: AudioSampleFormat,
@@ -383,6 +423,11 @@ impl PlayerConfig {
             Duration::from_secs_f64(cache_secs.max(0.0)),
         )
         .with_donate_forward_budget(cache_enabled)
+        .with_disk_cache(
+            self.cache_on_disk && cache_enabled,
+            self.demuxer_cache_dir.clone(),
+        )
+        .with_disk_cache_error_handler(|error| crate::log::warn(error))
         .with_seek_timeout(seek_timeout)
         .with_pause_wait(
             (cache_enabled && self.cache_pause)
@@ -429,6 +474,38 @@ fn bytes_from_number(value: f64) -> usize {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn disk_cache_defaults_on_and_follows_cache_mode_and_explicit_disable() {
+        let defaults = PlayerConfig::default();
+        assert!(defaults.cache_on_disk);
+        assert!(
+            defaults
+                .packet_cache_options_for_url("https://example.test/a.flac")
+                .disk_cache
+        );
+        assert!(
+            !defaults
+                .packet_cache_options_for_url("file:///tmp/a.flac")
+                .disk_cache
+        );
+        for (cache, disk, expected) in [
+            ("no", true, false),
+            ("yes", true, true),
+            ("yes", false, false),
+        ] {
+            let options = serde_json::from_value(serde_json::json!({
+                "cache": cache, "cache_on_disk": disk, "demuxer_cache_dir": "/tmp/音频缓存"
+            }))
+            .unwrap();
+            let config = PlayerConfig::from_options(Some(options));
+            let packet = config.packet_cache_options_for_url("https://example.test/a.flac");
+            assert_eq!(packet.disk_cache, expected);
+            assert_eq!(
+                packet.cache_directory.as_deref(),
+                Some(std::path::Path::new("/tmp/音频缓存"))
+            );
+        }
+    }
     use super::*;
 
     #[test]
@@ -517,6 +594,8 @@ mod tests {
             cache: None,
             cache_secs: Some(f64::NEG_INFINITY),
             cache_pause: None,
+            cache_on_disk: None,
+            demuxer_cache_dir: None,
             cache_pause_wait_secs: Some(f64::NAN),
             demuxer_max_bytes: None,
             demuxer_max_back_bytes: None,
@@ -625,6 +704,8 @@ mod tests {
             cache: Some("no".to_string()),
             cache_secs: None,
             cache_pause: None,
+            cache_on_disk: None,
+            demuxer_cache_dir: None,
             cache_pause_wait_secs: None,
             audio_samplerate: None,
             audio_channels: None,
@@ -670,6 +751,8 @@ mod tests {
             cache: Some("yes".to_string()),
             cache_secs: Some(30.0),
             cache_pause: None,
+            cache_on_disk: None,
+            demuxer_cache_dir: None,
             cache_pause_wait_secs: None,
             demuxer_max_bytes: None,
             demuxer_max_back_bytes: None,
@@ -716,6 +799,8 @@ mod tests {
             cache: Some("auto".to_string()),
             cache_secs: Some(0.1),
             cache_pause: Some(false),
+            cache_on_disk: None,
+            demuxer_cache_dir: None,
             cache_pause_wait_secs: Some(0.01),
             demuxer_max_bytes: Some(2.0),
             demuxer_max_back_bytes: Some(999.0),
@@ -753,6 +838,8 @@ mod tests {
             cache: Some("no".to_string()),
             cache_secs: Some(0.0),
             cache_pause: Some(false),
+            cache_on_disk: None,
+            demuxer_cache_dir: None,
             cache_pause_wait_secs: Some(0.0),
             demuxer_max_bytes: None,
             demuxer_max_back_bytes: None,
@@ -784,6 +871,8 @@ mod tests {
             cache: None,
             cache_secs: None,
             cache_pause: None,
+            cache_on_disk: None,
+            demuxer_cache_dir: None,
             cache_pause_wait_secs: None,
             demuxer_max_bytes: None,
             demuxer_max_back_bytes: None,
@@ -805,6 +894,8 @@ mod tests {
             cache: None,
             cache_secs: None,
             cache_pause: None,
+            cache_on_disk: None,
+            demuxer_cache_dir: None,
             cache_pause_wait_secs: None,
             demuxer_max_bytes: None,
             demuxer_max_back_bytes: None,
@@ -845,6 +936,8 @@ mod tests {
             cache: None,
             cache_secs: None,
             cache_pause: None,
+            cache_on_disk: None,
+            demuxer_cache_dir: None,
             cache_pause_wait_secs: None,
             demuxer_max_bytes: None,
             demuxer_max_back_bytes: None,
@@ -892,6 +985,8 @@ mod tests {
             cache: None,
             cache_secs: None,
             cache_pause: None,
+            cache_on_disk: None,
+            demuxer_cache_dir: None,
             cache_pause_wait_secs: None,
             demuxer_max_bytes: None,
             demuxer_max_back_bytes: None,
@@ -907,10 +1002,10 @@ mod tests {
     }
 
     #[test]
-    fn gapless_audio_policy_defaults_to_weak_and_accepts_no() {
+    fn gapless_audio_policy_defaults_to_yes_and_accepts_no() {
         assert_eq!(
             PlayerConfig::default().gapless_audio,
-            GaplessAudioPolicy::Weak
+            GaplessAudioPolicy::Yes
         );
 
         let disabled = PlayerConfig::from_options(Some(PlayerConfigOptions {
@@ -923,6 +1018,8 @@ mod tests {
             cache: None,
             cache_secs: None,
             cache_pause: None,
+            cache_on_disk: None,
+            demuxer_cache_dir: None,
             cache_pause_wait_secs: None,
             demuxer_max_bytes: None,
             demuxer_max_back_bytes: None,

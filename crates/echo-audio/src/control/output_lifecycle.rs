@@ -660,6 +660,7 @@ mod tests {
         runtime.current_seq = 7;
         shared.set_track_seq(7);
         runtime.session = Some(PlaybackSession {
+            gapless_format: shared.mix_format,
             shared: shared.clone(),
             output_thread: None,
             filter_thread: None,
