@@ -1,4 +1,5 @@
 #include "SearchModel.h"
+#include "SearchSongStorage_p.h"
 #include "PlaybackLibraryActions.h"
 #include "PlaybackService.h"
 #include "SearchResultModel.h"
@@ -140,6 +141,7 @@ void SearchModel::attachMetadata(SongMetadataService &service, bool network)
 {
     m_metadata = &service;
     m_metadataNetwork = network;
+    initializeSongStorage();
     watchMetadata();
 }
 void SearchModel::watchMetadata()
@@ -151,6 +153,11 @@ void SearchModel::watchMetadata()
     if (!m_closing)
         for (auto kind : {Kind::Song, Kind::Lyric}) {
             const auto &bucket = m_buckets[size_t(kind)];
+            if (m_songStorage && m_songStorage->buckets[size_t(kind)].model)
+                m_songStorage->buckets[size_t(kind)].model->setMetadataActive(
+                    m_metadataNetwork && m_pageActive && !m_closing);
+            if (bucket.cached)
+                continue;
             for (int i = 0; i < bucket.rows.size(); ++i) {
                 const auto row = QString::number(int(kind)) + ":" + QString::number(i);
                 songs.append({row, bucket.rows[i].track.toCatalog()});
@@ -267,15 +274,19 @@ SearchModel::~SearchModel()
 }
 int SearchModel::rowCount(const QModelIndex &parent) const
 {
-    return parent.isValid() ? 0 : int(active().rows.size());
+    return parent.isValid() ? 0 : count();
 }
 QVariant SearchModel::data(const QModelIndex &index, int role) const
 {
+    if (auto *model = catalog())
+        return index.isValid() ? model->sourceData(index.row(), catalogRole(role)) : QVariant();
     const auto &rows = active().rows;
     if (!index.isValid() || index.row() < 0 || index.row() >= rows.size())
         return {};
     const auto &row = rows.at(index.row());
     switch (role) {
+    case PresentationReady:
+        return true;
     case Title:
         return row.title;
     case ArtistText:
@@ -312,12 +323,20 @@ QVariant SearchModel::data(const QModelIndex &index, int role) const
 }
 QHash<int, QByteArray> SearchModel::roleNames() const
 {
-    return {
-        {ArtistLinks, "artistLinks"},   {AlbumId, "albumId"},     {Title, "title"},
-        {ArtistText, "artistText"},     {AlbumText, "albumText"}, {CoverUrl, "coverUrl"},
-        {DurationText, "durationText"}, {ExtraText, "extraText"}, {ResourceId, "resourceId"},
-        {DurationMs, "durationMs"},     {Original, "original"},   {PrivilegeTags, "privilegeTags"},
-        {QualityLabel, "qualityLabel"}};
+    return {{PresentationReady, "presentationReady"},
+            {ArtistLinks, "artistLinks"},
+            {AlbumId, "albumId"},
+            {Title, "title"},
+            {ArtistText, "artistText"},
+            {AlbumText, "albumText"},
+            {CoverUrl, "coverUrl"},
+            {DurationText, "durationText"},
+            {ExtraText, "extraText"},
+            {ResourceId, "resourceId"},
+            {DurationMs, "durationMs"},
+            {Original, "original"},
+            {PrivilegeTags, "privilegeTags"},
+            {QualityLabel, "qualityLabel"}};
 }
 QStringList SearchModel::searchHistory() const
 {
@@ -386,6 +405,10 @@ void SearchModel::shutdown()
     m_metadataRefresh.stop();
     if (m_metadata)
         m_metadata->unwatch(this);
+    if (m_songStorage)
+        for (auto &source : m_songStorage->buckets)
+            if (source.model)
+                source.model->setMetadataActive(false);
     m_suggestions->shutdown();
     cancelRequests();
     const auto hot = std::exchange(m_hotRequest, 0);
@@ -394,7 +417,17 @@ void SearchModel::shutdown()
 }
 void SearchModel::cancelRequests()
 {
+    if (m_songStorage && m_songStorage->playRead)
+        delete m_songStorage->playRead;
+    if (m_songStorage)
+        for (auto &source : m_songStorage->buckets) {
+            if (source.write)
+                delete source.write;
+            source.pending = {};
+            source.presentations.clear();
+        }
     for (auto &bucket : m_buckets) {
+        bucket.caching = false;
         const auto id = std::exchange(bucket.request, 0);
         if (id)
             m_api.cancel(id);
@@ -410,6 +443,7 @@ void SearchModel::clearBuckets()
     QScopedValueRollback<bool> changing(m_changingRows, true);
     beginResetModel();
     m_buckets = {};
+    clearSongStorage();
     endResetModel();
     m_results->resetPresentation();
 }
@@ -459,7 +493,7 @@ void SearchModel::setKind(Kind kind)
 void SearchModel::requestPage(quint32 page)
 {
     auto &bucket = active();
-    if (bucket.request)
+    if (bucket.request || bucket.caching)
         return;
     bucket.revision = m_api.sessionRevision();
     bucket.pendingPage = page;
@@ -474,11 +508,14 @@ void SearchModel::requestPage(quint32 page)
 }
 void SearchModel::loadMore()
 {
-    if (!m_closing && m_pageActive && !active().request && hasMore() && active().error.isEmpty())
+    if (!m_closing && m_pageActive && !active().request && !active().caching && hasMore() &&
+        active().error.isEmpty())
         requestPage(active().nextPage);
 }
 void SearchModel::retry()
 {
+    if (retrySongPage())
+        return;
     if (!m_closing && m_pageActive && !active().request && !m_keyword.isEmpty())
         requestPage(active().nextPage ? active().nextPage : 1);
 }
@@ -543,6 +580,8 @@ void SearchModel::succeeded(quint64 id, const QByteArray &payload)
     const auto page = object.value("page").toObject();
     const auto items = page.value("items").toArray();
     const auto total = qMax(0.0, page.value("total").toDouble());
+    if (cacheSongPage(requestKind, items, quint64(total)))
+        return;
     // Request page is owned by the pending request. Provider count/echo
     // variations must not become a second schema gate after Rust mapping.
     QList<Row> rows;
@@ -674,36 +713,57 @@ void SearchModel::playSong(const QString &id)
 }
 void SearchModel::playNow(const QString &id)
 {
-    const auto track = rowTrack(id);
-    if (track.playable())
-        emit trackPlayNowRequested(track, tr("搜索：%1").arg(m_keyword), "search/" + m_keyword);
+    const auto keyword = m_keyword;
+    if (auto *model = catalog()) {
+        if (m_songStorage->playRead)
+            delete m_songStorage->playRead;
+        auto *reader = new QObject(this);
+        m_songStorage->playRead = reader;
+        model->requestTrack(id, reader, [this, reader, keyword](auto track) {
+            reader->deleteLater();
+            if (!m_closing && m_pageActive && keyword == m_keyword && track.playable())
+                emit trackPlayNowRequested(track, tr("搜索：%1").arg(keyword), "search/" + keyword);
+        });
+        return;
+    }
+    requestRow(id, [this, keyword](auto track) {
+        if (track.playable())
+            emit trackPlayNowRequested(track, tr("搜索：%1").arg(keyword), "search/" + keyword);
+    });
 }
 void SearchModel::requestPlayback(const QString &id, bool selectedSong)
 {
     if (m_kind != Kind::Song && m_kind != Kind::Lyric)
         return;
-    PlaybackTracks tracks;
-    int selected = -1;
-    for (int row = 0; row < m_results->rowCount(); ++row) {
-        const int source = m_results->mapToSource(m_results->index(row, 0)).row();
-        const auto &item = active().rows[source];
-        if (item.id == id)
-            selected = int(tracks.size());
-        tracks.append(item.track);
-    }
-    if (!selectedSong && !tracks.isEmpty())
-        selected = m_playback && m_playback->playMode() == PlaybackService::PlayMode::Shuffle
-                       ? QRandomGenerator::global()->bounded(int(tracks.size()))
-                       : 0;
-    if (selectedSong && selected >= 0 && m_playback && !id.isEmpty() &&
-        id == m_playback->trackId()) {
+    if (selectedSong && m_playback && !id.isEmpty() && id == m_playback->trackId()) {
         if (!m_playback->loading())
             m_playback->toggle();
         return;
     }
-    if (selected >= 0)
-        emit tracksPlayRequested(tracks, selected, tr("搜索：%1").arg(m_keyword),
-                                 "search/" + m_keyword, selectedSong);
+    if (!m_songStorage)
+        m_songStorage = std::make_unique<SearchSongStorage>();
+    if (m_songStorage->playRead)
+        delete m_songStorage->playRead;
+    auto *reader = new QObject(this);
+    m_songStorage->playRead = reader;
+    const auto keyword = m_keyword;
+    requestResultTracks(reader, [this, reader, id, selectedSong, keyword](auto tracks) {
+        reader->deleteLater();
+        int selected = -1;
+        if (selectedSong) {
+            for (int i = 0; i < tracks.size(); ++i)
+                if (tracks[i].id == id) {
+                    selected = i;
+                    break;
+                }
+        } else if (!tracks.isEmpty())
+            selected = m_playback && m_playback->playMode() == PlaybackService::PlayMode::Shuffle
+                           ? QRandomGenerator::global()->bounded(int(tracks.size()))
+                           : 0;
+        if (selected >= 0)
+            emit tracksPlayRequested(tracks, selected, tr("搜索：%1").arg(keyword),
+                                     "search/" + keyword, selectedSong);
+    });
 }
 void SearchModel::playAll()
 {
@@ -716,13 +776,13 @@ void SearchModel::appendAll(bool next)
 {
     if (m_kind != Kind::Song && m_kind != Kind::Lyric)
         return;
-    PlaybackTracks tracks;
-    for (int row = 0; row < m_results->rowCount(); ++row)
-        tracks.append(active().rows[m_results->mapToSource(m_results->index(row, 0)).row()].track);
-    emit tracksAppendRequested(tracks, next);
+    requestResultTracks(this,
+                        [this, next](auto tracks) { emit tracksAppendRequested(tracks, next); });
 }
 PlaybackTrack SearchModel::rowTrack(const QString &id) const
 {
+    if (const auto *model = catalog())
+        return model->trackProjection(id).value_or(PlaybackTrack{});
     for (const auto &row : active().rows)
         if (row.id == id)
             return row.track;
@@ -730,16 +790,18 @@ PlaybackTrack SearchModel::rowTrack(const QString &id) const
 }
 void SearchModel::appendSong(const QString &id, bool next)
 {
-    const auto track = rowTrack(id);
-    if (track.playable())
-        emit trackQueueRequested(track, next);
+    requestRow(id, [this, next](auto track) {
+        if (track.playable())
+            emit trackQueueRequested(track, next);
+    });
 }
 void SearchModel::addSong(const QString &id)
 {
-    const auto track = rowTrack(id);
-    auto *actions = m_playback ? m_playback->libraryActions() : nullptr;
-    if (actions && track.playable())
-        actions->prepareTracks({track});
+    requestRow(id, [this](auto track) {
+        auto *actions = m_playback ? m_playback->libraryActions() : nullptr;
+        if (actions && track.playable())
+            actions->prepareTracks({track});
+    });
 }
 bool SearchModel::isFavorite(const QString &id) const
 {
@@ -748,33 +810,39 @@ bool SearchModel::isFavorite(const QString &id) const
 }
 void SearchModel::toggleFavorite(const QString &id)
 {
-    const auto track = rowTrack(id);
-    auto *actions = m_playback ? m_playback->libraryActions() : nullptr;
-    if (actions && track.playable())
-        actions->toggleFavoriteTrack(track);
+    requestRow(id, [this](auto track) {
+        auto *actions = m_playback ? m_playback->libraryActions() : nullptr;
+        if (actions && track.playable())
+            actions->toggleFavoriteTrack(track);
+    });
 }
 void SearchModel::shareSong(const QString &id)
 {
-    if (!m_playback)
-        return;
-    const auto track = rowTrack(id);
-    if (!track.id.isEmpty() || !track.hash.isEmpty())
-        m_playback->songCommands()->share(track);
+    requestRow(id, [this](auto track) {
+        if (m_playback && (!track.id.isEmpty() || !track.hash.isEmpty()))
+            m_playback->songCommands()->share(track);
+    });
 }
 void SearchModel::copySong(const QString &id)
 {
-    if (m_playback)
-        m_playback->songCommands()->copyInfo(rowTrack(id));
+    requestRow(id, [this](auto track) {
+        if (m_playback)
+            m_playback->songCommands()->copyInfo(track);
+    });
 }
 void SearchModel::openComments(const QString &id)
 {
-    if (m_playback)
-        m_playback->songCommands()->openComments(rowTrack(id));
+    requestRow(id, [this](auto track) {
+        if (m_playback)
+            m_playback->songCommands()->openComments(track);
+    });
 }
 void SearchModel::openDetails(const QString &id)
 {
-    if (m_playback)
-        m_playback->songCommands()->openDetails(rowTrack(id));
+    requestRow(id, [this](auto track) {
+        if (m_playback)
+            m_playback->songCommands()->openDetails(track);
+    });
 }
 void SearchModel::openArtist(const QString &id)
 {
@@ -788,8 +856,10 @@ void SearchModel::openAlbum(const QString &id)
 }
 void SearchModel::openMv(const QString &id)
 {
-    if (m_playback)
-        m_playback->songCommands()->openMv(rowTrack(id));
+    requestRow(id, [this](auto track) {
+        if (m_playback)
+            m_playback->songCommands()->openMv(track);
+    });
 }
 bool SearchModel::blacklistAvailable(const QString &id) const
 {
@@ -803,15 +873,17 @@ bool SearchModel::blacklisted(const QString &id) const
 }
 void SearchModel::addToBlacklist(const QString &id)
 {
-    if (!m_playback)
-        return;
-    m_playback->songCommands()->addToBlacklist(rowTrack(id));
+    requestRow(id, [this](auto track) {
+        if (m_playback)
+            m_playback->songCommands()->addToBlacklist(track);
+    });
 }
 void SearchModel::removeFromBlacklist(const QString &id)
 {
-    if (!m_playback)
-        return;
-    m_playback->songCommands()->removeFromBlacklist(rowTrack(id));
+    requestRow(id, [this](auto track) {
+        if (m_playback)
+            m_playback->songCommands()->removeFromBlacklist(track);
+    });
 }
 bool SearchModel::blacklistBusy() const
 {

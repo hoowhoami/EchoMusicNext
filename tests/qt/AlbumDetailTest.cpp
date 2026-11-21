@@ -1,4 +1,6 @@
 #include "AlbumDetailService.h"
+#include "CatalogRead.h"
+#include "SongMetadataService.h"
 #include "NetworkPreferences.h"
 #include "PlaybackService.h"
 #include "ShellSettings.h"
@@ -79,6 +81,14 @@ public:
     {
         c.fail(id, QByteArrayLiteral("{\"message\":\"sample album failure\"}"));
     }
+    static int refreshPayloads(const AlbumDetailContext &c)
+    {
+        return c.m_refreshSongs.size();
+    }
+    static int stagedRows(const AlbumDetailContext &c)
+    {
+        return c.m_refreshRows.size();
+    }
     static void markComplete(AlbumDetailContext &c)
     {
         c.m_complete = true;
@@ -154,6 +164,84 @@ class AlbumDetailTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void refreshStagesSqlRecordsAndAtomicallyReplacesTheOldWindow()
+    {
+        QTemporaryDir dir;
+        SessionDatabase database(dir.filePath("session"));
+        {
+            SettingsStore prefs(dir.filePath("prefs.ini"));
+            ApiClient api(DeviceIdentity::temporary());
+            SongMetadataService metadata(api);
+            metadata.enableSqlIndex(database);
+            PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+            playback.attachMetadata(metadata);
+            RouteController router;
+            AlbumDetailService service(api, playback, router, false);
+            service.registerRoutes(router);
+            QVERIFY(router.navigate("album-detail", {}, "960399"));
+            auto *context = service.contextFor(router.current());
+            AlbumDetailContextTestAccess::seed(*context, "Album");
+            AlbumDetailContextTestAccess::setSize(*context, 2);
+            const auto respond = [&](quint64 request, int number, std::initializer_list<int> ids) {
+                auto root = domainPage(number, ids);
+                auto page = root.value("page").toObject();
+                auto rows = page.value("items").toArray();
+                for (int i = 0; i < rows.size(); ++i) {
+                    auto row = rows[i].toObject();
+                    row.insert("disc", QJsonValue::Null);
+                    row.insert("metadata",
+                               QJsonObject{{"opaque", QJsonValue::Null},
+                                           {"resources", QJsonArray{QString(10000, 'r')}}});
+                    rows[i] = row;
+                }
+                page.insert("items", rows);
+                root.insert("page", page);
+                AlbumDetailContextTestAccess::pending(*context, request, number);
+                AlbumDetailContextTestAccess::accept(*context, request, root);
+            };
+            respond(11001, 1, {1, 2});
+            respond(11002, 2, {3});
+            QTRY_VERIFY(context->complete());
+            QTRY_VERIFY(context->songs()->storageReady());
+            QCOMPARE(context->songs()->totalCount(), 3);
+            context->reload();
+            respond(12001, 1, {7, 8});
+            QTRY_COMPARE(AlbumDetailContextTestAccess::stagedRows(*context), 2);
+            QCOMPARE(AlbumDetailContextTestAccess::refreshPayloads(*context), 0);
+            QCOMPARE(readCatalogTracks(context->songs()).first().id, QString("1"));
+            respond(12002, 2, {9});
+            QTRY_VERIFY(context->complete());
+            const auto refreshed = readCatalogTracks(context->songs());
+            QCOMPARE(refreshed.size(), 3);
+            QCOMPARE(refreshed.first().id, QString("7"));
+            QVERIFY(refreshed.first().catalogMetadata.value("opaque").isNull());
+            QVERIFY(refreshed.first().catalogMetadata.value("disc").isNull());
+            QCOMPARE(refreshed.first()
+                         .catalogMetadata.value("resources")
+                         .toArray()
+                         .first()
+                         .toString()
+                         .size(),
+                     10000);
+            context->reload();
+            respond(13001, 1, {11, 12});
+            QTRY_COMPARE(AlbumDetailContextTestAccess::stagedRows(*context), 2);
+            AlbumDetailContextTestAccess::pending(*context, 13002, 2);
+            AlbumDetailContextTestAccess::fail(*context, 13002);
+            QTRY_VERIFY(context->complete());
+            QCOMPARE(readCatalogTracks(context->songs()).first().id, QString("7"));
+            QCOMPARE(AlbumDetailContextTestAccess::stagedRows(*context), 0);
+            service.shutdown();
+            router.shutdown();
+            QSignalSpy closed(&playback, &PlaybackService::closed);
+            playback.shutdown();
+            QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+            api.shutdown();
+        }
+        QSignalSpy closed(&database, &SessionDatabase::closed);
+        database.shutdown();
+        QTRY_COMPARE(closed.size(), 1);
+    }
     void pagedCatalogArrivesInSourceOrder()
     {
         QTemporaryDir dir;
@@ -187,7 +275,7 @@ private slots:
         QCOMPARE(context->songs()->item(0)["resourceId"].toString(), QString("1"));
         QCOMPARE(context->songs()->item(4)["resourceId"].toString(), QString("5"));
         // Disc/position/accompaniment facts stay in the queue/history snapshot.
-        const auto track = context->songs()->track("3");
+        const auto track = context->songs()->trackProjection("3");
         QVERIFY(track);
         QCOMPARE(track->catalogMetadata.value("disc").toInt(), 1);
         QCOMPARE(track->catalogMetadata.value("position").toInt(), 3);

@@ -175,6 +175,7 @@ private:
     bool m_songCoverConsistent = true;
     QJsonArray m_videoRows;
     QJsonArray m_followRows;
+    QPointer<QObject> m_coverRead;
     QJsonArray m_songRows;
     QString m_singerQuery;
     quint64 m_likedId = 0, m_songTotal = 0, m_songReceived = 0;

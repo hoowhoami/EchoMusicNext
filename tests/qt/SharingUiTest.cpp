@@ -247,7 +247,7 @@ Window {
                 auto *context = details.songFor(router.current());
                 QTRY_VERIFY_WITH_TIMEOUT(!context->loading(), 20000);
                 QVERIFY(!context->detail().isEmpty());
-                const auto track = context->songs()->track(context->songId());
+                const auto track = context->songs()->trackProjection(context->songId());
                 QVERIFY(track);
                 QCOMPARE(track->hash.toLower(), target.id.toLower());
             } else {

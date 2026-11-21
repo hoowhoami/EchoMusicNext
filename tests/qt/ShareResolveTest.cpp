@@ -231,7 +231,7 @@ private slots:
         QVERIFY(detail);
         QTRY_VERIFY_WITH_TIMEOUT(!detail->loading(), 30000);
         QCOMPARE(detail->songs()->count(), 1);
-        const auto track = detail->songs()->track("410300671");
+        const auto track = detail->songs()->trackProjection("410300671");
         QVERIFY(track);
         QCOMPARE(detail->qualities().count("SD"), 1);
         QCOMPARE(track->catalogPrivilege, 5U);
@@ -313,7 +313,7 @@ private slots:
         QVERIFY(detail);
         QTRY_VERIFY_WITH_TIMEOUT(!detail->loading(), 30000);
         QCOMPARE(detail->songs()->count(), 1);
-        const auto track = detail->songs()->track("27602112");
+        const auto track = detail->songs()->trackProjection("27602112");
         QVERIFY(track);
         QVERIFY(detail->songs()->catalogPlayable("27602112"));
         QCOMPARE(track->hash.toUpper(), QString("7898F6BEEB0C7FF6EA33B9F96C0977D3"));
@@ -386,13 +386,13 @@ private slots:
         // Stale rights for another hash must not unlock this track. The real
         // share path normally keeps these equal; exercise the shared model too.
         if (facts == "another-resource") {
-            auto row = detail->songs()->track("410300671")->toDomain();
+            auto row = detail->songs()->trackProjection("410300671")->toDomain();
             row["hash"] = hash;
             detail->songs()->replaceSongs({row});
         }
         QCOMPARE(detail->songs()->count(), 1);
         QCOMPARE(detail->songs()->catalogPlayable("410300671"), playable);
-        const auto track = detail->songs()->track("410300671");
+        const auto track = detail->songs()->trackProjection("410300671");
         QVERIFY(track);
         QVERIFY(!track->catalogMetadata.contains("old_copyright_code"));
         QCOMPARE(track->catalogPrivilege, facts == "no-source" ? 40U : 5U);
@@ -608,7 +608,7 @@ Window {
         auto *detail = f.details.songFor(f.router.current());
         QVERIFY(detail);
         QCOMPARE(detail->songs()->count(), 1);
-        QVERIFY(detail->songs()->track(hash));
+        QVERIFY(detail->songs()->trackProjection(hash));
         QVERIFY(detail->errorMessage().isEmpty());
         QCOMPARE(f.playback.queue()->rowCount(), 0);
     }

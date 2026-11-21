@@ -35,7 +35,7 @@ qt_add_qml_module(
 target_include_directories(echo_plugins PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(
     echo_plugins
-    PUBLIC echo_plugin_sdk Qt6::Qml
+    PUBLIC echo_plugin_sdk echo_session_cache Qt6::Qml
     PRIVATE echo_network
             Qt6::Concurrent
             Qt6::Network

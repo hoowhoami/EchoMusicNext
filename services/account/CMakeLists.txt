@@ -34,7 +34,7 @@ add_library(
 target_include_directories(echo_account PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(
     echo_account
-    PUBLIC echo_bridge echo_storage Qt6::Network
+    PUBLIC echo_bridge echo_storage echo_session_cache Qt6::Network
     PRIVATE echo_build_options echo_platform Qt6::Concurrent Qt6::Gui
 )
 qt_extract_metatypes(echo_account)

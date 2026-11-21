@@ -1,6 +1,5 @@
 pragma ComponentBehavior: Bound
 import QtQuick
-import QtQuick.Effects
 import EchoMusic.Theme
 
 Item {
@@ -172,46 +171,13 @@ Item {
             opacity: control.artworkOpacity * control.revealOpacity
             anchors.fill: parent
             active: control.resourceActive && control.hasArtwork
-            // The effect and its texture provider share one lifetime. A pooled
-            // delegate must not leave an effect referencing a destroyed mask.
-            sourceComponent: Item {
-                ShaderEffectSource {
-                    id: capture
-                    objectName: "coverCapture"
-                    sourceItem: cover
-                    sourceRect: Qt.rect(0, 0, alignedSurface.width, alignedSurface.height)
-                    textureSize: metrics.pixelSize
-                    visible: false
-                    live: true
-                    recursive: false
-                }
-                Item {
-                    id: mask
-                    objectName: "coverRoundedMask"
-                    anchors.fill: parent
-                    visible: false
-                    layer.enabled: true
-                    layer.smooth: true
-                    layer.textureSize: metrics.pixelSize
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: control.cornerRadius
-                        antialiasing: true
-                        color: "white"
-                    }
-                }
-                MultiEffect {
-                    objectName: "coverMaskEffect"
-                    anchors.fill: parent
-                    source: capture
-                    // Default thresholds turn the mask's fractional coverage into
-                    // a hard edge. Preserve Qt Rectangle AA at every cover size.
-                    maskEnabled: true
-                    maskThresholdMin: 0.5
-                    maskSpreadAtMin: 1
-                    autoPaddingEnabled: false
-                    maskSource: mask
-                }
+            // Sample the existing Image texture directly. Cropping and rounded
+            // coverage share one draw; no per-cover capture or mask FBO is kept.
+            // The Image remains the square source for compositor flights.
+            sourceComponent: EchoRoundedImage {
+                objectName: "coverMaskEffect"
+                image: cover
+                cornerRadius: control.cornerRadius
             }
         }
     }

@@ -20,8 +20,16 @@ QString baseSortText(const QString &text)
 } // namespace
 SongCatalogModel::SongCatalogModel(QObject *parent) : QAbstractListModel(parent)
 {
+    m_viewLoad.setSingleShot(true);
+    connect(&m_viewLoad, &QTimer::timeout, this, &SongCatalogModel::flushViewReads);
+    m_metadataLoad.setSingleShot(true);
+    connect(&m_metadataLoad, &QTimer::timeout, this, &SongCatalogModel::flushMetadata);
     m_metadataRefresh.setSingleShot(true);
     connect(&m_metadataRefresh, &QTimer::timeout, this, &SongCatalogModel::watchMetadata);
+    m_presentationFlush.setSingleShot(true);
+    connect(&m_presentationFlush, &QTimer::timeout, this, &SongCatalogModel::flushPresentations);
+    m_queryRefresh.setSingleShot(true);
+    connect(&m_queryRefresh, &QTimer::timeout, this, &SongCatalogModel::flushQuery);
     // QML borrows this application-owned object, including explicit invokable
     // returns. GC and engine teardown must never delete a C++ member/context.
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
@@ -31,6 +39,7 @@ SongCatalogModel::SongCatalogModel(QObject *parent) : QAbstractListModel(parent)
     m_collator.setNumericMode(false);
     m_collator.setCaseSensitivity(Qt::CaseInsensitive);
 }
+SongCatalogModel::~SongCatalogModel() = default;
 void SongCatalogModel::attachMetadata(SongMetadataService *service)
 {
     if (m_metadata == service)
@@ -40,9 +49,23 @@ void SongCatalogModel::attachMetadata(SongMetadataService *service)
     disconnect(m_metadataReset);
     m_metadata = service;
     m_metadataObservedCount = 0;
+    m_metadataResume = false;
     m_metadataRefresh.stop();
     if (service) {
         m_metadataReset = connect(service, &SongMetadataService::cacheCleared, this, [this] {
+            if (m_store && m_metadataObservedCount > 0) {
+                QStringList rows, wanted;
+                for (const auto &entry : m_entries) {
+                    rows.append(entry.id);
+                    if (entry.incomplete && !entry.completionId.isEmpty())
+                        wanted.append(entry.completionId);
+                }
+                refreshMetadata(rows);
+                if (!m_metadataActive || m_metadata->resumeDemand(this, wanted)) {
+                    m_metadataRefresh.start();
+                    return;
+                }
+            }
             m_metadataObservedCount = 0;
             m_metadataRefresh.start();
         });
@@ -58,9 +81,22 @@ void SongCatalogModel::setMetadataActive(bool active)
     if (m_metadataActive == active)
         return;
     m_metadataActive = active;
+    if (!active) {
+        if (m_metadata)
+            m_metadata->pause(this);
+        return;
+    }
+    if (m_metadata && m_store && m_metadataObservedCount > 0 &&
+        m_metadataObservedCount == m_entries.size()) {
+        QStringList wanted;
+        for (const auto &entry : m_entries)
+            if (entry.incomplete && !entry.completionId.isEmpty())
+                wanted.append(entry.completionId);
+        if (m_metadata->resumeDemand(this, wanted))
+            return;
+    }
+    m_metadataResume = true;
     m_metadataObservedCount = 0;
-    // Release the consumer immediately when a route hides; cached pages remain
-    // subscribed to immutable presentation updates without owning HTTP work.
     watchMetadata();
 }
 void SongCatalogModel::watchMetadata()
@@ -69,26 +105,70 @@ void SongCatalogModel::watchMetadata()
         return;
     if (m_metadataObservedCount && m_metadataObservedCount == m_entries.size())
         return;
+    if (m_store) {
+        if (m_metadataWatching)
+            return;
+        const auto first = m_metadataObservedCount;
+        const auto last = std::min(first + 128, int(m_entries.size()));
+        QList<int> sources;
+        for (int source = first; source < last; ++source)
+            sources.append(source);
+        if (sources.isEmpty())
+            return;
+        const auto epoch = m_storageEpoch;
+        const auto metadata = m_metadata;
+        m_metadataWatching = true;
+        loadViews(sources, this, [this, first, last, epoch, metadata](auto entries) {
+            if (epoch != m_storageEpoch || metadata != m_metadata)
+                return;
+            m_metadataWatching = false;
+            QList<SongMetadataService::Observation> songs;
+            QStringList rows;
+            for (const auto &entry : entries) {
+                songs.append({entry.id, entry.view->domainSong});
+                rows.append(entry.id);
+            }
+            m_metadataObservedCount = last;
+            const auto apply = [this](const QStringList &ids) { refreshMetadata(ids); };
+            if (first == 0 && std::exchange(m_metadataResume, false))
+                metadata->resume(this, songs, apply);
+            else
+                metadata->watch(this, songs, apply, m_metadataActive, first > 0);
+            refreshMetadata(rows);
+            if (m_metadataObservedCount < m_entries.size())
+                m_metadataRefresh.start();
+        });
+        return;
+    }
     const bool append = m_metadataObservedCount > 0;
     QList<SongMetadataService::Observation> songs;
     if (!m_cards)
         for (int i = m_metadataObservedCount; i < m_entries.size(); ++i) {
             const auto &entry = m_entries[i];
-            songs.append({entry.id, entry.domainSong});
+            songs.append({entry.id, entry.view->domainSong});
         }
     m_metadataObservedCount = m_entries.size();
     QStringList rows;
     for (const auto &entry : songs)
         rows.append(entry.row);
     refreshMetadata(rows);
-    m_metadata->watch(
-        this, songs, [this](const QStringList &rows) { refreshMetadata(rows); }, m_metadataActive,
-        append);
+    const auto apply = [this](const QStringList &rows) { refreshMetadata(rows); };
+    if (std::exchange(m_metadataResume, false))
+        m_metadata->resume(this, songs, apply);
+    else
+        m_metadata->watch(this, songs, apply, m_metadataActive, append);
 }
 void SongCatalogModel::refreshMetadata(const QStringList &rows)
 {
     if (!m_metadata || m_cards)
         return;
+    if (m_store) {
+        for (const auto &id : rows)
+            if (const auto found = m_indices.constFind(id); found != m_indices.cend())
+                m_pendingMetadata.insert(*found);
+        m_metadataLoad.start();
+        return;
+    }
     QSet<int> changed;
     bool orderMayChange = false;
     for (const auto &id : rows) {
@@ -96,13 +176,15 @@ void SongCatalogModel::refreshMetadata(const QStringList &rows)
         if (found == m_indices.cend())
             continue;
         auto &entry = m_entries[*found];
-        const auto song = m_metadata->complete(entry.domainSong);
-        if (song == entry.domainSong)
+        const auto song = m_metadata->complete(entry.view->domainSong);
+        if (song == entry.view->domainSong)
             continue;
-        auto next = songEntry(song);
-        orderMayChange |= entry.title != next.title || entry.artist != next.artist ||
-                          entry.album != next.album || entry.durationMs != next.durationMs;
-        entry = std::move(next);
+        const auto title = entry.view->title, artist = entry.view->artist,
+                   album = entry.view->album;
+        const auto duration = entry.view->durationMs;
+        applyEntryPresentation(entry, song);
+        orderMayChange |= title != entry.view->title || artist != entry.view->artist ||
+                          album != entry.view->album || duration != entry.view->durationMs;
         entry.id = id;
         changed.insert(*found);
     }
@@ -112,6 +194,7 @@ void SongCatalogModel::notifyPresentations(const QSet<int> &changed, bool orderM
 {
     if (changed.isEmpty())
         return;
+    queuePresentations(changed);
     QStringList identities;
     for (const auto source : changed)
         identities.append(m_entries[source].id);
@@ -140,7 +223,8 @@ int SongCatalogModel::rowCount(const QModelIndex &parent) const
 }
 QHash<int, QByteArray> SongCatalogModel::roleNames() const
 {
-    return {{ArtistLinks, "artistLinks"},
+    return {{PresentationReady, "presentationReady"},
+            {ArtistLinks, "artistLinks"},
             {AlbumId, "albumId"},
             {Title, "title"},
             {ArtistText, "artistText"},
@@ -161,50 +245,88 @@ QVariant SongCatalogModel::data(const QModelIndex &index, int role) const
 {
     if (!index.isValid() || index.row() < 0 || index.row() >= count())
         return {};
-    const auto &entry = m_entries.at(m_order.at(index.row()));
+    return sourceData(m_order.at(index.row()), role);
+}
+QVariant SongCatalogModel::sourceData(int source, int role) const
+{
+    if (source < 0 || source >= m_entries.size())
+        return {};
+    if (role < Title || role > PresentationReady)
+        return {};
+    const auto &entry = m_entries.at(source);
+    if (role == ResourceId)
+        return entry.id;
+    if (role == Selected)
+        return m_selected.contains(entry.id);
+    if (role == CatalogPlayable)
+        return entry.playable;
+    const auto view = viewFor(source);
+    if (role == PresentationReady)
+        return bool(view);
+    if (!view) {
+        switch (role) {
+        case ResourceId:
+            return entry.id;
+        case Selected:
+            return m_selected.contains(entry.id);
+        case CatalogPlayable:
+            return entry.playable;
+        case Original:
+            return false;
+        case DurationMs:
+            return QVariant::fromValue(quint64(0));
+        case PrivilegeTags:
+        case QualityTags:
+        case ArtistLinks:
+            return QVariantList{};
+        default:
+            return role >= Title && role <= AlbumId ? QVariant(QString()) : QVariant();
+        }
+    }
     switch (role) {
     case Title:
-        return entry.title;
+        return view->title;
     case ArtistText:
-        return entry.artist;
+        return view->artist;
     case ArtistLinks: {
         const auto refs =
-            entry.domainSong.contains("artists")
-                ? entry.domainSong.value("artists").toArray()
-                : entry.domainSong.value("metadata").toObject().value("artist_refs").toArray();
-        return catalogArtistLinks(refs, entry.domainSong.value("artists").isArray() ? entry.artist
+            view->domainSong.contains("artists")
+                ? view->domainSong.value("artists").toArray()
+                : view->domainSong.value("metadata").toObject().value("artist_refs").toArray();
+        return catalogArtistLinks(refs, view->domainSong.value("artists").isArray() ? view->artist
                                                                                     : QString());
     }
     case AlbumId:
-        return entry.albumId ? QString::number(entry.albumId) : QString();
+        return view->albumId ? QString::number(view->albumId) : QString();
     case AlbumText:
-        return entry.album;
+        return view->album;
     case CoverUrl:
-        return entry.cover;
+        return view->cover;
     case ExtraText:
-        return entry.extra;
+        return view->extra;
     case ResourceId:
         return entry.id;
     case DurationMs:
-        return QVariant::fromValue(entry.durationMs);
+        return QVariant::fromValue(view->durationMs);
     case DurationText: {
-        if (!entry.domainSong.value("duration_ms").isDouble())
+        if (m_queryStyle == SongDatasetStore::QueryStyle::Catalog &&
+            !view->domainSong.value("duration_ms").isDouble())
             return QString();
-        const auto seconds = entry.durationMs / 1000;
+        const auto seconds = view->durationMs / 1000;
         return QString("%1:%2").arg(seconds / 60).arg(seconds % 60, 2, 10, QLatin1Char('0'));
     }
     case Selected:
         return m_selected.contains(entry.id);
     case PrivilegeTags:
-        return entry.badges;
+        return view->badges;
     case QualityLabel:
-        return entry.quality;
+        return view->quality;
     case QualityTags:
-        return entry.qualityTags;
+        return view->qualityTags;
     case CatalogPlayable:
         return entry.playable;
     case Original:
-        return entry.original;
+        return view->original;
     default:
         return {};
     }
@@ -222,43 +344,94 @@ QVariantMap SongCatalogModel::sourceItem(int row) const
     if (row < 0 || row >= m_entries.size())
         return {};
     const auto &e = m_entries[row];
-    return {{"title", e.title},
-            {"artistText", e.artist},
-            {"albumText", e.album},
-            {"coverUrl", e.cover},
+    const auto view = viewFor(row);
+    if (!view)
+        return {{"presentationReady", false},
+                {"resourceId", e.id},
+                {"selected", m_selected.contains(e.id)},
+                {"catalogPlayable", e.playable},
+                {"title", QString()},
+                {"artistText", QString()},
+                {"coverUrl", QString()}};
+    return {{"presentationReady", true},
+            {"title", view->title},
+            {"artistText", view->artist},
+            {"albumText", view->album},
+            {"coverUrl", view->cover},
             {"resourceId", e.id},
             {"selected", m_selected.contains(e.id)},
-            {"privilegeTags", e.badges},
-            {"qualityLabel", e.quality},
-            {"qualityTags", e.qualityTags},
+            {"privilegeTags", view->badges},
+            {"qualityLabel", view->quality},
+            {"qualityTags", view->qualityTags},
             {"catalogPlayable", e.playable},
-            {"original", e.original}};
+            {"original", view->original}};
 }
 SongCatalogModel::Entry SongCatalogModel::songEntry(const QJsonObject &song)
 {
     const auto track = PlaybackTrack::fromDomain(song);
     Entry entry;
-    entry.domainSong = song;
-    entry.albumId = track.albumId;
-    entry.durationMs = track.durationMs;
+    entry.view = new Presentation;
+    entry.view->domainSong = song;
+    entry.view->albumId = track.albumId;
+    entry.view->durationMs = track.durationMs;
     entry.trackPlayable = track.playable();
-    entry.original = track.catalogMetadata.value("originality_code").toInt() > 0;
+    entry.view->original = track.catalogMetadata.value("originality_code").toInt() > 0;
     entry.id = track.id;
-    entry.title = track.title;
-    entry.artist = track.artist;
-    entry.album = track.album;
-    entry.cover = track.cover;
-    entry.titleSort = baseSortText(entry.title.trimmed());
-    entry.artistSort = baseSortText(entry.artist);
-    entry.albumSort = baseSortText(entry.album);
-    entry.badges = songPrivilegeTags(track);
-    entry.quality = songQualityLabel(track);
-    entry.qualityTags = songQualityTags(track);
+    entry.domainId = track.id;
+    entry.hash = track.hash;
+    entry.path = track.localPath;
+    entry.songId = track.songId;
+    entry.completionId = SongMetadataService::completionId(song);
+    if (entry.completionId == entry.id)
+        entry.completionId = entry.id;
+    entry.incomplete = SongMetadataService::needsCompletion(song);
+    entry.view->title = track.title;
+    entry.view->artist = track.artist;
+    entry.view->album = track.album;
+    entry.view->cover = track.cover;
+    entry.view->titleSort = baseSortText(entry.view->title.trimmed());
+    entry.view->artistSort = baseSortText(entry.view->artist);
+    entry.view->albumSort = baseSortText(entry.view->album);
+    entry.view->badges = songPrivilegeTags(track);
+    entry.view->quality = songQualityLabel(track);
+    entry.view->qualityTags = songQualityTags(track);
     entry.playable = track.catalogPrivilege != 40 && !songCopyrightRestricted(track);
     return entry;
 }
+void SongCatalogModel::applyEntryPresentation(Entry &entry, const QJsonObject &song)
+{
+    auto next = songEntry(song);
+    if (entry.record) {
+        // Source/rights/quality facts belong to the immutable rich row. Only
+        // presentation fields can change through shared metadata completion.
+        next.record = entry.record;
+        next.source = entry.source;
+        next.view->badges = entry.view->badges;
+        next.view->quality = entry.view->quality;
+        next.view->qualityTags = entry.view->qualityTags;
+        next.playable = entry.playable;
+        next.trackPlayable = entry.trackPlayable;
+        next.view->original = entry.view->original;
+        next.view->extra = entry.view->extra;
+    }
+    next.presentationRevision = entry.presentationRevision + 1;
+    entry = std::move(next);
+}
 void SongCatalogModel::applyPresentations(const QJsonArray &presentations)
 {
+    if (m_store) {
+        for (const auto &value : presentations) {
+            const auto id = value.toObject().value("id").toString();
+            if (id.isEmpty())
+                continue;
+            for (const auto source : m_domainIndices.values(id)) {
+                m_pendingOverlays[source].append(value);
+                m_pendingMetadata.insert(source);
+            }
+        }
+        m_metadataLoad.start();
+        return;
+    }
     QSet<int> changed;
     for (const auto &value : presentations) {
         const auto p = value.toObject();
@@ -267,10 +440,11 @@ void SongCatalogModel::applyPresentations(const QJsonArray &presentations)
             continue;
         const auto matches = m_domainIndices.values(id);
         for (const int source : matches) {
-            const auto song = SongMetadataService::completeSong(m_entries[source].domainSong, p);
-            if (song != m_entries[source].domainSong) {
+            const auto song =
+                SongMetadataService::completeSong(m_entries[source].view->domainSong, p);
+            if (song != m_entries[source].view->domainSong) {
                 const auto key = m_entries[source].id;
-                m_entries[source] = songEntry(song);
+                applyEntryPresentation(m_entries[source], song);
                 m_entries[source].id = key;
                 changed.insert(source);
             }
@@ -282,17 +456,28 @@ QStringList SongCatalogModel::incompletePresentationIds() const
 {
     QStringList ids;
     for (const auto &entry : m_entries)
-        if (SongMetadataService::needsCompletion(entry.domainSong))
-            ids.append(entry.domainSong.value("id").toString());
+        if (entry.incomplete)
+            ids.append(entry.domainId);
     return ids;
 }
-std::optional<PlaybackTrack> SongCatalogModel::track(const QString &id) const
+std::optional<PlaybackTrack> SongCatalogModel::trackProjection(const QString &id) const
 {
     const auto it = m_indices.constFind(id);
-    return it == m_indices.cend()
-               ? std::nullopt
-               : std::optional(PlaybackTrack::fromDomain(m_entries[*it].domainSong));
+    if (it == m_indices.cend())
+        return std::nullopt;
+    const auto &entry = m_entries[*it];
+    if (entry.view)
+        return PlaybackTrack::fromDomain(entry.view->domainSong);
+    if (auto view = m_hotViews.lookup(*it))
+        return PlaybackTrack::fromDomain((*view)->domainSong);
+    PlaybackTrack key;
+    key.id = entry.domainId;
+    key.hash = entry.hash;
+    key.localPath = entry.path;
+    key.songId = entry.songId;
+    return key;
 }
+
 bool SongCatalogModel::catalogPlayable(const QString &id) const
 {
     const auto it = m_indices.constFind(id);
@@ -325,13 +510,13 @@ void SongCatalogModel::appendSongs(const QJsonArray &songs)
         return;
     if (m_metadata)
         m_metadataRefresh.start();
-    const bool plain = m_query.trimmed().isEmpty() && !m_sortField;
+    const bool plain = m_query.trimmed().isEmpty() && !m_sortField && !querying();
     if (plain)
         beginInsertRows({}, count(), count() + added.size() - 1);
     for (auto &entry : added) {
         const int source = m_entries.size();
         m_indices.insert(entry.id, source);
-        m_domainIndices.insert(entry.domainSong["id"].toString(), source);
+        m_domainIndices.insert(entry.domainId, source);
         m_entries.append(std::move(entry));
         if (plain) {
             m_viewRows.append(m_order.size());
@@ -345,6 +530,7 @@ void SongCatalogModel::appendSongs(const QJsonArray &songs)
         rebuild();
     if (!completedRows.isEmpty())
         emit presentationsApplied(completedRows);
+    flushStorage();
 }
 void SongCatalogModel::replaceSongs(const QJsonArray &songs, bool preserveSelection)
 {
@@ -372,35 +558,38 @@ void SongCatalogModel::replaceCards(const QJsonArray &cards)
     for (const auto &value : cards) {
         const auto o = value.toObject();
         Entry entry;
+        entry.view = new Presentation;
         const auto id = o["id"];
         // Card ids arrive as strings from discovery and as numbers from album
         // pages. Preserve either provider representation as an opaque view id.
         entry.id = id.isString()   ? id.toString()
                    : id.isDouble() ? QString::number(id.toInteger())
                                    : QString();
-        entry.title = o["title"].toString();
-        entry.artist = o["creator"].toString();
+        entry.view->title = o["title"].toString();
+        entry.view->artist = o["creator"].toString();
         const auto count = o["song_count"];
-        entry.extra = entry.artist;
+        entry.view->extra = entry.view->artist;
         if (count.isDouble() && count.toInteger() > 0) {
             const auto label = tr("%1 首歌曲").arg(count.toInteger());
-            entry.extra = entry.extra.isEmpty() ? label : entry.extra + " • " + label;
+            entry.view->extra =
+                entry.view->extra.isEmpty() ? label : entry.view->extra + " • " + label;
         }
-        entry.cover = o["cover_url"].toString();
+        entry.view->cover = o["cover_url"].toString();
         if (o["extra_text"].isString())
-            entry.extra = o["extra_text"].toString();
+            entry.view->extra = o["extra_text"].toString();
         // Card rows may carry a duration; project it for the shared card badge.
         // Missing durations remain unknown.
         const auto duration = o["duration_ms"];
         if (duration.isDouble() && duration.toInteger() > 0) {
-            entry.durationMs = quint64(duration.toInteger());
-            entry.domainSong = QJsonObject{{"duration_ms", duration}};
+            entry.view->durationMs = quint64(duration.toInteger());
+            entry.view->domainSong = QJsonObject{{"duration_ms", duration}};
         }
         entries.append(std::move(entry));
     }
     replaceEntries(std::move(entries), true, false);
 }
-void SongCatalogModel::replaceEntries(QList<Entry> entries, bool cards, bool preserveSelection)
+void SongCatalogModel::replaceEntries(QList<Entry> entries, bool cards, bool preserveSelection,
+                                      bool shared, bool preserveCommands)
 {
     const auto oldSelection = m_selected;
     QHash<QString, int> incoming, existing;
@@ -419,7 +608,22 @@ void SongCatalogModel::replaceEntries(QList<Entry> entries, bool cards, bool pre
         m_selected.removeIf([&](const QString &id) { return !incoming.contains(id); });
     if (m_cards == cards && m_entries == entries && oldSelection == m_selected)
         return;
-    const auto order = orderedRows(entries);
+    resetStorage(preserveCommands);
+    m_sharedSource = shared;
+    QList<int> order;
+    if (!shared)
+        order = orderedRows(entries);
+    else if (m_query.trimmed().isEmpty() && !m_sortField)
+        for (int i = 0; i < entries.size(); ++i)
+            order.append(i);
+    else
+        for (const auto source : m_order) {
+            const auto found = incoming.constFind(m_entries[source].id);
+            if (found != incoming.cend())
+                order.append(*found);
+        }
+    if (shared)
+        m_writeCursor = entries.size();
     QSet<QString> changedIds;
     for (const auto &entry : entries) {
         const auto before = existing.constFind(entry.id);
@@ -490,7 +694,7 @@ void SongCatalogModel::replaceEntries(QList<Entry> entries, bool cards, bool pre
     m_viewRows.fill(-1, m_entries.size());
     for (int i = 0; i < m_entries.size(); ++i) {
         m_indices.insert(m_entries[i].id, i);
-        m_domainIndices.insert(m_entries[i].domainSong.value("id").toString(), i);
+        m_domainIndices.insert(m_entries[i].domainId, i);
     }
     for (int row = 0; row < m_order.size(); ++row)
         m_viewRows[m_order[row]] = row;
@@ -501,7 +705,9 @@ void SongCatalogModel::replaceEntries(QList<Entry> entries, bool cards, bool pre
             if (changedIds.contains(m_entries[m_order[row]].id))
                 emit dataChanged(index(row), index(row));
     m_metadataObservedCount = 0;
+    m_metadataResume = false;
     if (m_metadata) {
+        m_metadata->unwatch(this);
         if (cards) {
             m_metadataRefresh.stop();
             m_metadata->unwatch(this);
@@ -511,6 +717,9 @@ void SongCatalogModel::replaceEntries(QList<Entry> entries, bool cards, bool pre
     emit changed();
     if (oldSelection != m_selected)
         emit selectionChanged();
+    flushStorage();
+    if (shared && (!m_query.trimmed().isEmpty() || m_sortField))
+        rebuild();
 }
 void SongCatalogModel::clear()
 {
@@ -527,6 +736,14 @@ void SongCatalogModel::setQuery(const QString &value)
     if (m_query == value)
         return;
     m_query = value;
+    rebuild();
+}
+void SongCatalogModel::setSort(int field, int direction)
+{
+    if (m_sortField == field && m_sortDirection == direction)
+        return;
+    m_sortField = field;
+    m_sortDirection = direction;
     rebuild();
 }
 void SongCatalogModel::toggleSort(int field)
@@ -557,9 +774,9 @@ QList<int> SongCatalogModel::orderedRows(const QList<Entry> &entries) const
     const auto needle = m_query.trimmed();
     for (int i = 0; i < entries.size(); ++i) {
         const auto &e = entries[i];
-        if (needle.isEmpty() || (e.title.contains(needle, Qt::CaseInsensitive) ||
-                                 e.artist.contains(needle, Qt::CaseInsensitive) ||
-                                 e.album.contains(needle, Qt::CaseInsensitive)))
+        if (needle.isEmpty() || (e.view->title.contains(needle, Qt::CaseInsensitive) ||
+                                 e.view->artist.contains(needle, Qt::CaseInsensitive) ||
+                                 e.view->album.contains(needle, Qt::CaseInsensitive)))
             order.append(i);
     }
     if (m_sortField)
@@ -571,20 +788,22 @@ QList<int> SongCatalogModel::orderedRows(const QList<Entry> &entries) const
                 comparison = a < b ? -1 : a > b ? 1 : 0;
                 break;
             case 2:
-                comparison = m_collator.compare(x.titleSort, y.titleSort);
+                comparison = m_collator.compare(x.view->titleSort, y.view->titleSort);
                 if (!comparison)
-                    comparison = m_collator.compare(x.artistSort, y.artistSort);
+                    comparison = m_collator.compare(x.view->artistSort, y.view->artistSort);
                 break;
             case 3:
-                comparison = m_collator.compare(x.artistSort, y.artistSort);
+                comparison = m_collator.compare(x.view->artistSort, y.view->artistSort);
                 if (!comparison)
-                    comparison = m_collator.compare(x.titleSort, y.titleSort);
+                    comparison = m_collator.compare(x.view->titleSort, y.view->titleSort);
                 break;
             case 4:
-                comparison = m_collator.compare(x.albumSort, y.albumSort);
+                comparison = m_collator.compare(x.view->albumSort, y.view->albumSort);
                 break;
             case 5:
-                comparison = x.durationMs < y.durationMs ? -1 : x.durationMs > y.durationMs ? 1 : 0;
+                comparison = x.view->durationMs < y.view->durationMs   ? -1
+                             : x.view->durationMs > y.view->durationMs ? 1
+                                                                       : 0;
                 break;
             }
             return m_sortDirection == 2 ? comparison > 0 : comparison < 0;
@@ -593,6 +812,17 @@ QList<int> SongCatalogModel::orderedRows(const QList<Entry> &entries) const
 }
 void SongCatalogModel::rebuild(bool resetStarted)
 {
+    if (m_store && !m_cards && !resetStarted) {
+        if (m_storageFailed) {
+            emit changed();
+            return;
+        }
+        ++m_viewRevision;
+        m_queryNeeded = true;
+        m_queryRefresh.start();
+        emit changed();
+        return;
+    }
     if (!resetStarted)
         beginResetModel();
     m_order = orderedRows(m_entries);
@@ -602,6 +832,18 @@ void SongCatalogModel::rebuild(bool resetStarted)
     endResetModel();
     emit changed();
 }
+void SongCatalogModel::applyOrder(QList<int> order)
+{
+    if (m_order != order) {
+        beginResetModel();
+        m_order = std::move(order);
+        m_viewRows.fill(-1, m_entries.size());
+        for (int row = 0; row < m_order.size(); ++row)
+            m_viewRows[m_order[row]] = row;
+        endResetModel();
+    }
+    emit changed();
+}
 int SongCatalogModel::indexOf(const QString &id) const
 {
     for (int i = 0; i < m_order.size(); ++i)
@@ -609,20 +851,12 @@ int SongCatalogModel::indexOf(const QString &id) const
             return i;
     return -1;
 }
-PlaybackTracks SongCatalogModel::tracks(bool selectedOnly) const
+bool SongCatalogModel::hasPlayableTracks() const
 {
-    PlaybackTracks result;
-    if (selectedOnly) {
-        for (const auto &e : m_entries)
-            if (e.playable && e.trackPlayable && m_selected.contains(e.id))
-                result.append(PlaybackTrack::fromDomain(e.domainSong));
-    } else
-        for (int index : m_order) {
-            const auto &e = m_entries[index];
-            if (e.playable && e.trackPlayable)
-                result.append(PlaybackTrack::fromDomain(e.domainSong));
-        }
-    return result;
+    return std::any_of(m_order.cbegin(), m_order.cend(), [this](int source) {
+        const auto &entry = m_entries[source];
+        return entry.playable && entry.trackPlayable;
+    });
 }
 void SongCatalogModel::toggleSelected(const QString &id)
 {

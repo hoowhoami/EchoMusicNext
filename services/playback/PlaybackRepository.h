@@ -1,7 +1,9 @@
 #pragma once
 #include "PlaybackQueueCatalog.h"
+#include "HistoryPayloadLease.h"
 #include <QJsonArray>
 #include <QThread>
+#include <functional>
 namespace EchoMusic
 {
 class PlaybackStorageWorker;
@@ -14,14 +16,17 @@ public:
     static constexpr quint64 SharedQueueScope = 0;
     explicit PlaybackRepository(const QString &path, QObject *parent = nullptr);
     ~PlaybackRepository() override;
-    void load(quint64 account, quint64 revision);
+    void load(quint64 account, quint64 revision, bool projectionsOnly = false);
+    void requestTrack(PlaybackTrack, QObject *, std::function<void(PlaybackTrack, QString)>);
     void save(quint64 account, const PlaybackQueueStates &states, const QString &active,
               const QString &lastLocal = {});
     /// Count/promote a successfully loaded occurrence, even before its first tick.
     void record(quint64 account, const PlaybackTrack &track, qint64 listenedMs = 0);
     /// Settle elapsed time without counting, promoting or recreating a deleted row.
     void addHistoryTime(quint64 account, const PlaybackTrack &track, qint64 listenedMs);
-    void loadHistory(quint64 account, quint64 revision);
+    void loadHistory(quint64 account, quint64 revision, bool projectionsOnly = false);
+    void requestHistoryTracks(quint64 account, QStringList payloadKeys, QObject *,
+                              std::function<void(QList<QJsonObject>, QString)>);
     void removeHistory(quint64 account, const QStringList &keys);
     void clearHistory(quint64 account);
     void loadRooms(quint64 account, quint64 revision);
@@ -30,7 +35,9 @@ public:
 signals:
     void loaded(quint64 account, quint64 revision, const EchoMusic::PlaybackQueueStates &states,
                 const QString &active, const QString &lastLocal);
-    void historyLoaded(quint64 account, quint64 revision, const QJsonArray &entries);
+    void historyLoaded(quint64 account, quint64 revision, const QJsonArray &entries,
+                       EchoMusic::HistoryPayloadLease lease);
+    void saved(const QStringList &payloadKeys, EchoMusic::PlaybackPayloadLease lease);
     void historyFailed(const QString &message);
     void historyChanged(quint64 account);
     void roomsLoaded(quint64 account, quint64 revision, const QJsonArray &rooms,

@@ -1,6 +1,6 @@
 #pragma once
 #include <optional>
-#include <QCache>
+#include "ValueCache.h"
 #include <QTemporaryDir>
 #include "ApiClient.h"
 #include "PlaybackLibraryActions.h"
@@ -195,8 +195,7 @@ public:
     /// session, so lists loaded after the play can replay them.
     QJsonObject playbackFacts(const QString &hash) const
     {
-        const auto *facts = m_playbackFacts.object(hash.toLower());
-        return facts ? *facts : QJsonObject();
+        return m_playbackFacts.peek(hash.toLower()).value_or(QJsonObject{});
     }
     const PlaybackTrack &currentTrack() const
     {
@@ -465,6 +464,9 @@ public:
     /// Local playback history is read/written through the storage worker. The
     /// page owns presentation; PlaybackService keeps the account snapshot.
     Q_INVOKABLE void requestHistory();
+    /// Resolve immutable history payload versions captured by a page command.
+    void requestHistoryTracks(QList<QJsonObject>, QObject *,
+                              std::function<void(QList<QJsonObject>, QString)>);
     Q_INVOKABLE void removeHistory(const QStringList &keys);
     Q_INVOKABLE void clearHistory();
     /// Internal request epoch for SDK work targeted at the current source.
@@ -499,7 +501,7 @@ signals:
     void timelineReset();
     void playbackEnded();
     void seekCompleted();
-    void historyLoaded(const QJsonArray &entries);
+    void historyLoaded(const QJsonArray &entries, EchoMusic::HistoryPayloadLease lease = {});
     void historyFailed(const QString &message);
     /// Corrected identity facts from the playing file's own tags. Identity is
     /// the track id the surfaces already know; consumers merge masked/missing
@@ -523,6 +525,9 @@ private:
     void tryStartupAutoPlay();
     void invalidate(bool preserveLyrics = false);
     void cancelTrackProbe();
+    void hydrateForPlayback(PlaybackTrack, std::function<void(PlaybackTrack)>);
+    QPointer<QObject> m_queueRead;
+    quint64 m_queueReadIntent = 0;
     void startIndex(int index, bool preserveFailureChain);
     void appendTracksImpl(const PlaybackTracks &tracks, bool next, bool sequential);
     void startTrack(const PlaybackTrack &track, int index, bool preserveFailureChain);
@@ -613,7 +618,7 @@ private:
     LyricTextController m_lyricText;
     LyricSourceController m_lyricSource;
     PlaybackTrack m_track;
-    QCache<QString, QJsonObject> m_playbackFacts{2000};
+    ValueCache<QString, QJsonObject> m_playbackFacts{2000, 4'000'000};
     QPointer<SongMetadataService> m_metadata;
     QString m_resolvedQuality;
     struct SourceIdentity

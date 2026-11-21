@@ -1,4 +1,5 @@
 #include "AlbumDetailContext.h"
+#include "SongMetadataService.h"
 #include <QJsonDocument>
 #include <QQmlEngine>
 #include <utility>
@@ -11,6 +12,18 @@ AlbumDetailContext::AlbumDetailContext(ApiClient &api, PlaybackService &playback
     : QObject(&route), m_api(api), m_route(route), m_actions(m_songs, playback, this),
       m_comments(api, route, networkEnabled, this, authors), m_network(networkEnabled)
 {
+    m_songs.enableSessionStorage();
+    if (auto *metadata = playback.metadata())
+        if (auto *database = metadata->sessionDatabase())
+            m_refreshCache = std::make_unique<SongSourceCache>(*database, this);
+    connect(&m_songs, &SongCatalogModel::storageReadyChanged, this, [this] {
+        if (m_songs.storageReady() && !songsLoading() && !m_complete)
+            requestBatch();
+    });
+    connect(&m_songs, &SongCatalogModel::storageFailed, this, [this](const QString &message) {
+        m_songError = message;
+        emit changed();
+    });
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
     m_actions.setQueueContext(tr("专辑"), "queue:album:" + route.resourceId());
     connect(&api, &ApiClient::succeeded, this, &AlbumDetailContext::accept);
@@ -56,11 +69,15 @@ void AlbumDetailContext::cancel()
 {
     m_comments.suspend();
     ++m_generation;
+    delete m_stageRead.data();
     const auto ids = m_requests.keys();
     m_requests.clear();
     m_pages.clear();
     m_errors.clear();
     m_refreshSongs = {};
+    m_refreshRows.clear();
+    m_staging = false;
+    ++m_stagingRevision;
     const auto avatarRequest = std::exchange(m_avatarRequest, 0);
     m_avatarArtistId = 0;
     if (avatarRequest)
@@ -70,6 +87,10 @@ void AlbumDetailContext::cancel()
 }
 void AlbumDetailContext::cancelSongRequests()
 {
+    ++m_stagingRevision;
+    delete m_stageRead.data();
+    m_staging = false;
+    m_refreshRows.clear();
     const auto ids = m_requests.keys();
     for (auto id : ids) {
         if (!m_requests.value(id).page)
@@ -125,6 +146,11 @@ void AlbumDetailContext::reload()
 {
     if (m_closed)
         return;
+    if (m_songs.retryStorage()) {
+        m_songError.clear();
+        emit changed();
+        return;
+    }
     cancel();
     m_refreshing = m_complete;
     if (!m_refreshing)
@@ -165,6 +191,8 @@ void AlbumDetailContext::requestPage(quint32 page)
 }
 void AlbumDetailContext::requestBatch()
 {
+    if (m_staging || !m_songs.storageReady())
+        return;
     // Bound resource loading without constraining provider totals
     // or rejecting pages when counts change.
     if (m_nextPage > 100) {
@@ -257,6 +285,8 @@ void AlbumDetailContext::finishPage(quint32 page, const QJsonObject &value, cons
 }
 void AlbumDetailContext::consumeBatch()
 {
+    if (m_staging)
+        return;
     while (m_pages.contains(m_nextPage) || m_errors.contains(m_nextPage)) {
         if (m_errors.contains(m_nextPage)) {
             m_songError = m_errors.take(m_nextPage);
@@ -265,6 +295,7 @@ void AlbumDetailContext::consumeBatch()
                 m_complete = true;
             m_refreshing = false;
             m_refreshSongs = {};
+            m_refreshRows.clear();
             m_pages.clear();
             m_errors.clear();
             return;
@@ -281,6 +312,45 @@ void AlbumDetailContext::consumeBatch()
                 metadata.insert(key, entry.value(key));
             song["metadata"] = metadata;
             songs.append(song);
+        }
+        if (m_refreshing && m_refreshCache) {
+            const auto generation = m_generation, revision = ++m_stagingRevision;
+            const bool finished = items.size() < int(m_pageSize);
+            m_staging = true;
+            auto *request = new QObject(this);
+            m_stageRead = request;
+            const QPointer<QObject> guard(request);
+            m_refreshCache->cache(
+                std::move(songs), request,
+                [this, generation, revision, finished, guard](auto rows, auto error) {
+                    if (!guard)
+                        return;
+                    guard->deleteLater();
+                    if (m_closed || generation != m_generation || revision != m_stagingRevision)
+                        return;
+                    m_staging = false;
+                    if (!error.isEmpty()) {
+                        m_songError = error;
+                        m_refreshRows.clear();
+                        m_refreshing = false;
+                        m_complete = true;
+                        cancelSongRequests();
+                        emit changed();
+                        return;
+                    }
+                    m_refreshRows.append(rows);
+                    ++m_nextPage;
+                    if (finished) {
+                        m_songs.replaceCachedRows(m_refreshRows, true);
+                        m_refreshRows.clear();
+                        m_refreshing = false;
+                        m_complete = true;
+                        cancelSongRequests();
+                    } else
+                        consumeBatch();
+                    emit changed();
+                });
+            return;
         }
         if (m_refreshing) {
             for (const auto &song : songs)

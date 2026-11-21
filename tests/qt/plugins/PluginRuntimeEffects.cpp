@@ -77,7 +77,18 @@ FloatingLyricViewport {x:580;y:100;width:450;height:250;playback:win.playback;re
     QCOMPARE(line->visuals().value("foreground").value<QColor>(), QColor("#ff3355"));
     QTRY_VERIFY(!line->state().value("glyphs").toList().isEmpty());
     auto glyph = line->state().value("glyphs").toList().first().toMap();
-    QVERIFY(glyph.value("rect").toRectF().width() > 0);
+    const auto rect = glyph.value("rect").toMap();
+    QVERIFY(rect.value("width").toDouble() > 0);
+    QVERIFY(rect.value("height").toDouble() > 0);
+    QVERIFY(glyph.value("inkRect").toMap().contains("width"));
+    auto readGlyph =
+        host.engine.evaluate("(function(part) { const g=part.state.glyphs[0]; "
+                             "return g.rect.width>0 && g.rect.height>0 && "
+                             "Number.isFinite(g.inkRect.x) && "
+                             "JSON.parse(JSON.stringify(g)).rect.width===g.rect.width; })");
+    const auto actualGlyph = readGlyph.call({lineRoot});
+    QVERIFY2(!actualGlyph.isError(), qPrintable(actualGlyph.toString()));
+    QVERIFY(actualGlyph.toBool());
     QCOMPARE(glyph.value("startMs").toLongLong(), qint64(0));
     auto *desktopLine = parts->query({{"role", "lyrics.line"}, {"surface", "desktop"}});
     QVERIFY(desktopLine);

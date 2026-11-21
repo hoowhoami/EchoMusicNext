@@ -70,7 +70,7 @@ void PlaylistDetailService::playPlaylist(const QString &resourceId, quint64 clou
         !current->loading() && current->errorMessage().isEmpty()) {
         if (m_controller)
             m_controller->finishPlaylistPlayback(cloudId);
-        if (current->songs()->tracks().isEmpty())
+        if (!current->songs()->hasPlayableTracks())
             emit notice(tr("歌单暂无可播放歌曲"), true);
         else
             current->actions()->play();
@@ -102,7 +102,7 @@ void PlaylistDetailService::settlePlayback()
         emit notice(context->errorMessage().isEmpty() ? tr("歌单暂时无法加载，请稍后重试")
                                                       : context->errorMessage(),
                     true);
-    } else if (context->songs()->tracks().isEmpty())
+    } else if (!context->songs()->hasPlayableTracks())
         emit notice(tr("歌单暂无可播放歌曲"), true);
     else
         context->actions()->play();

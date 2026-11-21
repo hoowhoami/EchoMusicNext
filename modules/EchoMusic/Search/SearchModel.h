@@ -13,6 +13,8 @@
 namespace EchoMusic
 {
 class StorageService;
+class SongCatalogModel;
+struct SearchSongStorage;
 class SongMetadataService;
 class PlaybackService;
 class PlaybackLibraryActions;
@@ -99,7 +101,8 @@ public:
         ArtistLinks,
         AlbumId,
         PrivilegeTags,
-        QualityLabel
+        QualityLabel,
+        PresentationReady
     };
     explicit SearchModel(ApiClient &api, QObject *parent = nullptr);
     void attachMetadata(SongMetadataService &service, bool network = true);
@@ -131,10 +134,9 @@ public:
     {
         return active().total;
     }
-    int count() const
-    {
-        return int(active().rows.size());
-    }
+    int count() const;
+    SongCatalogModel *catalog() const;
+    static int catalogRole(int);
     bool hasMore() const
     {
         return active().nextPage > 0 && quint64(active().nextPage - 1) * 30 < active().total;
@@ -171,6 +173,8 @@ public:
     Q_INVOKABLE void search(const QString &keyword, Kind kind = Kind::Song);
     Q_INVOKABLE void setKind(Kind kind);
     Q_INVOKABLE void loadMore();
+    Q_INVOKABLE QString requestPluginMenuContext(const QString &, QObject *);
+    Q_INVOKABLE bool pluginMenuContextCurrent(const QString &) const;
     Q_INVOKABLE QVariantMap pluginMenuContext(const QString &id) const;
     Q_INVOKABLE void playSong(const QString &id);
     Q_INVOKABLE void playNow(const QString &id);
@@ -205,6 +209,7 @@ public:
     // remain service-owned and session-bound when opened from another page.
     Q_INVOKABLE void setDiscoveryActive(bool active);
 signals:
+    void pluginMenuContextReady(const QString &ticket, const QVariantMap &context);
     void changed();
     void discoveryChanged();
     void playbackChanged();
@@ -220,6 +225,14 @@ signals:
 
 private:
     friend class SearchModelTestAccess;
+    void initializeSongStorage();
+    bool cacheSongPage(Kind, const QJsonArray &, quint64);
+    bool retrySongPage();
+    void flushSongPage(Kind);
+    void clearSongStorage();
+    void requestRow(const QString &, std::function<void(PlaybackTrack)>);
+    void requestResultTracks(QObject *, std::function<void(PlaybackTracks)>);
+    std::unique_ptr<SearchSongStorage> m_songStorage;
     PlaybackTrack rowTrack(const QString &id) const;
     void requestPlayback(const QString &id, bool selectedSong);
     struct Row
@@ -238,7 +251,7 @@ private:
         QString error;
         quint64 request = 0, revision = 0, total = 0;
         quint32 pendingPage = 0, nextPage = 0;
-        bool loaded = false;
+        bool loaded = false, cached = false, caching = false;
     };
     Bucket &active()
     {

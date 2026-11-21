@@ -1,4 +1,5 @@
 #pragma once
+#include "ValueCache.h"
 #include "ApiClient.h"
 #include "LyricModel.h"
 #include "PlaybackTrack.h"
@@ -215,9 +216,8 @@ private:
     std::unique_ptr<QSortFilterProxyModel> m_previewRows;
     QList<Candidate> m_candidates, m_pendingCandidates, m_autoCandidates;
     // Parsed contents can survive a session change; candidate access keys cannot.
-    QHash<QString, QJsonObject> m_cache;
+    ValueCache<QString, QJsonObject> m_cache{4};
     QString m_cacheTrack;
-    QStringList m_cacheOrder;
     PlaybackTrack m_track;
     quint64 m_revision = 0, m_search = 0, m_download = 0, m_defaultSearch = 0;
     QString m_currentId, m_manualId, m_downloadId, m_state = "empty", m_error;

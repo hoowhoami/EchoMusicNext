@@ -78,11 +78,11 @@ Rectangle {
             implicitWidth: Math.max(76, scoreContent.implicitWidth + 18)
             implicitHeight: scoreContent.implicitHeight + 12
             radius: Theme.detailRadius
-            color: Theme.withAlpha(Theme.accent, 0.04 + value * 0.04)
+            color: Theme.withAlpha(Theme.accent, 0.04 + scoreBadge.value * 0.04)
             EchoDashedFrame {
                 anchors.fill: parent
                 solid: true
-                strokeColor: Theme.withAlpha(Theme.accent, 0.1 + value * 0.08)
+                strokeColor: Theme.withAlpha(Theme.accent, 0.1 + scoreBadge.value * 0.08)
                 radius: Theme.detailRadius
             }
             RowLayout {

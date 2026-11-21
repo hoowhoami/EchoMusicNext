@@ -1,3 +1,4 @@
+#include "ValueCache.h"
 #include "ProxyResolver.h"
 #include "ProxyRouting.h"
 #ifdef Q_OS_LINUX
@@ -101,26 +102,17 @@ QString loadPac(const QUrl &url, const ProxyResolveCancellation &cancelled)
 }
 QString cachedPac(const QUrl &url, const ProxyResolveCancellation &cancelled)
 {
-    struct Cache
-    {
-        QUrl address;
-        QString script;
-        QElapsedTimer age;
-        quint64 revision = 0;
-    };
-    thread_local Cache cache;
+    using Cache = ValueCache<QPair<QUrl, quint64>, QString>;
+    thread_local Cache cache(1);
     const auto revision = pacRevision.load(std::memory_order_acquire);
-    if (cache.address == url && cache.revision == revision && cache.age.isValid() &&
-        cache.age.elapsed() < 300000)
-        return cache.script;
+    const auto key = qMakePair(url, revision);
+    if (const auto cached = cache.lookup(key))
+        return *cached;
     const auto script = loadPac(url, cancelled);
     if (cancelled && cancelled->load(std::memory_order_acquire))
         return {};
-    cache.address = url;
-    cache.script = script;
-    cache.revision = revision;
-    cache.age.start();
-    return cache.script;
+    cache.insert(key, script, 300000, quint64(script.size()) * 2 + 1);
+    return script;
 }
 } // namespace
 QList<QHostAddress> ProxyPacDns::lookup(const QString &host)

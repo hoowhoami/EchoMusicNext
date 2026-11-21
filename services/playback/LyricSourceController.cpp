@@ -1,3 +1,4 @@
+#include "CacheCost.h"
 #include "SettingsKeys.h"
 #include "LyricSourceController.h"
 #include "LyricExtensions.h"
@@ -44,7 +45,6 @@ LyricSourceController::LyricSourceController(ApiClient &api, EchoMusic::Settings
     connect(&api, &ApiClient::closed, this, [this] {
         clear();
         m_cache.clear();
-        m_cacheOrder.clear();
     });
 }
 LyricSourceController::~LyricSourceController()
@@ -219,7 +219,6 @@ void LyricSourceController::load(const PlaybackTrack &track)
     // already-fetched embedded lyrics.
     if (m_cacheTrack != track.stableKey()) {
         m_cache.clear();
-        m_cacheOrder.clear();
         m_cacheTrack = track.stableKey();
     }
     resetSearchFields();
@@ -308,7 +307,6 @@ void LyricSourceController::refresh()
     if (!hasTrack() || m_applyPending)
         return;
     m_cache.clear();
-    m_cacheOrder.clear();
     resetSearchFields();
     m_queuedKeywords.clear();
     startSearch(true, m_currentId.isEmpty());
@@ -393,9 +391,10 @@ void LyricSourceController::includeEmbedded(QList<Candidate> &list) const
 }
 QJsonObject LyricSourceController::cachedLyrics(const QString &id) const
 {
-    return id == "embedded"                                   ? m_embeddedLyrics
-           : m_pluginCandidate && m_pluginCandidate->id == id ? m_pluginLyrics
-                                                              : m_cache.value(id);
+    return id == "embedded" ? m_embeddedLyrics
+           : m_pluginCandidate && m_pluginCandidate->id == id
+               ? m_pluginLyrics
+               : m_cache.peek(id).value_or(QJsonObject{});
 }
 void LyricSourceController::cancelParsing()
 {
@@ -901,11 +900,7 @@ void LyricSourceController::acceptParsed(const QJsonObject &object)
     }
     m_candidates[m_selected].hasTranslation = m_preview.hasTranslation();
     m_candidates[m_selected].hasRomanization = m_preview.hasRomanization();
-    m_cache.insert(m_downloadId, object);
-    m_cacheOrder.removeAll(m_downloadId);
-    m_cacheOrder.append(m_downloadId);
-    while (m_cacheOrder.size() > 4)
-        m_cache.remove(m_cacheOrder.takeFirst());
+    m_cache.insert(m_downloadId, object, decltype(m_cache)::NoExpiry, jsonValueCost(object) * 2);
     if (m_activatePending)
         activatePreview();
     notifyRows();

@@ -136,6 +136,7 @@ qt_add_qml_module(
     EchoListReorder.qml
     EchoReorderRow.qml
     EchoSpinner.qml
+    EchoLoadError.qml
     EchoControlSize.qml
     EchoActionButton.qml
     EchoButton.qml
@@ -149,6 +150,7 @@ qt_add_qml_module(
     EchoPlaybackButton.qml
     EchoPlayPauseIcon.qml
     EchoCover.qml
+    EchoRoundedImage.qml
     EchoArtistLinks.qml
     EchoSelect.qml
     EchoSelectOption.qml
@@ -370,6 +372,7 @@ qt_add_shaders(
     shaders/action-shadow.vert
     shaders/action-shadow.frag
     shaders/skeleton-shimmer.frag
+    shaders/cover-rounded.frag
 )
 target_link_libraries(
     echo_controls

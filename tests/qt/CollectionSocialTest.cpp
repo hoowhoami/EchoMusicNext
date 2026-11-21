@@ -1,5 +1,7 @@
 #include "LibraryCollectionService.h"
 #include "ProfileService.h"
+#include "JsonRecordStore.h"
+#include <QTemporaryDir>
 #include <QJsonDocument>
 #include <QScopeGuard>
 #include <iostream>
@@ -120,6 +122,11 @@ public:
 class ProfileServiceTestAccess
 {
 public:
+    static void coolSocialRows(ProfileService &s)
+    {
+        for (auto &tab : s.m_social)
+            tab.model->m_hot.clear();
+    }
     static quint64 followRead(const ProfileService &s)
     {
         return s.m_social[1].request;
@@ -168,6 +175,89 @@ class CollectionSocialTest : public QObject
     Q_OBJECT
     QTcpServer sink;
 private slots:
+    void socialColdRowsKeepOnlyRelationshipIndexAndIgnoreStaleHydration()
+    {
+        QTemporaryDir dir;
+        SessionDatabase db(dir.filePath("session"));
+        JsonRecordStore store(db);
+        SocialUserModel model(nullptr);
+        model.attachStore(store);
+        QSignalSpy failures(&model, &SocialUserModel::cacheFailed);
+        QSignalSpy writes(&store, &JsonRecordStore::stored);
+        QJsonArray values;
+        for (int i = 0; i < 3000; ++i)
+            values.append(QJsonObject{{"key", QString("user:%1").arg(i)},
+                                      {"user_id", i + 1},
+                                      {"nickname", QString("访客 %1").arg(i)},
+                                      {"description", QString(1024, QChar('x'))},
+                                      {"following", i % 2 == 0},
+                                      {"unknown", QJsonArray{1, QJsonValue::Null}}});
+        model.replace(values);
+        QCOMPARE(model.count(), 3000);
+        QVERIFY(!model.rows()[2999].toObject().contains("description"));
+        QTRY_COMPARE_WITH_TIMEOUT(writes.size(), 1, 15000);
+        const auto index = model.index(2999);
+        QSignalSpy hydrated(&model, &QAbstractItemModel::dataChanged);
+        QCOMPARE(model.data(index, SocialUserModel::Key).toString(), QString("user:2999"));
+        QTest::qWait(10);
+        QVERIFY(hydrated.isEmpty()); // Identity-only reads do not fetch rich records.
+        QTRY_COMPARE(model.data(index, SocialUserModel::Nickname).toString(), QString("访客 2999"));
+        QJsonObject entry;
+        bool done = false;
+        model.readEntry("user:2999", [&](QJsonObject row) {
+            entry = row;
+            done = true;
+        });
+        QTRY_VERIFY(done);
+        QCOMPARE(entry, values.last().toObject());
+        model.transform([](QJsonArray rows) {
+            rows.removeLast();
+            return rows;
+        });
+        QTRY_COMPARE(model.count(), 2999);
+        QCOMPARE(writes.size(), 1); // Membership changes keep immutable source references.
+        const QJsonObject inserted{{"key", "user:inserted"},
+                                   {"user_id", 99999},
+                                   {"nickname", "新用户"},
+                                   {"following", true},
+                                   {"unknown", QJsonArray{false, QJsonValue::Null}}};
+        model.transform([&](QJsonArray rows) {
+            rows.prepend(inserted);
+            auto first = rows[1].toObject();
+            first.insert("following", false);
+            rows[1] = first;
+            return rows;
+        });
+        QCOMPARE(model.count(), 3000);
+        QCOMPARE(model.data(model.index(1), SocialUserModel::Following).toBool(), false);
+        QTRY_COMPARE_WITH_TIMEOUT(writes.size(), 2, 15000);
+        done = false;
+        model.readEntry("user:inserted", [&](QJsonObject row) {
+            entry = row;
+            done = true;
+        });
+        QTRY_VERIFY(done);
+        QCOMPARE(entry, inserted);
+        done = false;
+        model.readEntry("user:0", [&](QJsonObject row) {
+            entry = row;
+            done = true;
+        });
+        QTRY_VERIFY(done);
+        auto expected = values.first().toObject();
+        expected.insert("following", false);
+        QCOMPARE(entry, expected);
+
+        bool stale = false;
+        model.readEntry("user:2998", [&](QJsonObject row) {
+            stale = true;
+            QVERIFY(row.isEmpty());
+        });
+        model.replace({});
+        QTRY_VERIFY(stale);
+        QCOMPARE(model.count(), 0);
+        QVERIFY(failures.isEmpty());
+    }
     void initTestCase()
     {
         QVERIFY(sink.listen(QHostAddress::LocalHost));
@@ -614,10 +704,15 @@ private slots:
     }
     void sharedSocialStateAndAccountIsolation()
     {
+        QTemporaryDir directory;
+        SessionDatabase database(directory.filePath("records"));
+        JsonRecordStore records(database);
+        QSignalSpy stored(&records, &JsonRecordStore::stored);
         ApiClient api;
         QVERIFY(api.setNetworkTransport(sink.serverPort()));
         AccountService account(api);
         ProfileService profile(api, account);
+        profile.attachRecordStore(records);
         QVERIFY(AccountServiceTestAccess::adopt(account));
         const QJsonObject user{{"key", "user:77"},
                                {"user_id", 77},
@@ -629,21 +724,31 @@ private slots:
             profile, 1,
             {user, QJsonObject{{"key", "artist:3060"}, {"user_id", 0}, {"artist_id", 3060}}});
         ProfileServiceTestAccess::seed(profile, 2, {user});
+        QTRY_COMPARE(stored.size(), 3);
+        ProfileServiceTestAccess::coolSocialRows(profile);
         QVERIFY(profile.artistFollowed(3060));
+        quint64 id = 0;
+        // Inject the acknowledged domain response at submission, before the
+        // isolated transport can fail. Hydration itself is a real cold SQL read.
+        const auto submitted = connect(&profile, &ProfileService::changed, &profile, [&] {
+            if (id || !ProfileServiceTestAccess::write(profile))
+                return;
+            id = ProfileServiceTestAccess::write(profile);
+            QVERIFY(profile.socialPending(77));
+            profile.toggleSocialFollow("user:77");
+            QCOMPARE(ProfileServiceTestAccess::write(profile), id);
+            const auto req = ApiClientTestAccess::request(api, id);
+            QCOMPARE(req["operation"].toString(), QString("user_follow_del"));
+            QCOMPARE(req["id"].toInteger(), 77);
+            QVERIFY(!ApiClientTestAccess::verifies(api, id));
+            ProfileServiceTestAccess::accept(
+                profile, id, R"({"following":false,"mutual":null,"already":false})");
+        });
         profile.toggleSocialFollow("user:77");
-        const auto id = ProfileServiceTestAccess::write(profile);
-        QVERIFY(id);
-        QVERIFY(profile.socialPending(77));
-        profile.toggleSocialFollow("user:77");
-        QCOMPARE(ProfileServiceTestAccess::write(profile), id);
-        const auto req = ApiClientTestAccess::request(api, id);
-        QCOMPARE(req["operation"].toString(), QString("user_follow_del"));
-        QCOMPARE(req["id"].toInteger(), 77);
-        QVERIFY(!ApiClientTestAccess::verifies(api, id));
-        ProfileServiceTestAccess::accept(profile, id,
-                                         R"({"following":false,"mutual":null,"already":false})");
+        QTRY_VERIFY(id);
+        disconnect(submitted);
         QVERIFY(!profile.socialPending(77));
-        QCOMPARE(profile.socialUsers()->count(), 0);
+        QTRY_COMPARE(profile.socialUsers()->count(), 0);
         // Artist-only rows never become user write or chat targets.
         profile.openSocial(ProfileService::SocialTab::Follow);
         profile.openChat("artist:3060");

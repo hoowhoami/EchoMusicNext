@@ -217,6 +217,7 @@ EchoPageScrollContainer {
             }
             SearchStatus {
                 id: status
+                continuousSongs: true
                 width: parent.width
                 height: implicitHeight
                 y: page.service.results.count === 0 ? 180 : 0
@@ -224,6 +225,16 @@ EchoPageScrollContainer {
                 listPadding: 48
             }
         }
+    }
+    EchoSpinner {
+        objectName: "searchMoreSpinner"
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 12
+        width: 18
+        height: 18
+        visible: page.pageActive && page.showResults && page.songs && page.service.state === SearchModel.LoadingMore
+        resourceActive: visible
     }
     ContentGrid {
         id: grid

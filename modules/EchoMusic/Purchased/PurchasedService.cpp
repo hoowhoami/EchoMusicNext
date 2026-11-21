@@ -10,6 +10,13 @@ PurchasedService::PurchasedService(ApiClient &api, PlaybackService &playback,
     : QObject(parent), m_api(api), m_playback(playback), m_router(router),
       m_actions(m_songs, playback, this), m_network(network)
 {
+    m_songs.enableSessionStorage();
+    connect(&m_songs, &SongCatalogModel::storageReadyChanged, this,
+            &PurchasedService::continueSongs);
+    connect(&m_songs, &SongCatalogModel::storageFailed, this, [this](const QString &message) {
+        m_songError = message;
+        emit changed();
+    });
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
     m_actions.setQueueContext(tr("已购音乐"), "queue:purchased");
     connect(&router, &RouteController::pageActivated, this, &PurchasedService::activate);
@@ -87,7 +94,7 @@ void PurchasedService::loadTab()
 void PurchasedService::continueSongs()
 {
     if (m_closed || !m_active || !m_network || m_songExhausted || !m_songError.isEmpty() ||
-        songsLoading() || !m_api.currentAccountUserId())
+        songsLoading() || !m_api.currentAccountUserId() || !m_songs.storageReady())
         return;
     m_songContinuationQueued = true;
     const auto generation = m_generation, session = m_api.sessionRevision();
@@ -100,14 +107,14 @@ void PurchasedService::continueSongs()
             m_songContinuationQueued = false;
             if (!m_closed && m_active && m_network && session == m_api.sessionRevision() &&
                 page == m_songPage && !m_songExhausted && m_songError.isEmpty() &&
-                !hasPending(PendingKind::Songs))
+                !hasPending(PendingKind::Songs) && m_songs.storageReady())
                 request(PendingKind::Songs, page + 1);
         },
         Qt::QueuedConnection);
 }
 void PurchasedService::request(PendingKind kind, quint32 page)
 {
-    if (hasPending(kind))
+    if (hasPending(kind) || (kind == PendingKind::Songs && !m_songs.storageReady()))
         return;
     const auto request = kind == PendingKind::Songs ? m_api.purchasedSongs(page, 30)
                                                     : m_api.purchasedAlbums(page, 30);
@@ -144,6 +151,12 @@ void PurchasedService::loadMore()
     if (m_closed || !m_active || !m_network || !m_api.currentAccountUserId())
         return;
     const auto kind = m_tab == 0 ? PendingKind::Songs : PendingKind::Albums;
+    if (kind == PendingKind::Songs && m_songs.retryStorage()) {
+        m_songError.clear();
+        continueSongs();
+        emit changed();
+        return;
+    }
     const auto previous = m_tab == 0 ? m_songPage : m_albumPage;
     if (hasPending(kind) || (m_tab == 0 && m_songContinuationQueued) ||
         (previous > 0 && !hasMore()))

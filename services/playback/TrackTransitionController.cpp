@@ -560,19 +560,40 @@ bool TrackTransitionController::handleEvent(const QJsonObject &event)
             if (!m_requestId)
                 failAttempt();
             else {
-                const QStringList qualities{"standard",   "higher",      "flac",       "hi_res",
-                                            "viper_tape", "viper_clear", "viper_atmos"};
-                m_nextQuality = m_targetKey == m_playback.m_track.stableKey()
-                                    ? m_playback.m_quality
-                                    : m_playback.m_preferences.defaultQuality();
-                m_source.resolve(
-                    m_target, ApiClient::PlaybackQuality(qualities.indexOf(m_nextQuality)),
-                    m_playback.apiEffect(), {}, m_playback.m_preferences.compatibilityMode(),
-                    m_playback.m_preferences.viperQualityEnabled(),
-                    m_playback.listenTogether()->roomSourceAllowed(m_target)
-                        ? m_playback.listenTogether()->roomId()
-                        : QString(),
-                    {}, m_playback.m_audioControls.volumeNormalization(), false, true);
+                const auto revision = m_revision;
+                const auto resolve = [this, revision] {
+                    if (revision != m_revision || !stillValid())
+                        return;
+                    const QStringList qualities{"standard",   "higher",      "flac",       "hi_res",
+                                                "viper_tape", "viper_clear", "viper_atmos"};
+                    m_nextQuality = m_targetKey == m_playback.m_track.stableKey()
+                                        ? m_playback.m_quality
+                                        : m_playback.m_preferences.defaultQuality();
+                    m_source.resolve(
+                        m_target, ApiClient::PlaybackQuality(qualities.indexOf(m_nextQuality)),
+                        m_playback.apiEffect(), {}, m_playback.m_preferences.compatibilityMode(),
+                        m_playback.m_preferences.viperQualityEnabled(),
+                        m_playback.listenTogether()->roomSourceAllowed(m_target)
+                            ? m_playback.listenTogether()->roomId()
+                            : QString(),
+                        {}, m_playback.m_audioControls.volumeNormalization(), false, true);
+                };
+                if (m_target.payloadLoaded)
+                    resolve();
+                else if (m_playback.m_repository)
+                    m_playback.m_repository->requestTrack(
+                        m_target, this, [this, revision, resolve](auto track, auto error) {
+                            if (revision != m_revision || !stillValid())
+                                return;
+                            if (!error.isEmpty()) {
+                                failAttempt();
+                                return;
+                            }
+                            m_target = std::move(track);
+                            resolve();
+                        });
+                else
+                    failAttempt();
             }
         } else if (kind == "next-source-prepared") {
             if (quint64(event.value("next_sequence").toInteger()) != m_sequence)

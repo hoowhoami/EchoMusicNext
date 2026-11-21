@@ -8,7 +8,6 @@ PortraitController::PortraitController(ApiClient &api, LyricPortraitAppearance &
                                        QObject *parent)
     : QObject(parent), m_api(api), m_appearance(appearance)
 {
-    m_clock.start();
     connect(&api, &ApiClient::succeeded, this, &PortraitController::succeeded);
     connect(&api, &ApiClient::failed, this, &PortraitController::failed);
     connect(&api, &ApiClient::sessionChanged, this, [this] {
@@ -85,17 +84,13 @@ void PortraitController::request()
     if (!m_active || m_request || m_track.hash.size() != 32)
         return;
     const auto key = cacheKey();
-    const auto cached = m_cache.constFind(key);
-    if (cached != m_cache.cend() && cached->expires > m_clock.elapsed()) {
-        m_urls = cached->urls;
+    if (const auto cached = m_cache.lookup(key)) {
+        m_urls = *cached;
         m_index = 0;
-        m_cacheOrder.removeAll(key);
-        m_cacheOrder.append(key);
         publish();
         return;
     }
     m_cache.remove(key);
-    m_cacheOrder.removeAll(key);
     m_revision = m_api.sessionRevision();
     m_request = m_api.audioImages({{m_track.hash, 0, m_track.songId, m_track.title}}, 5);
     publish();
@@ -125,11 +120,7 @@ void PortraitController::succeeded(quint64 id, const QByteArray &bytes)
     m_urls = urls.mid(0, 5);
     m_index = 0;
     const auto key = cacheKey();
-    m_cache.insert(key, {m_urls, m_clock.elapsed() + (m_urls.isEmpty() ? 300000 : 1800000)});
-    m_cacheOrder.removeAll(key);
-    m_cacheOrder.append(key);
-    while (m_cacheOrder.size() > 50)
-        m_cache.remove(m_cacheOrder.takeFirst());
+    m_cache.insert(key, m_urls, m_urls.isEmpty() ? 300000 : 1800000);
     publish();
 }
 void PortraitController::failed(quint64 id, int, const QByteArray &)
@@ -166,10 +157,8 @@ void PortraitController::imageFailed(const QUrl &url)
         // A decoder/network failure is not an upstream empty gallery. Reopen
         // may retry rather than retaining a failed gallery for the hit TTL.
         m_cache.remove(cacheKey());
-        m_cacheOrder.removeAll(cacheKey());
-    } else if (auto cached = m_cache.find(cacheKey()); cached != m_cache.end()) {
-        cached->urls = m_urls;
-    }
+    } else
+        m_cache.update(cacheKey(), m_urls);
     publish();
 }
 } // namespace EchoMusic

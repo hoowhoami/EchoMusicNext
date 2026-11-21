@@ -56,10 +56,7 @@ public:
     {
         return &m_playback;
     }
-    bool loading() const
-    {
-        return m_listRequest != 0;
-    }
+    bool loading() const;
     QString errorMessage() const
     {
         return m_error;
@@ -110,6 +107,7 @@ private:
     void reset();
     void requestPage(quint32 page);
     void project();
+    void syncShared();
     void updateCounters(const QJsonObject &counters);
     void accept(quint64 id, const QByteArray &bytes);
     void fail(quint64 id, const QByteArray &bytes);
@@ -149,6 +147,7 @@ private:
     quint32 m_arrival = 0;
     qint64 m_usedBytes = -1, m_availableBytes = -1, m_capacityBytes = -1;
     QString m_instance, m_error;
+    bool m_shared = false, m_refreshingShared = false;
     bool m_network = false, m_active = false, m_closed = false, m_exhausted = false;
 };
 } // namespace EchoMusic

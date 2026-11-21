@@ -8,6 +8,7 @@
 #include "PlaylistMutationService.h"
 #include "RouteController.h"
 #include "SongMetadataService.h"
+#include "SongSourceCache.h"
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QMap>
@@ -96,7 +97,7 @@ public:
     }
     bool loading() const
     {
-        return !m_requests.isEmpty() || m_resolving;
+        return !m_requests.isEmpty() || m_resolving || m_storingPage;
     }
     bool complete() const
     {
@@ -164,6 +165,10 @@ private:
     void fail(quint64 id, const QByteArray &bytes);
     void failMessage(const QString &message);
     void consumeBatch();
+    void consumeStoredBatch();
+    void enrichStoredEntries();
+    void publishStoredCover();
+    void clearStoredRows();
     void applyTrackReadback(const QJsonObject &snapshot, quint64 session);
     QJsonObject m_pendingTrackReadback;
     bool m_reconcilingTracks = false;
@@ -172,7 +177,7 @@ private:
     void publishCover();
     /// Fill presentation facts stripped by the provider (cloud playlist entries
     /// only keep title + hash) from the cloud file index, matched by hash.
-    bool enrichEntry(QJsonObject &entry);
+    bool enrichEntry(QJsonObject &entry, std::optional<QJsonObject> known = {});
     bool enrichCloudEntries();
     /// Merge corrected playing-file facts into one playlist entry; appends the
     /// matching presentation when projected is given.
@@ -190,6 +195,13 @@ private:
     const QString m_resourceId;
     SongCatalogModel m_songs;
     SongCatalogActions m_actions;
+    std::unique_ptr<SongSourceCache> m_sourceCache;
+    QList<SongDatasetStore::CachedRow> m_cachedRows;
+    QHash<QString, SongDatasetStore::CachedRow> m_sourceRows;
+    QSet<QString> m_sparseIds, m_hintAttempted;
+    QPointer<QObject> m_sourceRead, m_hintRead, m_coverRead;
+    quint64 m_sourceEpoch = 0;
+    bool m_storingPage = false, m_enriching = false;
     std::unique_ptr<CommentsController> m_comments;
     QHash<quint64, Pending> m_requests;
     QMap<quint32, QJsonObject> m_pages;

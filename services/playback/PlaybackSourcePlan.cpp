@@ -1,15 +1,12 @@
 #include "PlaybackSourcePlan.h"
+#include "SongRightsFacts.h"
 #include <QJsonArray>
 
 namespace EchoMusic
 {
 bool PlaybackSourcePlan::isFreeLegacyFile(const QJsonObject &file)
 {
-    // Observed legacy-copyright files use privilege=5 even with no payment.
-    // These facts allow an authorized attempt; the tracker still decides access.
-    return file.value("privilege").toInt() == 5 && file.value("payment_type").isDouble() &&
-           file.value("payment_type").toInt(-1) == 0 && file.value("price_units").isDouble() &&
-           file.value("price_units").toInt(-1) == 0;
+    return isFreeLegacyCatalogFile(file);
 }
 QString PlaybackSourcePlan::qualityKey(ApiClient::PlaybackQuality quality)
 {

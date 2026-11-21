@@ -56,6 +56,7 @@ ListView {
     }
     delegate: SongRow {
         id: row
+        required property bool presentationReady
         required original
         required privilegeTags
         required qualityLabel
@@ -70,6 +71,19 @@ ListView {
         playbackLoading: list.playbackLoading
         actionsAvailable: list.actionsAvailable
         favorite: list.favoriteLookup !== null && list.favoriteLookup(resourceId)
+        Binding {
+            target: row.contentItem
+            property: "visible"
+            value: row.presentationReady
+        }
+        Loader {
+            anchors.fill: parent
+            active: !row.presentationReady && row.resourceActive
+            sourceComponent: SongSkeletonRow {
+                geometry: list.geometry
+                animate: row.resourceActive
+            }
+        }
         contextTarget: list.menuSongId.length > 0 && resourceId === list.menuSongId
         // Pooling is transient view state, never song/selection business state.
         property bool pooled: false

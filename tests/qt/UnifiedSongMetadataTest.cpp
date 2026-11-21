@@ -1,4 +1,7 @@
 #include "SongMetadataService.h"
+#include "SongObservationIndex.h"
+#include "SessionDatabase.h"
+#include <QImage>
 #include "SongCatalogModel.h"
 #include "PlaybackQueueModel.h"
 #include "PlaybackService.h"
@@ -14,6 +17,26 @@
 using namespace EchoMusic;
 namespace EchoMusic
 {
+class SongCatalogStorageTestAccess
+{
+public:
+    static bool idle(const SongCatalogModel &model)
+    {
+        return model.storageReady() && !model.m_metadataLoading &&
+               model.m_pendingMetadata.isEmpty() && !model.m_presentationWriting &&
+               model.m_dirtyPresentations.isEmpty();
+    }
+    static int residentViews(const SongCatalogModel &model)
+    {
+        QSet<int> rows;
+        for (const auto source : model.m_hotViews.keys())
+            rows.insert(source);
+        for (int i = 0; i < model.m_entries.size(); ++i)
+            if (model.m_entries[i].view)
+                rows.insert(i);
+        return rows.size();
+    }
+};
 class PlaybackServiceTestAccess
 {
 public:
@@ -44,6 +67,39 @@ public:
     {
         service.clear();
     }
+    static quint64 sqlOwner(const SongMetadataService &service, QObject *owner)
+    {
+        return service.m_observers.value(owner).sqlId;
+    }
+    static SongObservationIndex *sqlIndex(SongMetadataService &service)
+    {
+        return service.m_sqlIndex.get();
+    }
+    static bool sqlRegistrationPending(const SongMetadataService &service)
+    {
+        for (const auto &observer : service.m_observers)
+            if (observer.sqlWriting || !observer.sqlPending.isEmpty())
+                return true;
+        return false;
+    }
+    static bool noResidentRelations(const SongMetadataService &service)
+    {
+        if (!service.m_listeners.isEmpty() || !service.m_coverIdentities.isEmpty())
+            return false;
+        for (const auto &observer : service.m_observers)
+            if (!observer.rows.isEmpty())
+                return false;
+        return true;
+    }
+    static bool pendingContainsOnlyObservationInputs(const SongMetadataService &service)
+    {
+        for (const auto &observer : service.m_observers)
+            for (const auto &entry : observer.sqlPending)
+                if (entry.song.value("metadata").toObject().contains("resources") ||
+                    entry.song.value("metadata").toObject().contains("opaque"))
+                    return false;
+        return true;
+    }
     static int observers(const SongMetadataService &service)
     {
         return service.m_observers.size();
@@ -56,14 +112,39 @@ public:
     {
         return service.m_listeners.size();
     }
+    static bool singletonIndicesAreInline(const SongMetadataService &service)
+    {
+        for (const auto &observer : service.m_observers)
+            for (const auto &rows : observer.rows)
+                if (rows.size() == 1 && rows.usesHashStorage())
+                    return false;
+        for (const auto &listeners : service.m_listeners)
+            if (listeners.size() == 1 && listeners.usesHashStorage())
+                return false;
+        return true;
+    }
     static void expire(SongMetadataService &service)
     {
-        for (const auto &key : service.m_cache.keys())
-            service.m_cache.object(key)->expires = -1;
-        for (const auto &key : service.m_embedded.keys())
-            service.m_embedded.object(key)->expires = -1;
-        for (const auto &key : service.m_coverFacts.keys())
-            service.m_coverFacts.object(key)->expires = -1;
+        const auto expire = [](auto &cache) {
+            for (const auto &key : cache.keys())
+                if (const auto value = cache.peek(key))
+                    cache.insert(key, *value, 1);
+        };
+        expire(service.m_cache);
+        expire(service.m_embedded);
+        expire(service.m_coverFacts);
+        QTest::qWait(2);
+    }
+    static int pendingKeys(const SongMetadataService &service)
+    {
+        return service.m_pendingKeys.size();
+    }
+    static QSet<QString> waitingIds(const SongMetadataService &service)
+    {
+        QSet<QString> result;
+        for (const auto &job : service.m_jobs)
+            result.unite(job.waiting);
+        return result;
     }
     static void reserve(SongMetadataService &service, const QStringList &ids)
     {
@@ -176,6 +257,366 @@ class UnifiedSongMetadataTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void coldArtistFanoutPersistsAllViewsWithinTheWindowBudget()
+    {
+        QTemporaryDir directory;
+        SessionDatabase database(directory.path());
+        ApiClient api(DeviceIdentity::temporary());
+        SongMetadataService service(api);
+        service.enableSqlIndex(database);
+        {
+            SongCatalogModel model;
+            model.attachMetadata(&service);
+            model.enableSessionStorage();
+            model.setMetadataActive(false);
+            QJsonArray songs;
+            for (int i = 1; i <= 1200; ++i) {
+                auto value = presentation(QString::number(i));
+                value.insert("cover_url", "");
+                songs.append(value);
+            }
+            model.replaceSongs(songs);
+            auto *index = SongMetadataServiceTestAccess::sqlIndex(service);
+            QTRY_VERIFY(SongCatalogStorageTestAccess::idle(model) && database.pendingJobs() == 0 &&
+                        !SongMetadataServiceTestAccess::sqlRegistrationPending(service) &&
+                        index->pendingJobs() == 0);
+            const auto avatar = QString("https://example.test/late-artist.jpg");
+            auto learned = presentation("5000");
+            learned.insert("cover_url", "");
+            learned.insert("artists",
+                           QJsonArray{QJsonObject{
+                               {"id", "51"}, {"name", "真实歌手"}, {"avatar_url", avatar}}});
+            service.complete(learned);
+            SongMetadataServiceTestAccess::flush(service);
+            int maximum = 0;
+            QVERIFY(QTest::qWaitFor(
+                [&] {
+                    maximum = std::max(maximum, SongCatalogStorageTestAccess::residentViews(model));
+                    return SongCatalogStorageTestAccess::idle(model) &&
+                           database.pendingJobs() == 0 && index->pendingJobs() == 0 &&
+                           SongMetadataServiceTestAccess::pendingKeys(service) == 0;
+                },
+                10000));
+            QVERIFY(maximum <= 384);
+            QTRY_COMPARE(model.data(model.index(1199), SongCatalogModel::CoverUrl).toString(),
+                         avatar);
+            QTRY_COMPARE(model.data(model.index(0), SongCatalogModel::CoverUrl).toString(), avatar);
+            QVERIFY(SongCatalogStorageTestAccess::residentViews(model) <= 256);
+        }
+        service.shutdown();
+        QSignalSpy closed(&database, &SessionDatabase::closed);
+        database.shutdown();
+        QTRY_COMPARE(closed.size(), 1);
+    }
+    void cachedCatalogResumeKeepsSqlBindingsAndOnlyRequestsRemainingGaps()
+    {
+        QTemporaryDir directory;
+        SessionDatabase database(directory.path());
+        ApiClient api(DeviceIdentity::temporary());
+        SongMetadataService service(api);
+        service.enableSqlIndex(database);
+        {
+            SongCatalogModel model;
+            model.attachMetadata(&service);
+            model.enableSessionStorage();
+            model.setMetadataActive(false);
+            auto missing = song();
+            missing.insert("title", "");
+            model.replaceSongs({missing, presentation("2")});
+            auto *index = SongMetadataServiceTestAccess::sqlIndex(service);
+            QTRY_VERIFY(model.storageReady() && database.pendingJobs() == 0 &&
+                        !SongMetadataServiceTestAccess::sqlRegistrationPending(service) &&
+                        index->pendingJobs() == 0);
+            const auto owner = SongMetadataServiceTestAccess::sqlOwner(service, &model);
+            QVERIFY(owner);
+            SongMetadataServiceTestAccess::reserve(service, {"1"});
+            model.setMetadataActive(true);
+            QVERIFY(!SongMetadataServiceTestAccess::sqlRegistrationPending(service));
+            QCOMPARE(index->pendingJobs(), 0);
+            QCOMPARE(SongMetadataServiceTestAccess::sqlOwner(service, &model), owner);
+            QCOMPARE(SongMetadataServiceTestAccess::waitingIds(service), QSet<QString>{"1"});
+            model.setMetadataActive(false);
+            QVERIFY(SongMetadataServiceTestAccess::waitingIds(service).isEmpty());
+            // Hidden bindings still deliver facts and persist the latest view.
+            SongMetadataServiceTestAccess::complete(service, {presentation()});
+            QTRY_COMPARE(model.data(model.index(0), SongCatalogModel::Title).toString(),
+                         QString("目录歌曲"));
+            QTRY_VERIFY(database.pendingJobs() == 0 && index->pendingJobs() == 0);
+            model.setMetadataActive(true);
+            QVERIFY(!SongMetadataServiceTestAccess::sqlRegistrationPending(service));
+            QCOMPARE(index->pendingJobs(), 0);
+            QVERIFY(SongMetadataServiceTestAccess::waitingIds(service).isEmpty());
+        }
+        service.shutdown();
+        QSignalSpy closed(&database, &SessionDatabase::closed);
+        database.shutdown();
+        QTRY_COMPARE(closed.size(), 1);
+    }
+    void asynchronousCachedReplayDoesNotRepublishExpiredSourceFacts()
+    {
+        ApiClient api(DeviceIdentity::temporary());
+        SongMetadataService service(api);
+        auto source = song();
+        source.insert("cover_url", "https://example.test/source.jpg");
+        service.complete(source);
+        SongMetadataServiceTestAccess::flush(service);
+        SongMetadataServiceTestAccess::expire(service);
+        QCOMPARE(SongMetadataServiceTestAccess::pendingKeys(service), 0);
+        std::optional<QJsonObject> received;
+        // The original observer's synchronous no-publish scope has ended.
+        QTimer::singleShot(0, &service, [&] { received = service.replay(source); });
+        QTRY_VERIFY(received.has_value());
+        QCOMPARE(received->value("cover_url").toString(),
+                 QString("https://example.test/source.jpg"));
+        QCOMPARE(SongMetadataServiceTestAccess::pendingKeys(service), 0);
+        // New source admission still publishes genuine facts normally.
+        service.complete(source);
+        QVERIFY(SongMetadataServiceTestAccess::pendingKeys(service) > 0);
+    }
+    void sqlRegistrationBacklogDoesNotRetainRichSourcePayloads()
+    {
+        QTemporaryDir directory;
+        SessionDatabase database(directory.path());
+        ApiClient api(DeviceIdentity::temporary());
+        SongMetadataService service(api);
+        service.enableSqlIndex(database);
+        QObject owner;
+        auto value = song();
+        auto metadata = value.value("metadata").toObject();
+        metadata["resources"] = QJsonArray{QJsonObject{{"hash", QString(32, 'b')}}};
+        metadata["opaque"] = QString(1024 * 1024, 'x');
+        value["artists"] = QJsonArray{QJsonObject{{"id", "50"}, {"name", "Artist"}}};
+        metadata["artists"] = QJsonArray{QJsonObject{
+            {"id", "50"}, {"name", "Artist"}, {"avatar_url", "https://example.test/avatar.jpg"}}};
+        value["metadata"] = metadata;
+        const auto input = SongMetadataService::observationInput(value);
+        QCOMPARE(input.value("artists").toArray().first().toObject().value("avatar_url").toString(),
+                 QString("https://example.test/avatar.jpg"));
+        QCOMPARE(SongMetadataService::identityKeys(input),
+                 SongMetadataService::identityKeys(value));
+        QCOMPARE(SongMetadataService::needsCompletion(input),
+                 SongMetadataService::needsCompletion(value));
+        QList<SongMetadataService::Observation> observations;
+        for (int i = 0; i < 300; ++i)
+            observations.append({QString::number(i), value});
+        service.watch(&owner, observations, [](const auto &) {}, false);
+        QVERIFY(SongMetadataServiceTestAccess::pendingContainsOnlyObservationInputs(service));
+        service.pause(&owner);
+        service.resume(&owner, observations, [](const auto &) {});
+        QVERIFY(SongMetadataServiceTestAccess::pendingContainsOnlyObservationInputs(service));
+        service.unwatch(&owner);
+        QSignalSpy closed(&database, &SessionDatabase::closed);
+        database.shutdown();
+        QTRY_COMPARE(closed.size(), 1);
+    }
+    void sqlIdentityIndexReleasesAcrossRepeatedOwnersAndKeepsFanout()
+    {
+        QTemporaryDir directory;
+        SessionDatabase database(directory.filePath("session"));
+        ApiClient api(DeviceIdentity::temporary());
+        SongMetadataService service(api);
+        service.enableSqlIndex(database);
+        auto *index = SongMetadataServiceTestAccess::sqlIndex(service);
+        auto statistics = [&] {
+            if (!QTest::qWaitFor(
+                    [&] { return !SongMetadataServiceTestAccess::sqlRegistrationPending(service); },
+                    5000))
+                return SongObservationIndex::Result{{}, {}, 0, 0, "registration timeout"};
+            auto value = std::make_shared<std::optional<SongObservationIndex::Result>>();
+            index->statistics([value](auto result) { *value = std::move(result); });
+            if (!QTest::qWaitFor([&] { return value->has_value(); }, 5000))
+                return SongObservationIndex::Result{{}, {}, 0, 0, "timeout"};
+            return value->value_or(SongObservationIndex::Result{{}, {}, 0, 0, "timeout"});
+        };
+        for (int iteration = 0; iteration < 8; ++iteration) {
+            QObject owner;
+            QList<SongMetadataService::Observation> observations;
+            for (int i = 1; i <= 3000; ++i)
+                observations.append(
+                    {QString::number(i),
+                     QJsonObject{
+                         {"id", QString::number(i)},
+                         {"hash", QString("%1").arg(i, 32, 16, QChar('0'))},
+                         {"artists", QJsonArray{QJsonObject{{"id", "99"}, {"name", "Artist"}}}}}});
+            service.watch(&owner, observations, [](const auto &) {}, false);
+            const auto populated = statistics();
+            QVERIFY2(populated.error.isEmpty(), qPrintable(populated.error));
+            QCOMPARE(populated.relations, qint64(9000));
+            QCOMPARE(populated.identities, qint64(6001));
+            QVERIFY(SongMetadataServiceTestAccess::noResidentRelations(service));
+            service.unwatch(&owner);
+            const auto retired = statistics();
+            QCOMPARE(retired.relations, qint64(0));
+            QCOMPARE(retired.identities, qint64(0));
+        }
+        // Replace an owner while its registration is still in flight. Old
+        // chunks must neither revive rows nor notify the replacement binding.
+        QObject replacement;
+        const QJsonObject unchanged{{"id", "90001"}};
+        QCOMPARE(service.complete(unchanged), unchanged);
+        QList<SongMetadataService::Observation> interrupted;
+        for (int i = 0; i < 600; ++i)
+            interrupted.append(
+                {QString::number(i), QJsonObject{{"id", QString::number(70000 + i)}}});
+        int retiredCalls = 0;
+        QStringList replacementRows;
+        service.watch(&replacement, interrupted, [&](const auto &) { ++retiredCalls; }, false);
+        service.watch(
+            &replacement, {{"replacement", QJsonObject{{"id", "90001"}}}},
+            [&](const auto &rows) { replacementRows = rows; }, false);
+        SongMetadataServiceTestAccess::complete(
+            service, {QJsonObject{{"id", "70000"}, {"title", "Retired"}}});
+        QCOMPARE(statistics().relations, qint64(1));
+        QCOMPARE(retiredCalls, 0);
+        QVERIFY(replacementRows.isEmpty());
+        SongMetadataServiceTestAccess::complete(
+            service, {QJsonObject{{"id", "90001"}, {"title", "Current"}}});
+        QTRY_COMPARE(replacementRows, QStringList{"replacement"});
+        service.unwatch(&replacement);
+        QCOMPARE(statistics().relations, qint64(0));
+        QObject first, second;
+        QStringList firstRows, secondRows;
+        const QJsonObject song{{"id", "42"}};
+        service.watch(
+            &first, {{"first", song}}, [&](const auto &rows) { firstRows = rows; }, false);
+        service.watch(
+            &second, {{"second", song}}, [&](const auto &rows) { secondRows = rows; }, false);
+        SongMetadataServiceTestAccess::complete(service,
+                                                {QJsonObject{{"id", "42"}, {"title", "Updated"}}});
+        QTRY_COMPARE(firstRows, QStringList{"first"});
+        QTRY_COMPARE(secondRows, QStringList{"second"});
+        service.unwatch(&second);
+        secondRows.clear();
+        firstRows.clear();
+        SongMetadataServiceTestAccess::complete(service,
+                                                {QJsonObject{{"id", "42"}, {"title", "Newer"}}});
+        QTRY_COMPARE(firstRows, QStringList{"first"});
+        QVERIFY(secondRows.isEmpty());
+        // A public-facts/account reset must not lose a retained queue's binding.
+        SongMetadataServiceTestAccess::reset(service);
+        firstRows.clear();
+        SongMetadataServiceTestAccess::complete(
+            service, {QJsonObject{{"id", "42"}, {"title", "After reset"}}});
+        QTRY_COMPARE(firstRows, QStringList{"first"});
+        service.unwatch(&first);
+        QCOMPARE(statistics().relations, qint64(0));
+        service.shutdown();
+        QSignalSpy closed(&database, &SessionDatabase::closed);
+        database.shutdown();
+        QTRY_COMPARE(closed.size(), 1);
+        api.shutdown();
+    }
+    void sqlObserverUpdatesHiddenCatalogAndLateArtistIdentity()
+    {
+        QTemporaryDir directory;
+        SessionDatabase database(directory.filePath("session"));
+        ApiClient api(DeviceIdentity::temporary());
+        SongMetadataService service(api);
+        service.enableSqlIndex(database);
+        SongCatalogModel model;
+        model.setMetadataActive(false);
+        model.attachMetadata(&service);
+        model.replaceSongs({QJsonObject{{"id", "42"}, {"hash", QString(32, 'a')}}});
+        QTRY_COMPARE(SongMetadataServiceTestAccess::observers(service), 1);
+        SongMetadataServiceTestAccess::complete(
+            service,
+            {QJsonObject{{"id", "42"},
+                         {"title", "Completed"},
+                         {"artists", QJsonArray{QJsonObject{{"id", "77"}, {"name", "Singer"}}}}}});
+        QTRY_COMPARE(model.item(0)["title"].toString(), QString("Completed"));
+        // A later fact for another song of this artist must reach the original
+        // row through the artist identity added by the first completion.
+        SongMetadataServiceTestAccess::complete(
+            service,
+            {QJsonObject{{"id", "43"},
+                         {"title", "Other"},
+                         {"artists", QJsonArray{QJsonObject{
+                                         {"id", "77"},
+                                         {"name", "Singer"},
+                                         {"avatar_url", "https://example.com/artist.png"}}}}}});
+        QTRY_COMPARE(model.item(0)["coverUrl"].toString(),
+                     QString("https://example.com/artist.png"));
+        QVERIFY(SongMetadataServiceTestAccess::noResidentRelations(service));
+        const auto ownerId = SongMetadataServiceTestAccess::sqlOwner(service, &model);
+        for (int i = 0; i < 8; ++i) {
+            model.setMetadataActive(true);
+            model.setMetadataActive(false);
+        }
+        QTRY_VERIFY(!SongMetadataServiceTestAccess::sqlRegistrationPending(service));
+        QCOMPARE(SongMetadataServiceTestAccess::sqlOwner(service, &model), ownerId);
+        QCOMPARE(SongMetadataServiceTestAccess::jobs(service), 0);
+        model.clear();
+        QTRY_COMPARE(SongMetadataServiceTestAccess::observers(service), 0);
+        service.shutdown();
+        QSignalSpy closed(&database, &SessionDatabase::closed);
+        database.shutdown();
+        QTRY_COMPARE(closed.size(), 1);
+        api.shutdown();
+    }
+    void sqlObserverReceivesEmbeddedCoverAliasAndRetiresOnDestruction()
+    {
+        QTemporaryDir directory;
+        SessionDatabase database(directory.filePath("session"));
+        ApiClient api(DeviceIdentity::temporary());
+        SongMetadataService service(api);
+        service.enableSqlIndex(database);
+        SongCatalogModel model;
+        model.setMetadataActive(false);
+        model.attachMetadata(&service);
+        const QJsonObject song{{"id", "cloud:unmatched"}, {"hash", QString(32, 'b')}};
+        model.replaceSongs({song});
+        QTRY_COMPARE(SongMetadataServiceTestAccess::observers(service), 1);
+        service.enableCoverCache(directory.filePath("covers"));
+        QImage image(8, 8, QImage::Format_ARGB32);
+        image.fill(Qt::red);
+        const auto path = directory.filePath("cover.png");
+        QVERIFY(image.save(path));
+        service.publishEmbeddedCover(song, path);
+        QTRY_VERIFY_WITH_TIMEOUT(!model.item(0)["coverUrl"].toString().isEmpty(), 10000);
+        QVERIFY(SongMetadataServiceTestAccess::noResidentRelations(service));
+        model.clear();
+        service.shutdown();
+        QSignalSpy closed(&database, &SessionDatabase::closed);
+        database.shutdown();
+        QTRY_COMPARE(closed.size(), 1);
+        api.shutdown();
+    }
+    void compactIndicesKeepLargeFanoutAndRetireOwners()
+    {
+        ApiClient api(DeviceIdentity::temporary());
+        SongMetadataService service(api);
+        QObject first;
+        auto second = std::make_unique<QObject>();
+        QList<SongMetadataService::Observation> observations;
+        QSet<QString> expected;
+        for (int i = 0; i < 1876; ++i) {
+            const auto row = QString::number(i);
+            observations.append({row, song()});
+            expected.insert(row);
+        }
+        QSet<QString> firstRows, secondRows;
+        service.watch(
+            &first, observations,
+            [&](const QStringList &rows) { firstRows = QSet<QString>(rows.cbegin(), rows.cend()); },
+            false);
+        service.watch(
+            second.get(), {{"second", song()}},
+            [&](const QStringList &rows) {
+                secondRows = QSet<QString>(rows.cbegin(), rows.cend());
+            },
+            false);
+        QVERIFY(SongMetadataServiceTestAccess::singletonIndicesAreInline(service));
+        SongMetadataServiceTestAccess::complete(service, {presentation()});
+        SongMetadataServiceTestAccess::flush(service);
+        QCOMPARE(firstRows, expected);
+        QCOMPARE(secondRows, QSet<QString>{"second"});
+        service.unwatch(&first);
+        QVERIFY(SongMetadataServiceTestAccess::singletonIndicesAreInline(service));
+        second.reset();
+        QCOMPARE(SongMetadataServiceTestAccess::observers(service), 0);
+        QCOMPARE(SongMetadataServiceTestAccess::listeners(service), 0);
+        SongMetadataServiceTestAccess::flush(service);
+    }
     void catalogSearchLyricQueueAndLatePageShareOneResult()
     {
         ApiClient api(DeviceIdentity::temporary());
@@ -205,7 +646,7 @@ private slots:
         QSignalSpy queueReset(&queue, &QAbstractItemModel::modelReset);
         SongMetadataServiceTestAccess::complete(service, {presentation()});
         SongMetadataServiceTestAccess::flush(service);
-        QCOMPARE(first.track("1")->artist, QString("真实歌手"));
+        QCOMPARE(first.trackProjection("1")->artist, QString("真实歌手"));
         QCOMPARE(hidden.count(), 1);
         QCOMPARE(queue.at(0)->album, QString("真实专辑"));
         QCOMPARE(search.data(search.index(0), SearchModel::ArtistText).toString(),
@@ -216,9 +657,9 @@ private slots:
         QCOMPARE(search.data(search.index(0), SearchModel::AlbumText).toString(),
                  QString("真实专辑"));
         QCOMPARE(first.selectedCount(), 1);
-        QCOMPARE(first.track("1")->hash, QString(32, 'a'));
-        QCOMPARE(first.track("1")->catalogPrivilege, quint32(40));
-        QCOMPARE(first.track("1")->catalogMetadata["opaque"].toInt(), 42);
+        QCOMPARE(first.trackProjection("1")->hash, QString(32, 'a'));
+        QCOMPARE(first.trackProjection("1")->catalogPrivilege, quint32(40));
+        QCOMPARE(first.trackProjection("1")->catalogMetadata["opaque"].toInt(), 42);
         QCOMPARE(queue.currentIndex(), 0);
         QCOMPARE(reset.size(), 0);
         QCOMPARE(queueReset.size(), 0);
@@ -226,7 +667,7 @@ private slots:
         late.attachMetadata(&service);
         late.setMetadataActive(false);
         late.replaceSongs({song()});
-        QCOMPARE(late.track("1")->albumId, quint64(81));
+        QCOMPARE(late.trackProjection("1")->albumId, quint64(81));
         service.shutdown();
         api.shutdown();
     }
@@ -246,7 +687,7 @@ private slots:
         QCOMPARE(model.sourceItem(0)["title"].toString(), QString("内嵌歌曲"));
         QCOMPARE(model.sourceItem(1)["artistText"].toString(), QString());
         QCOMPARE(model.sourceItem(2)["artistText"].toString(), QString("真实歌手"));
-        const auto track = model.track("0").value();
+        const auto track = model.trackProjection("0").value();
         QCOMPARE(track.artistLinks()[0].toMap()["id"].toString(), QString());
         QCOMPARE(track.albumId, quint64(0));
         QVERIFY(track.cover.isEmpty());
@@ -257,8 +698,9 @@ private slots:
         // A later provider reference can upgrade a matching text-only singer.
         SongMetadataServiceTestAccess::complete(service, {presentation("3")});
         SongMetadataServiceTestAccess::flush(service);
-        QCOMPARE(model.track("3")->artistLinks()[0].toMap()["id"].toString(), QString("51"));
-        QCOMPARE(model.track("3")->album, QString("内嵌专辑"));
+        QCOMPARE(model.trackProjection("3")->artistLinks()[0].toMap()["id"].toString(),
+                 QString("51"));
+        QCOMPARE(model.trackProjection("3")->album, QString("内嵌专辑"));
         service.shutdown();
         api.shutdown();
     }
@@ -328,10 +770,10 @@ private slots:
                                  {"album", "文件专辑"},
                                  {"lyric", ""}};
         playback.nativeBridge().completed(900004, sequence, true, QJsonDocument(reader).toJson());
-        QTRY_COMPARE(list.track("0")->title, QString("文件实际标题"));
-        QCOMPARE(list.track("0")->artist, QString("文件歌手"));
-        QCOMPARE(list.track("0")->albumId, quint64(0));
-        QCOMPARE(list.track("0")->durationMs, quint64(180000));
+        QTRY_COMPARE(list.trackProjection("0")->title, QString("文件实际标题"));
+        QCOMPARE(list.trackProjection("0")->artist, QString("文件歌手"));
+        QCOMPARE(list.trackProjection("0")->albumId, quint64(0));
+        QCOMPARE(list.trackProjection("0")->durationMs, quint64(180000));
         QCOMPARE(playback.currentTrack().title, QString("已知目录标题"));
         QCOMPARE(playback.queue()->at(0)->artist, QString("文件歌手"));
         service.shutdown();
@@ -522,8 +964,8 @@ private slots:
         SongMetadataServiceTestAccess::complete(service,
                                                 {presentation("1"), presentation("20001")});
         SongMetadataServiceTestAccess::flush(service);
-        QCOMPARE(model.track("1")->artist, QString("真实歌手"));
-        QCOMPARE(model.track("20001")->artist, QString("真实歌手"));
+        QCOMPARE(model.trackProjection("1")->artist, QString("真实歌手"));
+        QCOMPARE(model.trackProjection("20001")->artist, QString("真实歌手"));
         QCOMPARE(changed.size(), 3);
         QCOMPARE(reset.size(), 0);
         model.clear();

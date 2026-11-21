@@ -1,7 +1,7 @@
 #pragma once
 #include "ApiClient.h"
 #include <QJsonArray>
-#include <QDateTime>
+#include "ValueCache.h"
 #include <QSet>
 namespace EchoMusic
 {
@@ -20,16 +20,10 @@ signals:
     void changed();
 
 private:
-    struct Cached
-    {
-        QJsonArray products;
-        qint64 expires;
-    };
     void reset();
     void finish(quint64, const QByteArray &, bool success);
     ApiClient &m_api;
-    QHash<QString, Cached> m_cache;
-    QStringList m_order;
+    ValueCache<QString, QJsonArray> m_cache{500};
     QSet<QString> m_inflight;
     QHash<quint64, QStringList> m_pending;
     bool m_network, m_closed = false;

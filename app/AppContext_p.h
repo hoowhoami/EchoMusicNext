@@ -60,6 +60,8 @@ class ShortcutActions;
 class ShortcutService;
 class SidebarRouteCoordinator;
 class SongMetadataService;
+class SessionDatabase;
+class JsonRecordStore;
 class StartupController;
 class StorageService;
 class ThemeStore;
@@ -117,6 +119,8 @@ private:
     std::unique_ptr<RouteController> m_router;
     std::unique_ptr<ShellController> m_shellController;
     std::unique_ptr<RelaunchService> m_relaunch;
+    std::unique_ptr<SessionDatabase> m_sessionCache;
+    std::unique_ptr<JsonRecordStore> m_recordStore;
     std::unique_ptr<ApiClient> m_api;
     std::unique_ptr<NetworkPreferences> m_network;
     std::unique_ptr<AboutService> m_about;

@@ -1,10 +1,12 @@
 #pragma once
 #include "ApiClient.h"
 #include "HistoryStatsShare.h"
+#include "HistoryPayloadLease.h"
 #include "RouteController.h"
 #include "SongCatalogActions.h"
 #include "SongCatalogModel.h"
 #include "SongMetadataService.h"
+#include "SongSourceCache.h"
 namespace EchoMusic
 {
 /// Local playback history page service. Reads and writes go through
@@ -64,9 +66,10 @@ signals:
 
 private:
     friend class HistoryServiceTestAccess;
-    void accept(const QJsonArray &entries);
+    void accept(const QJsonArray &entries, HistoryPayloadLease lease = {});
     void fail(const QString &message);
     void completeSongs();
+    void refreshStatsPresentations(const QStringList &);
     void acceptMetadata(quint64 ticket, const QJsonArray &values);
     /// Corrected playing-file tags refresh matching history rows in place.
     void applyPlaybackFacts(const QJsonObject &facts);
@@ -81,6 +84,9 @@ private:
     SongCatalogModel m_songs;
     SongCatalogActions m_actions;
     HistoryStatsShare m_statsShare;
+    std::unique_ptr<SongSourceCache> m_cache;
+    quint64 m_sourceEpoch = 0;
+    QHash<QString, QString> m_historyKeys;
     QJsonArray m_entries;
     QHash<quint64, quint64> m_metadataRequests;
     quint64 m_metadataGeneration = 0, m_metadataSession = 0;

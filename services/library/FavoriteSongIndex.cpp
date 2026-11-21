@@ -5,6 +5,8 @@
 #include <QJsonDocument>
 #include <algorithm>
 #include <utility>
+#include <QTimer>
+#include <QUrl>
 
 namespace EchoMusic
 {
@@ -42,6 +44,168 @@ FavoriteSongIndex::~FavoriteSongIndex()
 {
     if (m_request)
         m_api.cancel(m_request);
+}
+void FavoriteSongIndex::enableSessionStorage(SessionDatabase &database)
+{
+    if (!m_cache) {
+        Q_ASSERT(m_base.isEmpty());
+        m_cache = std::make_unique<SongSourceCache>(database, this);
+    }
+}
+bool FavoriteSongIndex::cached() const
+{
+    if (!m_cache)
+        return false;
+    for (const auto &row : m_rows)
+        if (!m_records.contains(row.toObject().value("cache_record").toInteger()))
+            return false;
+    return true;
+}
+QList<SongDatasetStore::CachedRow> FavoriteSongIndex::cachedRows() const
+{
+    QList<SongDatasetStore::CachedRow> result;
+    for (const auto &row : m_rows)
+        result.append(m_records.value(row.toObject().value("cache_record").toInteger()));
+    return result;
+}
+void FavoriteSongIndex::cacheRows(QJsonArray rows, std::function<void(QJsonArray)> done,
+                                  bool bindRead)
+{
+    if (!m_cache || rows.isEmpty()) {
+        done(std::move(rows));
+        return;
+    }
+    QJsonArray songs;
+    for (const auto &value : rows) {
+        const auto row = value.toObject();
+        auto song = row.value("song").toObject();
+        if (row.contains("metadata"))
+            song.insert("metadata", row.value("metadata"));
+        auto source = row;
+        source.remove("song");
+        source.remove("metadata");
+        song.insert("_source_row", source);
+        songs.append(song);
+    }
+    const auto session = m_session, generation = m_generation;
+    m_cache->cache(
+        std::move(songs), this,
+        [this, rows = std::move(rows), session, generation, bindRead,
+         done = std::move(done)](auto cached, auto error) mutable {
+            if (session != m_session || (bindRead && generation != m_generation))
+                return;
+            if (!error.isEmpty()) {
+                m_error = error;
+                done(std::move(rows));
+                return;
+            }
+            QJsonArray thin;
+            for (int i = 0; i < rows.size(); ++i) {
+                const auto original = rows[i].toObject();
+                const auto &record = cached[i];
+                const auto song = original.value("song").toObject();
+                thin.append(QJsonObject{
+                    {"song", QJsonObject{{"id", song.value("id")}, {"hash", song.value("hash")}}},
+                    {"file_id", original.value("file_id")},
+                    {"sort_index", original.value("sort_index")},
+                    {"cache_record", record.reference.record}});
+                m_records.insert(record.reference.record, record);
+            }
+            done(std::move(thin));
+            pruneRecords();
+        });
+}
+void FavoriteSongIndex::pruneRecords()
+{
+    QSet<qint64> retained;
+    const auto keep = [&](const QJsonArray &rows) {
+        for (const auto &row : rows)
+            retained.insert(row.toObject().value("cache_record").toInteger());
+    };
+    keep(m_base);
+    keep(m_rows);
+    keep(m_readRows);
+    for (const auto &change : m_changes)
+        keep(change.adds);
+    if (m_pending)
+        keep(m_pending->adds);
+    m_records.removeIf([&](auto it) { return !retained.contains(it.key()); });
+}
+void FavoriteSongIndex::requestCover(QObject *consumer, std::function<void(QString)> done)
+{
+    if (!m_cache || !cached())
+        return;
+    struct Request
+    {
+        SongDatasetStore::Snapshot snapshot;
+        qsizetype cursor = 0;
+        std::function<void(QString)> done;
+    };
+    auto state = std::make_shared<Request>();
+    QList<QJsonObject> ordered;
+    for (const auto &row : m_rows)
+        ordered.append(row.toObject());
+    std::stable_sort(ordered.begin(), ordered.end(), [](const auto &a, const auto &b) {
+        const auto left = a.value("sort_index"), right = b.value("sort_index");
+        return left.isDouble() && (!right.isDouble() || left.toInteger() < right.toInteger());
+    });
+    for (const auto &value : ordered) {
+        const auto row = m_records.value(value.value("cache_record").toInteger());
+        auto ref = row.reference;
+        ref.source = row.generation;
+        if (!state->snapshot.generation)
+            state->snapshot.generation = row.generation;
+        state->snapshot.rows.append(std::move(ref));
+    }
+    state->done = std::move(done);
+    if (state->snapshot.rows.isEmpty()) {
+        state->done({});
+        return;
+    }
+    auto *request = new QObject(this);
+    connect(consumer, &QObject::destroyed, request, &QObject::deleteLater);
+    const QPointer<QObject> guard(consumer), lifetime(request);
+    auto step = std::make_shared<std::function<void()>>();
+    std::weak_ptr<std::function<void()>> weak = step;
+    *step = [this, state, guard, lifetime, weak] {
+        if (!lifetime)
+            return;
+        if (!guard) {
+            lifetime->deleteLater();
+            return;
+        }
+        if (!m_cache->store().readPresentations(
+                state->snapshot, state->cursor, lifetime,
+                [this, state, lifetime, guard, step = weak.lock()](auto result) {
+                    if (!lifetime || !guard)
+                        return;
+                    if (!result.error.isEmpty()) {
+                        lifetime->deleteLater();
+                        m_error = result.error;
+                        emit changed();
+                        return;
+                    }
+                    for (const auto &value : result.values) {
+                        const auto cover =
+                            value.value("song").toObject().value("cover_url").toString();
+                        const QUrl url(cover);
+                        if (url.isValid() && (url.scheme() == "https" || url.scheme() == "http")) {
+                            lifetime->deleteLater();
+                            state->done(cover);
+                            return;
+                        }
+                    }
+                    state->cursor = result.next;
+                    if (state->cursor == state->snapshot.rows.size()) {
+                        lifetime->deleteLater();
+                        state->done({});
+                        return;
+                    }
+                    (*step)();
+                }))
+            QTimer::singleShot(10, lifetime, [step = weak.lock()] { (*step)(); });
+    };
+    (*step)();
 }
 void FavoriteSongIndex::attachMutations(PlaylistMutationService &writer)
 {
@@ -88,6 +252,8 @@ bool FavoriteSongIndex::intersects(const QStringList &keys, const QSet<QString> 
 }
 bool FavoriteSongIndex::contains(const Identity &song) const
 {
+    if (m_pending && intersects(keys(song), m_pending->keys))
+        return !m_pending->adds.isEmpty();
     for (const auto &key : keys(song))
         if (m_index.contains(key))
             return true;
@@ -131,6 +297,7 @@ void FavoriteSongIndex::reset()
     m_version.reset();
     m_snapshotVersion.reset();
     m_base = m_rows = m_readRows = {};
+    m_records.clear();
     m_index.clear();
     m_committedIndex.clear();
     m_aliases.clear();
@@ -217,6 +384,23 @@ void FavoriteSongIndex::acceptReadback(const QJsonObject &root, quint64 session)
     acceptPage(root);
 }
 void FavoriteSongIndex::acceptPage(const QJsonObject &root)
+{
+    cacheRows(root.value("page").toObject().value("items").toArray(),
+              [this, root](QJsonArray rows) mutable {
+                  auto accepted = root;
+                  auto page = accepted.value("page").toObject();
+                  page.insert("items", rows);
+                  accepted.insert("page", page);
+                  if (m_cache)
+                      for (const auto &row : rows)
+                          if (!row.toObject().contains("cache_record")) {
+                              fail(m_error);
+                              return;
+                          }
+                  acceptCachedPage(accepted);
+              });
+}
+void FavoriteSongIndex::acceptCachedPage(const QJsonObject &root)
 {
     const auto version = root.value("revision").toInteger(-1);
     if (version >= 0 && m_version && *m_version != quint64(version)) {
@@ -359,6 +543,8 @@ QJsonArray FavoriteSongIndex::applyChanges(QJsonArray rows) const
         if (found) {
             // Preserve original playlist identities and metadata on idempotent adds.
             auto existing = result[*found].toObject();
+            if (row.contains("cache_record") && !existing.contains("cache_record"))
+                existing = row;
             if (row.value("file_id").toInteger() > 0)
                 existing.insert("file_id", row.value("file_id"));
             result[*found] = existing;
@@ -419,6 +605,7 @@ void FavoriteSongIndex::publish()
             it = m_aliases.erase(it);
         else
             ++it;
+    pruneRecords();
     emit snapshotChanged();
     emit changed();
 }
@@ -435,7 +622,21 @@ void FavoriteSongIndex::beginPending(const Identity &song, const QJsonObject &do
             m_aliases[song.hash.trimmed().toLower()].insert(song.songId);
     }
     m_pending = change;
-    publish();
+    if (m_cache && liked) {
+        const auto sequence = ++m_changeSequence;
+        m_pending->sequence = sequence;
+        cacheRows(
+            change.adds,
+            [this, sequence](QJsonArray rows) {
+                if (!m_pending || m_pending->sequence != sequence)
+                    return;
+                m_pending->adds = std::move(rows);
+                publish();
+            },
+            false);
+        emit changed();
+    } else
+        publish();
 }
 void FavoriteSongIndex::finishPending()
 {
@@ -446,6 +647,39 @@ void FavoriteSongIndex::finishPending()
 }
 void FavoriteSongIndex::add(const QJsonArray &entries, const QList<Identity> &identities)
 {
+    if (m_cache) {
+        bool stored = true;
+        for (const auto &row : entries)
+            stored &= row.toObject().contains("cache_record");
+        if (!stored) {
+            auto cache = std::move(m_cache);
+            add(entries, identities);
+            m_cache = std::move(cache);
+            QHash<QString, quint64> sequences;
+            for (const auto &row : entries) {
+                const auto key = rowKeys(row.toObject()).value(0);
+                sequences.insert(key, m_changes.value(key).sequence);
+            }
+            cacheRows(
+                entries,
+                [this, identities, sequences](QJsonArray rows) {
+                    QJsonArray current;
+                    for (const auto &row : rows) {
+                        const auto key = rowKeys(row.toObject()).value(0);
+                        const auto found = m_changes.constFind(key);
+                        if (found != m_changes.cend() && found->sequence == sequences.value(key) &&
+                            row.toObject().contains("cache_record"))
+                            current.append(row);
+                    }
+                    if (!current.isEmpty())
+                        add(current, identities);
+                    else
+                        emit changed();
+                },
+                false);
+            return;
+        }
+    }
     for (const auto &song : identities)
         if (song.songId && !song.hash.trimmed().isEmpty())
             m_aliases[song.hash.trimmed().toLower()].insert(song.songId);
@@ -512,6 +746,8 @@ void FavoriteSongIndex::removeFiles(quint64 listId, const QList<quint64> &files,
 }
 void FavoriteSongIndex::applyPresentations(const QJsonArray &values)
 {
+    if (m_cache)
+        return;
     QHash<QString, QJsonObject> presentations;
     for (const auto &value : values)
         presentations.insert(value.toObject().value("id").toString(), value.toObject());

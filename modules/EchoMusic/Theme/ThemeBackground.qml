@@ -5,6 +5,7 @@ Item {
     id: background
     property Component surfaceEffects: null
     property color baseColor: Theme.shell
+    readonly property bool imageSelected: Theme.store.extensions.theme === null && Theme.store.themeKey === "custom" && Theme.store.backgroundImage.toString() !== ""
     clip: true
     // CSS layout-skin opacity composites the finished skin once. Qt Item
     // opacity alone attenuates each overlapping child independently.
@@ -16,7 +17,7 @@ Item {
     }
     Item {
         anchors.fill: parent
-        visible: Theme.store.extensions.theme === null && Theme.store.themeKey === "custom" && Theme.store.backgroundImage.toString() !== ""
+        visible: background.imageSelected
         Image {
             id: artwork
             objectName: "themeBackgroundImage"
@@ -31,12 +32,14 @@ Item {
                 if (status === Image.Error)
                     Theme.store.reportBackgroundUnavailable(source);
             }
-            source: Theme.store.backgroundImage
+            // This single main-shell owner retains the selected background.
+            // Stored-but-unselected artwork must not keep decoded pixels alive.
+            source: background.imageSelected ? Theme.store.backgroundImage : ""
             sourceSize: dimensions
             sourceClipRect: cropped ? Theme.store.backgroundCrop : Qt.rect(0, 0, 0, 0)
             fillMode: Image.Stretch
             asynchronous: true
-            cache: true
+            cache: false
         }
         Rectangle {
             anchors.fill: parent

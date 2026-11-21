@@ -15,10 +15,24 @@ CloudService::CloudService(ApiClient &api, PlaybackService &playback, SongMetada
       m_upload(api, network, this), m_actions(m_songs, playback, this), m_network(network)
 {
     m_songs.attachMetadata(&metadata);
+    if (auto *database = metadata.sessionDatabase()) {
+        playback.cloudSources()->enableSessionStorage(*database);
+        m_shared = true;
+        m_songs.enableSessionStorage(*database);
+        connect(playback.cloudSources(), &CloudAudioIndex::changed, this, [this] {
+            if (m_active && !m_closed)
+                syncShared();
+        });
+        connect(&m_songs, &SongCatalogModel::storageFailed, this, [this](const QString &error) {
+            m_error = error;
+            emit changed();
+        });
+    }
     m_songs.setMetadataActive(false);
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
     connect(&m_upload, &CloudUploadService::cloudChanged, this, [this] {
-        m_playback.cloudSources()->invalidate();
+        if (!m_shared)
+            m_playback.cloudSources()->invalidate();
         m_page = 0;
         m_exhausted = false;
         refresh();
@@ -39,8 +53,14 @@ CloudService::~CloudService()
 {
     shutdown();
 }
+bool CloudService::loading() const
+{
+    return m_shared ? m_playback.cloudSources()->loading() : m_listRequest != 0;
+}
 bool CloudService::hasMore() const
 {
+    if (m_shared)
+        return !m_playback.cloudSources()->complete() && m_playback.cloudSources()->loading();
     return !m_exhausted && m_total > 0 && m_received < m_total;
 }
 void CloudService::activate(RouteContext *context)
@@ -59,6 +79,12 @@ void CloudService::activate(RouteContext *context)
         m_instance = context->instanceId();
     }
     m_active = true;
+    if (m_shared) {
+        if (m_network && signedIn())
+            m_playback.cloudSources()->ensure();
+        syncShared();
+        return;
+    }
     if (m_active && m_network && !m_page && m_api.currentAccountUserId())
         requestPage(1);
     else if (m_page) {
@@ -72,6 +98,18 @@ void CloudService::refresh()
 {
     if (m_closed || !m_active || !m_network || !m_api.currentAccountUserId())
         return;
+    if (m_songs.retryStorage()) {
+        m_error.clear();
+        emit changed();
+        return;
+    }
+    if (m_shared) {
+        m_refreshingShared = m_songs.totalCount() > 0;
+        m_playback.cloudSources()->invalidate();
+        m_playback.cloudSources()->ensure();
+        syncShared();
+        return;
+    }
     cancelMetadata();
     if (m_listRequest) {
         m_api.cancel(m_listRequest);
@@ -84,6 +122,8 @@ void CloudService::refresh()
 }
 void CloudService::loadMore()
 {
+    if (m_shared)
+        return;
     if (m_closed || !m_active || !m_network || m_listRequest || !hasMore())
         return;
     requestPage(m_page + 1);
@@ -158,8 +198,45 @@ void CloudService::updateCounters(const QJsonObject &counters)
     if (count.isDouble())
         m_total = quint64(qMax<qint64>(0, count.toInteger()));
 }
+void CloudService::syncShared()
+{
+    auto *source = m_playback.cloudSources();
+    if (m_refreshingShared && source->rows().isEmpty() && !source->complete()) {
+        m_error = source->errorMessage();
+        emit changed();
+        return;
+    }
+    m_refreshingShared = false;
+    m_total = source->total();
+    m_received = source->received();
+    m_exhausted = source->complete();
+    m_error = source->errorMessage();
+    updateCounters(source->counters());
+    m_targets.clear();
+    for (const auto &row : source->rows()) {
+        const auto id = row.value("song").toObject().value("id").toString();
+        m_targets.insert(id, {quint64(row.value("file_id").toInteger()),
+                              row.value("catalog_id").toVariant().toULongLong()});
+    }
+    m_songs.replaceCachedRows(source->cachedRows(), true);
+    QSet<QString> replayed;
+    for (const auto &row : source->rows()) {
+        const auto hash = row.value("song").toObject().value("hash").toString();
+        if (replayed.contains(hash))
+            continue;
+        replayed.insert(hash);
+        const auto facts = m_playback.playbackFacts(hash);
+        if (!facts.isEmpty())
+            applyPlaybackFacts(facts);
+    }
+    emit changed();
+}
 void CloudService::project()
 {
+    if (m_shared) {
+        syncShared();
+        return;
+    }
     QList<QJsonObject> ordered = m_items;
     // Order by added time descending, then provider sort index ascending.
     std::stable_sort(ordered.begin(), ordered.end(),
@@ -389,6 +466,14 @@ void CloudService::applyPlaybackFacts(const QJsonObject &facts)
     // matching file ids for the live presentation channel. Match by file id or
     // audio hash so legacy snapshots without a cloud file record still heal.
     QSet<quint64> matchedFiles;
+    if (m_shared)
+        for (const auto &row : m_playback.cloudSources()->rows()) {
+            const auto id = quint64(row.value("file_id").toInteger());
+            const auto rowHash = row.value("song").toObject().value("hash").toString();
+            if ((fileId && fileId == id) ||
+                (!hash.isEmpty() && rowHash.compare(hash, Qt::CaseInsensitive) == 0))
+                matchedFiles.insert(id);
+        }
     for (auto &item : m_items) {
         const auto rowCloud = item.value("metadata").toObject().value("cloud_source").toObject();
         const auto itemHash = item.value("song").toObject().value("hash").toString();
@@ -429,6 +514,18 @@ void CloudService::applyPlaybackFacts(const QJsonObject &facts)
 }
 void CloudService::finishDelete(const QByteArray &bytes)
 {
+    if (m_shared) {
+        QSet<QString> removed;
+        for (auto it = m_targets.cbegin(); it != m_targets.cend(); ++it)
+            for (const auto &target : m_deleteTargets)
+                if (it->kvId == target.kvId)
+                    removed.insert(it.key());
+        auto rows = m_playback.cloudSources()->cachedRows();
+        rows.removeIf([&](const auto &row) { return removed.contains(row.reference.id); });
+        m_songs.replaceCachedRows(rows, true);
+        m_targets.removeIf([&](auto it) { return removed.contains(it.key()); });
+        m_refreshingShared = true;
+    }
     m_playback.cloudSources()->invalidate();
     m_deleteRequest = 0;
     const auto object = QJsonDocument::fromJson(bytes).object();
@@ -501,7 +598,7 @@ void CloudService::cancelAll()
 }
 void CloudService::reset()
 {
-    if (!m_listRequest && !m_deleteRequest && m_items.isEmpty() && m_page == 0)
+    if (!m_shared && !m_listRequest && !m_deleteRequest && m_items.isEmpty() && m_page == 0)
         return;
     cancelAll();
     m_items.clear();
@@ -511,11 +608,17 @@ void CloudService::reset()
     m_page = 0;
     m_arrival = 0;
     m_exhausted = false;
+    m_refreshingShared = false;
     m_usedBytes = m_availableBytes = m_capacityBytes = -1;
     m_error.clear();
     if (m_active && m_router.current() && m_router.current()->name() == "cloud" && m_network &&
-        m_api.currentAccountUserId())
-        requestPage(1);
+        m_api.currentAccountUserId()) {
+        if (m_shared) {
+            m_playback.cloudSources()->ensure();
+            syncShared();
+        } else
+            requestPage(1);
+    }
     emit changed();
 }
 void CloudService::shutdown()

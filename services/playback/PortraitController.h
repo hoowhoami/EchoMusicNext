@@ -2,7 +2,7 @@
 #include "ApiClient.h"
 #include "PlaybackTrack.h"
 #include "LyricPortraitAppearance.h"
-#include <QElapsedTimer>
+#include "ValueCache.h"
 #include <QSet>
 #include <QTimer>
 #include <QUrl>
@@ -62,14 +62,8 @@ private:
     ApiClient &m_api;
     LyricPortraitAppearance &m_appearance;
     PlaybackTrack m_track;
-    QStringList m_urls, m_cacheOrder;
-    struct CacheEntry
-    {
-        QStringList urls;
-        qint64 expires;
-    };
-    QHash<QString, CacheEntry> m_cache;
-    QElapsedTimer m_clock;
+    QStringList m_urls;
+    ValueCache<QString, QStringList> m_cache{50};
     QTimer m_carousel;
     QSet<QString> m_surfaces;
     quint64 m_request = 0, m_revision = 0;

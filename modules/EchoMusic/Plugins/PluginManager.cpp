@@ -81,6 +81,94 @@ PluginManager::PluginManager(PluginRuntime &runtime, EchoMusic::SettingsStore &p
     connect(this, &PluginManager::changed, this, &PluginManager::tryStartupUpdateCheck);
     rebuild();
 }
+void PluginManager::attachRecordStore(JsonRecordStore &store)
+{
+    if (m_recordStore)
+        return;
+    m_recordStore = &store;
+    cacheManifests();
+    rebuild();
+}
+void PluginManager::cacheManifests()
+{
+    if (!m_recordStore)
+        return;
+    QJsonArray manifests;
+    QStringList keys;
+    QSet<QString> live;
+    for (auto &value : m_entries) {
+        auto record = value.toMap();
+        const auto key = record.value("key").toString();
+        live.insert(key);
+        if (!record.contains("manifest"))
+            continue;
+        manifests.append(QJsonObject::fromVariantMap(record));
+        // Rich declarations remain in the immutable source. The synchronous
+        // catalog index contains only card/search/update/source identity data.
+        static const QSet<QString> fields{"key",
+                                          "id",
+                                          "name",
+                                          "version",
+                                          "author",
+                                          "description",
+                                          "tags",
+                                          "category",
+                                          "sourceId",
+                                          "sourceName",
+                                          "sourceUrl",
+                                          "repo",
+                                          "repository",
+                                          "ref",
+                                          "path",
+                                          "artifact",
+                                          "artifactUrl",
+                                          "sha256",
+                                          "manifestUrl",
+                                          "iconUrl",
+                                          "compatible",
+                                          "error",
+                                          "platforms",
+                                          "platformLabel",
+                                          "platformIncompatible",
+                                          "stale",
+                                          "refreshError",
+                                          "refreshErrorDetail"};
+        for (auto it = record.begin(); it != record.end();)
+            if (!fields.contains(it.key()))
+                it = record.erase(it);
+            else
+                ++it;
+        keys.append(key);
+        value = std::move(record);
+    }
+    if (!keys.isEmpty()) {
+        auto snapshot = m_recordStore->create(std::move(manifests));
+        for (int i = 0; i < keys.size(); ++i)
+            m_manifests.insert(keys[i], {snapshot, i});
+    }
+    for (auto it = m_manifests.begin(); it != m_manifests.end();)
+        if (!live.contains(it.key()))
+            it = m_manifests.erase(it);
+        else
+            ++it;
+}
+void PluginManager::readManifest(const QString &key, std::function<void(QVariantMap, QString)> done)
+{
+    if (!m_recordStore) {
+        done(entry(key).value("manifest").toMap(), {});
+        return;
+    }
+    const auto ref = m_manifests.value(key);
+    if (!ref.snapshot) {
+        done({}, tr("插件发布清单不可用，请刷新后重试"));
+        return;
+    }
+    m_recordStore->read(ref, this, [done = std::move(done)](QJsonArray rows, QString error) {
+        done(rows.isEmpty() ? QVariantMap{}
+                            : rows.first().toObject().value("manifest").toObject().toVariantMap(),
+             error);
+    });
+}
 PluginManager::~PluginManager()
 {
     shutdown();

@@ -5,6 +5,16 @@
 #include <QJsonArray>
 namespace EchoMusic
 {
+QJsonObject PlaybackTrack::publicMetadata(const QJsonObject &metadata)
+{
+    QJsonObject result;
+    for (const auto *key : {"artist_refs", "filename_artist_name", "catalog_duration_ms",
+                            "catalog_privilege", "plugin_source", "plugin_data", "source_kind",
+                            "cloud_source", "embedded_cover_url", "artist_cover_url"})
+        if (metadata.contains(key))
+            result.insert(key, metadata.value(key));
+    return result;
+}
 qint64 effectAudioTrack(const QJsonArray &tracks, const QString &effect)
 {
     qint64 selected = effect == "vocal" ? 2 : 1, first = 0;
@@ -126,6 +136,23 @@ bool PlaybackTrack::applyPresentation(const QJsonObject &song)
     if (durationMs && catalogMetadata.value("catalog_duration_ms").toDouble() <= 0)
         catalogMetadata["catalog_duration_ms"] = qint64(durationMs);
     return *this != before;
+}
+PlaybackTrack PlaybackTrack::fromSnapshot(const QJsonObject &snapshot)
+{
+    PlaybackTrack track;
+    track.id = snapshot.value("id").toString();
+    track.hash = snapshot.value("hash").toString();
+    track.title = snapshot.value("title").toString();
+    track.artist = snapshot.value("artist").toString();
+    track.album = snapshot.value("album").toString();
+    track.cover = snapshot.value("cover").toString();
+    track.localPath = snapshot.value("local_path").toString();
+    track.albumId = snapshot.value("album_id").toVariant().toULongLong();
+    track.songId = snapshot.value("song_id").toVariant().toULongLong();
+    track.durationMs = quint64(snapshot.value("duration_ms").toDouble());
+    track.catalogMetadata = snapshot.value("metadata").toObject();
+    track.catalogPrivilege = quint32(snapshot.value("privilege").toInt());
+    return track;
 }
 QJsonObject PlaybackTrack::toDomain() const
 {

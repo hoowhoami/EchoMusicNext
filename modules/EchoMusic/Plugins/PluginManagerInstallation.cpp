@@ -31,7 +31,7 @@ bool PluginManager::install(const QString &key)
 {
     if (m_busy || m_catalogLoading || m_closing || m_runtime.loading())
         return false;
-    const auto e = entry(key);
+    auto e = entry(key);
     if (e.isEmpty() || !e.value("compatible").toBool() ||
         !sourceIds().contains(e.value("sourceId").toString()))
         return false;
@@ -56,23 +56,33 @@ bool PluginManager::install(const QString &key)
     if (m_installWasUpdate)
         beginUpdate(e, current);
     rebuild();
-    m_staging = QSharedPointer<QTemporaryDir>::create();
-    if (!m_staging->isValid()) {
-        finishInstall(false, tr("无法创建安装暂存目录"));
-        return true;
-    }
-    const auto archive = m_staging->path() + "/package.echomod";
-    m_archiveDownload =
-        QSharedPointer<PluginArchiveDownload>::create(archive, e.value("sha256").toString());
-    get(
-        QUrl(e.value("artifactUrl").toString()), 128 * 1024 * 1024,
-        [this, e, archive](QByteArray, QString error, QVariantMap) {
-            if (!error.isEmpty())
-                finishInstall(false, error);
-            else
-                extractLocal(archive, e);
-        },
-        {}, 30000, {}, true, m_archiveDownload);
+    const auto generation = m_generation;
+    readManifest(key, [this, e, key, generation](QVariantMap manifest, QString error) mutable {
+        if (m_closing || generation != m_generation || m_installingKey != key)
+            return;
+        if (!error.isEmpty()) {
+            finishInstall(false, error);
+            return;
+        }
+        e.insert("manifest", std::move(manifest));
+        m_staging = QSharedPointer<QTemporaryDir>::create();
+        if (!m_staging->isValid()) {
+            finishInstall(false, tr("无法创建安装暂存目录"));
+            return;
+        }
+        const auto archive = m_staging->path() + "/package.echomod";
+        m_archiveDownload =
+            QSharedPointer<PluginArchiveDownload>::create(archive, e.value("sha256").toString());
+        get(
+            QUrl(e.value("artifactUrl").toString()), 128 * 1024 * 1024,
+            [this, e, archive](QByteArray, QString error, QVariantMap) {
+                if (!error.isEmpty())
+                    finishInstall(false, error);
+                else
+                    extractLocal(archive, e);
+            },
+            {}, 30000, {}, true, m_archiveDownload);
+    });
     return true;
 }
 void PluginManager::extractLocal(const QString &archive, const QVariantMap &entry)

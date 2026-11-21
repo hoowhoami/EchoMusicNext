@@ -1,5 +1,5 @@
 #include "SongRowFacts.h"
-#include "PlaybackSourcePlan.h"
+#include "SongRightsFacts.h"
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QObject>
@@ -17,7 +17,7 @@ bool songCopyrightRestricted(const PlaybackTrack &track)
     const auto rights = track.catalogMetadata.value("resource_privileges").toObject();
     const auto hash = rights.value("hash").toString();
     return hash.isEmpty() || hash.compare(track.hash, Qt::CaseInsensitive) != 0 ||
-           !PlaybackSourcePlan::isFreeLegacyFile(rights.value("primary").toObject());
+           !isFreeLegacyCatalogFile(rights.value("primary").toObject());
 }
 QVariantList songPrivilegeTags(const PlaybackTrack &track)
 {

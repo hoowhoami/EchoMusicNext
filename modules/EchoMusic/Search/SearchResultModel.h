@@ -37,6 +37,8 @@ public:
     };
     Q_ENUM(SortDirection)
     explicit SearchResultModel(SearchModel &source);
+    QVariant data(const QModelIndex &, int role) const override;
+    QHash<int, QByteArray> roleNames() const override;
     QString query() const;
     SortField sortField() const;
     SortDirection sortDirection() const;

@@ -220,8 +220,6 @@ ThemeStore::ThemeStore(EchoMusic::SettingsStore &settings, QObject *parent,
     connect(&m_overrides, &AppearanceOverrides::changed, this, &ThemeStore::resolve);
     connect(m_extensions, &AppearanceCatalog::themeChanged, this, &ThemeStore::resolve);
     resolve();
-    if (!m_imageId.isEmpty())
-        m_sampleTimer.start();
 }
 ThemeStore::~ThemeStore()
 {
@@ -232,6 +230,7 @@ ThemeStore::~ThemeStore()
 }
 void ThemeStore::cancelImageWorkForShutdown()
 {
+    m_imageWorkClosing = true;
     ++m_importRevision;
     ++m_sampleRevision;
     m_sampleTimer.stop();
@@ -425,6 +424,12 @@ QColor ThemeStore::extensionSurface(const QString &name, const QColor &base) con
 }
 void ThemeStore::resolve()
 {
+    const bool sampleSelected = !m_imageWorkClosing && m_key == "custom" && !m_imageId.isEmpty() &&
+                                (!m_extensions || !m_extensions->theme());
+    if (!sampleSelected || !m_sampleDirty)
+        m_sampleTimer.stop();
+    else if (!m_sampleRunning && !m_sampleTimer.isActive())
+        m_sampleTimer.start();
     const bool extensionSelected = m_extensions && m_extensions->theme();
     m_palette = !extensionSelected && m_key == "solid" ? fromSeed(m_seed, dark()) : neutral(dark());
     if (!extensionSelected && m_key == "custom") {
@@ -749,7 +754,8 @@ void ThemeStore::restoreBackgroundDraft(const QJsonObject &draft)
     m_imageText = opaque(text) ? text : QColor(Qt::white);
     m_imageAccent = opaque(accent) ? accent : QColor("#0071e3");
     m_imageShade = qBound(0, draft.value("shade").toInt(), 85);
-    m_imageSample = {};
+    m_imageSample = QColor();
+    m_sampleDirty = true;
 }
 void ThemeStore::beginBackground()
 {
@@ -762,6 +768,8 @@ void ThemeStore::previewBackground()
     if (m_imageId.isEmpty() || m_key == "custom")
         return;
     beginBackground();
+    if (!m_imageSample.isValid())
+        m_sampleDirty = true;
     resolve();
 }
 void ThemeStore::importBackground(const QUrl &file)
@@ -796,6 +804,7 @@ void ThemeStore::importBackground(const QUrl &file)
             m_imageSize = result.size;
             m_crop = {};
             m_imageSample = result.sample;
+            m_sampleDirty = false;
             ++m_sampleRevision;
         }
         cleanImages();
@@ -820,8 +829,6 @@ void ThemeStore::cancelBackground(bool stayOnCustom)
             m_key = "custom";
         else
             m_beforeBackground = {};
-        if (!m_imageId.isEmpty())
-            m_sampleTimer.start();
     }
     cleanImages();
     resolve();
@@ -854,7 +861,7 @@ void ThemeStore::setBackgroundCrop(const QRectF &crop)
     beginBackground();
     m_crop = crop;
     ++m_sampleRevision;
-    m_sampleTimer.start();
+    m_sampleDirty = true;
     resolve();
 }
 void ThemeStore::setBackgroundText(const QColor &color)
@@ -892,17 +899,16 @@ void ThemeStore::resetBackgroundAdjustments()
     m_imageAccent = QColor("#0071e3");
     m_imageShade = 0;
     ++m_sampleRevision;
-    m_sampleTimer.start();
+    m_sampleDirty = true;
     resolve();
 }
 void ThemeStore::scheduleImageSample()
 {
-    if (m_imageId.isEmpty())
+    if (m_imageWorkClosing || m_key != "custom" || m_imageId.isEmpty() || !m_sampleDirty ||
+        (m_extensions && m_extensions->theme()))
         return;
-    if (m_sampleRunning) {
-        m_sampleTimer.start();
+    if (m_sampleRunning)
         return;
-    }
     m_sampleRunning = true;
     const auto revision = ++m_sampleRevision;
     auto *watcher = new QFutureWatcher<QColor>(this);
@@ -910,12 +916,17 @@ void ThemeStore::scheduleImageSample()
         const auto color = watcher->result();
         watcher->deleteLater();
         m_sampleRunning = false;
-        if (revision != m_sampleRevision)
+        if (revision != m_sampleRevision) {
+            resolve();
             return;
+        }
+        m_sampleDirty = false;
         if (color.isValid())
             m_imageSample = color;
-        else
+        else if (m_key == "custom" && (!m_extensions || !m_extensions->theme()))
             reportBackgroundUnavailable(backgroundImage());
+        else
+            m_sampleDirty = true;
         resolve();
     });
     watcher->setFuture(QtConcurrent::run(&m_imageWorkers, &ThemeImageStore::sample,
@@ -925,7 +936,7 @@ void ThemeStore::reportBackgroundUnavailable(const QUrl &source)
 {
     if (source.isEmpty() || source != backgroundImage())
         return;
-    m_imageSample = {};
+    m_imageSample = QColor();
     const auto error = tr("背景图片不可用，请重新选择");
     if (m_imageError == error)
         return;

@@ -10,6 +10,15 @@ ArtistDetailContext::ArtistDetailContext(ApiClient &api, PlaybackService &playba
     : QObject(&route), m_api(api), m_route(route), m_settings(settings),
       m_actions(m_songs, playback, this), m_network(networkEnabled)
 {
+    m_songs.enableSessionStorage();
+    connect(&m_songs, &SongCatalogModel::storageReadyChanged, this, [this] {
+        if (m_songs.storageReady() && !songsLoading() && !m_complete)
+            requestBatch();
+    });
+    connect(&m_songs, &SongCatalogModel::storageFailed, this, [this](const QString &message) {
+        m_songError = message;
+        emit changed();
+    });
     m_sort = settings.artistSongSort();
     m_albumSort = settings.artistAlbumSort();
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
@@ -316,6 +325,8 @@ void ArtistDetailContext::requestPage(quint32 page)
 }
 void ArtistDetailContext::requestBatch()
 {
+    if (!m_songs.storageReady())
+        return;
     if (m_nextPage > 1000) {
         m_songError = tr("分页超过最大页数限制（1000），请重新加载");
         return;

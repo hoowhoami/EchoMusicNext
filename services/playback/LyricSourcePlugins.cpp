@@ -78,7 +78,6 @@ void LyricSourceController::reload(bool preserveCurrent)
         return;
     ++m_choiceRevision;
     m_cache.clear();
-    m_cacheOrder.clear();
     beginAutomatic(true, preserveCurrent);
 }
 void LyricSourceController::beginAutomatic(bool force, bool preserveCurrent)

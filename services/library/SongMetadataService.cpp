@@ -1,4 +1,6 @@
 #include "SongMetadataService.h"
+#include "CacheCost.h"
+#include "SongObservationIndex.h"
 #include "EmbeddedCoverCache.h"
 #include "EmbeddedCoverPresentation.h"
 #include "ArtistCoverPresentation.h"
@@ -80,6 +82,22 @@ SongMetadataService::~SongMetadataService()
 {
     shutdown();
 }
+void SongMetadataService::enableSqlIndex(SessionDatabase &database)
+{
+    Q_ASSERT(m_observers.isEmpty());
+    if (m_sqlIndex || !m_observers.isEmpty() || m_closed)
+        return;
+    m_sessionDatabase = &database;
+    m_sqlIndex = std::make_unique<SongObservationIndex>(database);
+    connect(m_sqlIndex.get(), &SongObservationIndex::failed, this, [this](const QString &error) {
+        qWarning().noquote() << "Song observation cache:" << error;
+        emit cacheFailed(error);
+    });
+}
+SessionDatabase *SongMetadataService::sessionDatabase() const
+{
+    return m_sessionDatabase;
+}
 void SongMetadataService::enableCoverCache(const QString &directory)
 {
     if (m_closed || m_covers || directory.isEmpty())
@@ -89,6 +107,18 @@ void SongMetadataService::enableCoverCache(const QString &directory)
     connect(m_covers.get(), &EmbeddedCoverCache::changed, this, [this](const QStringList &keys) {
         if (m_closed)
             return;
+        if (m_sqlIndex) {
+            const auto epoch = m_sqlEpoch;
+            m_sqlIndex->lookupAliases(keys, [this, epoch](auto result) {
+                if (m_closed || epoch != m_sqlEpoch || !result.error.isEmpty())
+                    return;
+                for (const auto &key : result.keys)
+                    m_pendingKeys.insert(key);
+                if (!m_pendingKeys.isEmpty())
+                    m_notify.start();
+            });
+            return;
+        }
         for (const auto &key : keys)
             if (const auto identity = m_coverIdentities.value(key); !identity.isEmpty())
                 m_pendingKeys.insert(identity);
@@ -96,6 +126,10 @@ void SongMetadataService::enableCoverCache(const QString &directory)
             m_notify.start();
     });
     m_covers->setScope(m_api.currentAccountUserId());
+    if (m_sqlIndex) {
+        refreshSqlCoverAliases();
+        return;
+    }
     for (const auto &key : m_listeners.keys())
         if (!key.startsWith("id:") && !key.startsWith("artist:"))
             m_coverIdentities.insert(m_covers->identityKey(key), key);
@@ -103,6 +137,23 @@ void SongMetadataService::enableCoverCache(const QString &directory)
     m_pendingKeys.unite(QSet<QString>(m_listeners.keyBegin(), m_listeners.keyEnd()));
     if (!m_pendingKeys.isEmpty())
         m_notify.start();
+}
+void SongMetadataService::refreshSqlCoverAliases()
+{
+    const auto epoch = m_sqlEpoch;
+    m_sqlIndex->allKeys([this, epoch](auto result) {
+        if (m_closed || epoch != m_sqlEpoch || !result.error.isEmpty())
+            return;
+        QList<QPair<QString, QString>> aliases;
+        for (const auto &key : result.keys) {
+            m_pendingKeys.insert(key);
+            if (!key.startsWith("id:") && !key.startsWith("artist:"))
+                aliases.append({key, m_covers->identityKey(key)});
+        }
+        m_sqlIndex->setAliases(std::move(aliases));
+        if (!m_pendingKeys.isEmpty())
+            m_notify.start();
+    });
 }
 void SongMetadataService::publishEmbeddedCover(const QJsonObject &song, const QString &file)
 {
@@ -141,6 +192,10 @@ QStringList songCoverKeys(const QJsonObject &song)
     return id.isEmpty() ? SongMetadataService::identityKeys(song) : QStringList{"id:" + id};
 }
 } // namespace
+QString SongMetadataService::completionId(const QJsonObject &song)
+{
+    return catalogId(song);
+}
 bool SongMetadataService::needsCompletion(const QJsonObject &s)
 {
     if (missingText(s["title"].toString()) || missingText(s["cover_url"].toString()) ||
@@ -239,6 +294,37 @@ QStringList SongMetadataService::identityKeys(const QJsonObject &song)
         keys.append("path:" + path);
     return keys;
 }
+QJsonObject SongMetadataService::observationInput(const QJsonObject &song)
+{
+    QJsonObject result;
+    for (const auto *key : {"id", "hash", "local_path", "title", "artists", "album_title",
+                            "cover_url", "album_id", "duration_ms"})
+        if (song.contains(key))
+            result.insert(key, song.value(key));
+    // Some sources carry avatars in metadata.artists rather than artist_refs.
+    // Canonicalize the actual presentation references without retaining the
+    // source's other artist-detail fields in the registration backlog.
+    const auto artists = presentationArtists(song);
+    if (!artists.isEmpty() || song.contains("artists"))
+        result.insert("artists", artists);
+    QJsonObject metadata;
+    const auto original = song.value("metadata").toObject();
+    for (const auto *key : {"artist_refs", "filename_artist_name", "embedded_cover_url",
+                            "artist_cover_url", "plugin_source"})
+        if (original.contains(key))
+            metadata.insert(key, original.value(key));
+    if (original.contains("cloud_source"))
+        metadata.insert(
+            "cloud_source",
+            QJsonObject{{"song_id", original.value("cloud_source").toObject().value("song_id")}});
+    result.insert("metadata", metadata);
+    return result;
+}
+QJsonObject SongMetadataService::replay(const QJsonObject &song)
+{
+    QScopedValueRollback guard(m_notifying, true);
+    return complete(song);
+}
 QJsonObject SongMetadataService::complete(const QJsonObject &song)
 {
     auto result = withoutArtistCover(withoutEmbeddedCover(song));
@@ -246,32 +332,30 @@ QJsonObject SongMetadataService::complete(const QJsonObject &song)
         !artists.isEmpty() || result.contains("artists"))
         result["artists"] = artists;
     const auto id = catalogId(song);
-    if (auto *cached = m_cache.object(id);
-        cached && !cached->value.isEmpty() && cached->expires > m_clock.elapsed()) {
-        auto presentation = cached->value;
+    if (const auto cached = m_cache.lookup(id); cached && !cached->isEmpty()) {
+        auto presentation = *cached;
         presentation["id"] = song["id"];
         result = completeSong(result, presentation);
     }
     for (const auto &key : identityKeys(song)) {
         if (key.startsWith("id:"))
             continue;
-        if (auto *cached = m_embedded.object(key); cached && cached->expires > m_clock.elapsed()) {
-            auto presentation = cached->value;
+        if (const auto cached = m_embedded.lookup(key)) {
+            auto presentation = *cached;
             presentation["id"] = song["id"];
             result = completeSong(result, presentation);
         }
     }
     rememberCoverFacts(result);
-    if (result["cover_url"].toString().trimmed().isEmpty())
+    if (result.value("cover_url").toString().trimmed().isEmpty())
         for (const auto &key : songCoverKeys(song)) {
-            const auto *entry = m_coverFacts.object(key);
-            if (entry && entry->expires > m_clock.elapsed() &&
-                !entry->value["song_cover_url"].toString().isEmpty()) {
-                result["cover_url"] = entry->value["song_cover_url"];
+            const auto entry = m_coverFacts.lookup(key);
+            if (entry && !entry->value("song_cover_url").toString().isEmpty()) {
+                result["cover_url"] = entry->value("song_cover_url");
                 break;
             }
         }
-    if (m_covers && result["cover_url"].toString().trimmed().isEmpty()) {
+    if (m_covers && result.value("cover_url").toString().trimmed().isEmpty()) {
         const auto url = m_covers->lookup(identityKeys(song));
         if (!url.isEmpty()) {
             result["cover_url"] = url;
@@ -280,7 +364,7 @@ QJsonObject SongMetadataService::complete(const QJsonObject &song)
             result["metadata"] = meta;
         }
     }
-    if (result["cover_url"].toString().trimmed().isEmpty()) {
+    if (result.value("cover_url").toString().trimmed().isEmpty()) {
         const auto candidate = artistCover(result);
         const auto url = artistAvatar(candidate);
         if (!url.isEmpty()) {
@@ -315,20 +399,18 @@ void SongMetadataService::rememberCoverFacts(const QJsonObject &song, bool repla
                            : QString();
     const auto remember = [this, replace, &cover](const QString &key, const QJsonObject &artist,
                                                   bool songIdentity) {
-        auto *previous = m_coverFacts.object(key);
-        const bool valid = previous && previous->expires > m_clock.elapsed();
-        auto value = valid ? previous->value : QJsonObject{};
+        const auto previous = m_coverFacts.lookup(key);
+        auto value = previous.value_or(QJsonObject{});
         if (!artistAvatar(artist).isEmpty() && (replace || artistAvatar(value).isEmpty()))
             for (const auto &field : {"id", "name", "avatar_url"})
                 value[field] = artist[field];
         if (songIdentity && !cover.isEmpty() &&
             (replace || value["song_cover_url"].toString().isEmpty()))
             value["song_cover_url"] = cover;
-        if (value.isEmpty() || (valid && previous->value == value))
+        if (value.isEmpty() || (previous && *previous == value))
             return;
-        m_coverFacts.insert(
-            key, new CacheEntry{value, m_clock.elapsed() + 24 * 60 * 60 * 1000},
-            std::max(1000, int(QJsonDocument(value).toJson(QJsonDocument::Compact).size() * 2)));
+        m_coverFacts.insert(key, value, 24 * 60 * 60 * 1000,
+                            std::max(quint64(1000), jsonValueCost(value) * 2));
         m_pendingKeys.insert(key);
     };
     const auto refs = presentationArtists(song);
@@ -342,6 +424,10 @@ void SongMetadataService::rememberCoverFacts(const QJsonObject &song, bool repla
         if (!id || !catalogArtists)
             continue;
         const auto artistKey = "artist:" + QString::number(id);
+        if (m_sqlIndex) {
+            m_sqlIndex->extend(identities, artistKey);
+            continue;
+        }
         for (const auto &key : identities)
             for (auto *owner : m_listeners.value(key)) {
                 auto &observer = m_observers[owner];
@@ -373,8 +459,8 @@ void SongMetadataService::rememberCoverFacts(const QJsonObject &song, bool repla
 QJsonObject SongMetadataService::artistCover(const QJsonObject &song)
 {
     const auto read = [this](const QString &key) -> QJsonObject {
-        if (auto *entry = m_coverFacts.object(key); entry && entry->expires > m_clock.elapsed())
-            return entry->value;
+        if (const auto entry = m_coverFacts.lookup(key))
+            return *entry;
         m_coverFacts.remove(key);
         return {};
     };
@@ -425,16 +511,56 @@ void SongMetadataService::publishEmbedded(const QJsonObject &song)
     for (const auto &key : identityKeys(song)) {
         if (key.startsWith("id:"))
             continue;
-        auto *previous = m_embedded.object(key);
-        if (previous && previous->value == text)
+        const auto previous = m_embedded.lookup(key);
+        if (previous && *previous == text)
             continue;
-        m_embedded.insert(
-            key, new CacheEntry{text, m_clock.elapsed() + 24 * 60 * 60 * 1000},
-            std::max(2000, int(QJsonDocument(text).toJson(QJsonDocument::Compact).size() * 2)));
+        m_embedded.insert(key, text, 24 * 60 * 60 * 1000,
+                          std::max(quint64(2000), jsonValueCost(text) * 2));
         m_pendingKeys.insert(key);
     }
     if (!m_pendingKeys.isEmpty())
         m_notify.start();
+}
+void SongMetadataService::pause(QObject *owner)
+{
+    auto found = m_observers.find(owner);
+    if (found == m_observers.end())
+        return;
+    found->sqlActive = false;
+    const auto tickets = std::exchange(found->tickets, {});
+    for (const auto ticket : tickets)
+        cancel(ticket);
+}
+bool SongMetadataService::resumeDemand(QObject *owner, const QStringList &incompleteIds)
+{
+    if (m_closed || !m_sqlIndex || !m_observers.contains(owner))
+        return false;
+    pause(owner);
+    auto &observer = m_observers[owner];
+    observer.sqlActive = true;
+    if (const auto ticket = request(incompleteIds))
+        observer.tickets.insert(ticket);
+    return true;
+}
+void SongMetadataService::resume(QObject *owner, const QList<Observation> &songs,
+                                 std::function<void(const QStringList &)> apply)
+{
+    auto found = m_observers.find(owner);
+    if (!m_sqlIndex || found == m_observers.end()) {
+        watch(owner, songs, std::move(apply), true);
+        return;
+    }
+    pause(owner);
+    found = m_observers.find(owner);
+    found->apply = std::move(apply);
+    found->sqlActive = true;
+    // Coalesce rapid route returns. Keep at most one latest source snapshot;
+    // an already accepted chunk is guarded by the same live owner/sqlId.
+    found->sqlPending.clear();
+    for (const auto &entry : songs)
+        found->sqlPending.append({entry.row, observationInput(entry.song)});
+    found->sqlCursor = 0;
+    watchSqlChunk(owner);
 }
 void SongMetadataService::unwatch(QObject *owner)
 {
@@ -445,6 +571,10 @@ void SongMetadataService::unwatch(QObject *owner)
     disconnect(observer.destroyed);
     for (const auto ticket : observer.tickets)
         cancel(ticket);
+    if (m_sqlIndex) {
+        m_sqlIndex->erase(observer.sqlId);
+        return;
+    }
     for (auto it = observer.rows.cbegin(); it != observer.rows.cend(); ++it) {
         auto listeners = m_listeners.find(it.key());
         if (listeners != m_listeners.end() && listeners->remove(owner) && listeners->isEmpty())
@@ -463,12 +593,21 @@ void SongMetadataService::watch(QObject *owner, const QList<Observation> &songs,
         return;
     if (!m_observers.contains(owner)) {
         Observer observer;
+        if (m_sqlIndex)
+            observer.sqlId = ++m_sqlOwner;
         observer.destroyed =
             connect(owner, &QObject::destroyed, this, [this, owner] { unwatch(owner); });
         m_observers.insert(owner, std::move(observer));
     }
     auto &observer = m_observers[owner];
     observer.apply = std::move(apply);
+    if (m_sqlIndex) {
+        observer.sqlActive = active;
+        for (const auto &entry : songs)
+            observer.sqlPending.append({entry.row, observationInput(entry.song)});
+        watchSqlChunk(owner);
+        return;
+    }
     QSet<QString> ids;
     for (const auto &entry : songs) {
         for (const auto &key : observationKeys(entry.song)) {
@@ -485,8 +624,106 @@ void SongMetadataService::watch(QObject *owner, const QList<Observation> &songs,
         if (const auto ticket = request(QStringList(ids.cbegin(), ids.cend())))
             observer.tickets.insert(ticket);
 }
+void SongMetadataService::watchSqlChunk(QObject *owner)
+{
+    auto found = m_observers.find(owner);
+    if (m_closed || found == m_observers.end() || found->sqlWriting)
+        return;
+    if (found->sqlCursor == found->sqlPending.size()) {
+        found->sqlPending.clear();
+        found->sqlCursor = 0;
+        return;
+    }
+    const auto id = found->sqlId;
+    const auto count = std::min(qsizetype(128), found->sqlPending.size() - found->sqlCursor);
+    const auto chunk = found->sqlPending.mid(found->sqlCursor, count);
+    found->sqlCursor += count;
+    found->sqlWriting = true;
+    QList<SongObservationIndex::Relation> relations;
+    for (const auto &entry : chunk) {
+        const auto song = complete(entry.song);
+        for (const auto &key : observationKeys(song)) {
+            const auto alias = m_covers && !key.startsWith("id:") && !key.startsWith("artist:")
+                                   ? m_covers->identityKey(key)
+                                   : QString();
+            relations.append({key, entry.row, alias});
+        }
+    }
+    m_sqlIndex->insert(id, std::move(relations), [this, owner, id, chunk](auto result) {
+        auto current = m_observers.find(owner);
+        if (m_closed || current == m_observers.end() || current->sqlId != id)
+            return;
+        current->sqlWriting = false;
+        if (!result.error.isEmpty()) {
+            current->sqlPending.clear();
+            current->sqlCursor = 0;
+            return;
+        }
+        // Facts may arrive while a later chunk waits for SQL admission. Replay
+        // only rows whose captured presentation actually changed; never retain
+        // a second full-catalog identity buffer or notify unrelated rows.
+        QStringList replay;
+        QSet<QString> wanted;
+        {
+            QScopedValueRollback notifying(m_notifying, true);
+            for (const auto &entry : chunk) {
+                const auto song = complete(entry.song);
+                if (song != entry.song)
+                    replay.append(entry.row);
+                const auto catalog = catalogId(entry.song);
+                if (current->sqlActive && !catalog.isEmpty() && needsCompletion(song))
+                    wanted.insert(catalog);
+            }
+            if (!replay.isEmpty()) {
+                const auto apply = current->apply;
+                apply(replay);
+            }
+        }
+        current = m_observers.find(owner);
+        if (current == m_observers.end() || current->sqlId != id)
+            return;
+        if (current->sqlActive && !wanted.isEmpty())
+            if (const auto ticket = request(QStringList(wanted.cbegin(), wanted.cend())))
+                current->tickets.insert(ticket);
+        watchSqlChunk(owner);
+    });
+}
 void SongMetadataService::notifyObservers()
 {
+    if (m_sqlIndex) {
+        if (m_sqlLookup || m_closed || m_pendingKeys.isEmpty())
+            return;
+        m_sqlLookup = true;
+        const auto epoch = m_sqlEpoch;
+        const auto keys = std::exchange(m_pendingKeys, {});
+        m_sqlIndex->lookup(QStringList(keys.cbegin(), keys.cend()), [this, epoch](auto result) {
+            m_sqlLookup = false;
+            if (m_closed || epoch != m_sqlEpoch) {
+                if (!m_closed && !m_pendingKeys.isEmpty())
+                    m_notify.start();
+                return;
+            }
+            if (result.error.isEmpty()) {
+                QScopedValueRollback notifying(m_notifying, true);
+                QList<QPair<QPointer<QObject>, quint64>> owners;
+                for (auto it = m_observers.cbegin(); it != m_observers.cend(); ++it)
+                    if (result.rows.contains(it->sqlId))
+                        owners.append({it.key(), it->sqlId});
+                for (const auto &owner : owners) {
+                    if (!owner.first)
+                        continue;
+                    const auto found = m_observers.constFind(owner.first);
+                    if (found == m_observers.cend() || found->sqlId != owner.second)
+                        continue;
+                    const auto apply = found->apply;
+                    apply(result.rows.value(owner.second));
+                }
+            }
+            if (!m_pendingKeys.isEmpty())
+                m_notify.start();
+        });
+        return;
+    }
     QScopedValueRollback notifying(m_notifying, true);
     const auto keys = std::exchange(m_pendingKeys, {});
     QHash<QObject *, QSet<QString>> rows;
@@ -524,9 +761,9 @@ quint64 SongMetadataService::request(const QStringList &ids)
         if (seen.contains(id))
             continue;
         seen.insert(id);
-        if (auto *cached = m_cache.object(id); cached && cached->expires > m_clock.elapsed()) {
-            if (!cached->value.isEmpty())
-                job.values.append(cached->value);
+        if (const auto cached = m_cache.lookup(id)) {
+            if (!cached->isEmpty())
+                job.values.append(*cached);
         } else
             job.waiting.insert(id);
     }
@@ -552,6 +789,13 @@ void SongMetadataService::clear()
         m_covers->setScope(m_api.currentAccountUserId());
     m_notify.stop();
     m_pendingKeys.clear();
+    if (m_sqlIndex) {
+        ++m_sqlEpoch;
+        // Observations belong to their owners, including shared queues that
+        // survive an account change. Retire only owners that actually unwatch.
+        if (m_covers && !m_closed)
+            refreshSqlCoverAliases();
+    }
     m_cooldown = 0;
     m_failures = 0;
     for (auto &observer : m_observers)
@@ -582,11 +826,8 @@ void SongMetadataService::settle(const QString &id, const QJsonObject &value, bo
     if (cache && !value.isEmpty())
         rememberCoverFacts(value, true);
     if (cache)
-        m_cache.insert(
-            id,
-            new CacheEntry{value, m_clock.elapsed() +
-                                      (value.isEmpty() ? 30 * 60 * 1000 : 24 * 60 * 60 * 1000)},
-            std::max(4000, int(QJsonDocument(value).toJson(QJsonDocument::Compact).size() * 2)));
+        m_cache.insert(id, value, value.isEmpty() ? 30 * 60 * 1000 : 24 * 60 * 60 * 1000,
+                       std::max(quint64(4000), jsonValueCost(value) * 2));
     if (cache && !value.isEmpty())
         m_pendingKeys.insert("id:" + id);
     for (auto it = m_jobs.begin(); it != m_jobs.end(); ++it)

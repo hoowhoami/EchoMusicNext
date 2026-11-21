@@ -22,9 +22,13 @@ QVariant CommentsModel::data(const QModelIndex &i, int role) const
     switch (role) {
     case Entry: {
         const auto value = row.value("entry");
-        return value.metaType() == QMetaType::fromType<QJsonObject>()
-                   ? value.value<QJsonObject>().toVariantMap()
-                   : value;
+        auto result = row.value("source").value<QJsonObject>().toVariantMap();
+        const auto decorations = value.metaType() == QMetaType::fromType<QJsonObject>()
+                                     ? value.value<QJsonObject>().toVariantMap()
+                                     : value.toMap();
+        for (auto it = decorations.cbegin(); it != decorations.cend(); ++it)
+            result.insert(it.key(), it.value());
+        return result;
     }
     case Kind:
         return row.value("kind");
@@ -38,6 +42,7 @@ QVariantMap CommentsModel::geometryEntry(int row) const
 {
     if (row < 0 || row >= m_rows.size())
         return {};
+    const auto source = m_rows[row].value("source").value<QJsonObject>();
     const auto value = m_rows[row].value("entry");
     const bool json = value.metaType() == QMetaType::fromType<QJsonObject>();
     const auto object = json ? value.value<QJsonObject>() : QJsonObject{};
@@ -51,6 +56,8 @@ QVariantMap CommentsModel::geometryEntry(int row) const
             result.insert(name, object.value(name).toVariant());
         else if (!json && map.contains(name))
             result.insert(name, map.value(name));
+        else if (source.contains(name))
+            result.insert(name, source.value(name).toVariant());
     }
     return result;
 }
@@ -60,7 +67,8 @@ void CommentsModel::replace(QList<QVariantMap> rows)
         return row.value("kind").toString() + "/" + row.value("rootId").toString() + "/" +
                (row.value("entry").metaType() == QMetaType::fromType<QJsonObject>()
                     ? row.value("entry").value<QJsonObject>().value("id").toString()
-                    : row.value("entry").toMap().value("id").toString());
+                    : row.value("entry").toMap().value("id").toString()) +
+               "/" + row.value("source").value<QJsonObject>().value("id").toString();
     };
     bool same = rows.size() == m_rows.size();
     if (same)
@@ -614,9 +622,9 @@ void CommentsController::rebuild()
     }
     auto append = [&](QJsonObject value, const QString &kind, const QString &root,
                       const QJsonArray &siblings, bool firstReply = false) {
-        auto entry = value;
+        QJsonObject entry;
         if (m_authors)
-            entry.insert("products", m_authors->products(entry.value("user_id").toString()));
+            entry.insert("products", m_authors->products(value.value("user_id").toString()));
         QString body = value.value("content").toString();
         QString quoteName, quoteContent;
         const auto pid = value.value("parent_id").toString();
@@ -646,9 +654,10 @@ void CommentsController::rebuild()
                 }
             }
         }
-        entry.insert("body", body);
+        if (body != value.value("content").toString())
+            entry.insert("body", body);
         entry.insert("content_expanded", m_expandedContents.contains(currentKey() + "/" +
-                                                                     entry.value("id").toString()));
+                                                                     value.value("id").toString()));
         entry.insert("quote_name", quoteName);
         entry.insert("quote_content", quoteContent);
         const auto thread = m_streams.value(keyFor(byId.value(root)));
@@ -656,12 +665,15 @@ void CommentsController::rebuild()
         entry.insert("reply_first", firstReply);
         const bool replyOpen =
             !m_replyTarget.isEmpty() &&
-            m_replyTarget.value("id").toString() == entry.value("id").toString() &&
+            m_replyTarget.value("id").toString() == value.value("id").toString() &&
             m_replyRoot == root;
         entry.insert("reply_open", replyOpen);
         const auto context = parentId(value);
         entry.insert("context_reply", !context.isEmpty());
-        rows.append({{"entry", QVariant::fromValue(entry)}, {"kind", kind}, {"rootId", root}});
+        rows.append({{"entry", QVariant::fromValue(entry)},
+                     {"source", QVariant::fromValue(value)},
+                     {"kind", kind},
+                     {"rootId", root}});
         if (replyOpen) {
             auto target = m_replyTarget;
             target.insert("reply_nested", kind == "reply");

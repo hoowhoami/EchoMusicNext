@@ -153,8 +153,10 @@ void RecognitionService::addSong(const QString &id)
 {
     if (!m_available || m_state != Success)
         return;
-    if (const auto track = m_matches.track(id); track && m_playback.libraryActions())
-        m_playback.libraryActions()->prepareTracks({*track}, false);
+    m_matches.requestTrack(id, this, [this](PlaybackTrack track) {
+        if (m_playback.libraryActions())
+            m_playback.libraryActions()->prepareTracks({track}, false);
+    });
 }
 void RecognitionService::shutdown()
 {

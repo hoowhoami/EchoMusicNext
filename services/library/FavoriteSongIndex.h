@@ -1,5 +1,6 @@
 #pragma once
 #include "ApiClient.h"
+#include "SongSourceCache.h"
 #include <QHash>
 #include <QJsonArray>
 #include <QSet>
@@ -23,6 +24,10 @@ public:
     FavoriteSongIndex(ApiClient &, UserPlaylistModel &);
     ~FavoriteSongIndex() override;
     void attachMutations(PlaylistMutationService &);
+    void enableSessionStorage(SessionDatabase &);
+    bool cached() const;
+    QList<SongDatasetStore::CachedRow> cachedRows() const;
+    void requestCover(QObject *, std::function<void(QString)>);
     void ensureLoaded(bool force = false);
     void refresh();
     void applyPresentations(const QJsonArray &);
@@ -96,6 +101,9 @@ private:
     void readPage();
     void accept(quint64, const QByteArray &);
     void acceptPage(const QJsonObject &);
+    void acceptCachedPage(const QJsonObject &);
+    void cacheRows(QJsonArray, std::function<void(QJsonArray)>, bool bindRead = true);
+    void pruneRecords();
     void fail(const QString &);
     void publish();
     void removeFiles(quint64 listId, const QList<quint64> &, quint64 session);
@@ -105,6 +113,8 @@ private:
     ApiClient &m_api;
     UserPlaylistModel &m_library;
     PlaylistMutationService *m_mutations = nullptr;
+    std::unique_ptr<SongSourceCache> m_cache;
+    QHash<qint64, SongDatasetStore::CachedRow> m_records;
     QJsonArray m_base, m_rows, m_readRows;
     QHash<QString, qsizetype> m_index, m_committedIndex;
     QHash<QString, QSet<quint64>> m_aliases;

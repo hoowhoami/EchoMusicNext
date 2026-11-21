@@ -1,5 +1,6 @@
 #include "PlaybackQueueController.h"
 #include "PlaybackService.h"
+#include "SongMetadataService.h"
 #include "TrackTransitionController.h"
 #include "PlaybackRecoveryController.h"
 #include "PlaybackFailureController.h"
@@ -131,7 +132,9 @@ void PlaybackQueueController::requestHistory()
     if (m_playback.m_closing)
         return;
     if (m_playback.m_repository)
-        m_playback.m_repository->loadHistory(m_playback.m_account, m_playback.m_revision);
+        m_playback.m_repository->loadHistory(m_playback.m_account, m_playback.m_revision,
+                                             m_playback.m_metadata &&
+                                                 m_playback.m_metadata->sessionDatabase());
     else
         emit m_playback.historyLoaded({});
 }

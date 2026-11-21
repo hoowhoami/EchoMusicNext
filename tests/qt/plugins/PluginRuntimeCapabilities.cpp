@@ -97,6 +97,28 @@ void PluginRuntimeTest::spectrumTypedFrames()
     auto *sub = service->subscribe(options);
     QVERIFY(sub && sub->active());
     auto *frame = sub->currentFrame();
+    const auto acceptsEmptyCopy = host.engine.evaluate(R"(
+        (function(samples) {
+            const target = new Float32Array(8);
+            target.set(samples, 2);
+            return samples instanceof Float64Array && samples.length === 0
+                && samples.buffer.byteLength === 0 && target.every(v => v === 0);
+        })
+    )");
+    const auto verifyEmptyCopies = [&] {
+        auto bins = frame->copyBins();
+        auto wave = frame->copyWaveform();
+        QVERIFY2(!bins.isError(), qPrintable(bins.toString()));
+        QVERIFY2(!wave.isError(), qPrintable(wave.toString()));
+        QVERIFY(!bins.strictlyEquals(wave));
+        auto accepted = acceptsEmptyCopy.call({bins});
+        QVERIFY2(!accepted.isError(), qPrintable(accepted.toString()));
+        QVERIFY(accepted.toBool());
+        accepted = acceptsEmptyCopy.call({wave});
+        QVERIFY2(!accepted.isError(), qPrintable(accepted.toString()));
+        QVERIFY(accepted.toBool());
+    };
+    verifyEmptyCopies();
     const auto track = spectrumTone(host);
     host.playback.playTracks({track}, 0, "Typed spectrum", "spectrum-test");
     QTRY_VERIFY_WITH_TIMEOUT(frame->source() == "player" && frame->rms() > 0., 15000);
@@ -123,6 +145,7 @@ void PluginRuntimeTest::spectrumTypedFrames()
     QCOMPARE(sub->currentFrame(), frame);
     sub->setPaused(true);
     QCOMPARE(frame->waveformCount(), 0);
+    verifyEmptyCopies();
     sub->dispose();
     QCOMPARE(bins.property(0).toNumber(), 42.);
     QCOMPARE(wave.property("length").toInt(), capturedWaveCount);

@@ -522,6 +522,13 @@ void PersonalFmController::play(const QString &id)
 }
 void PersonalFmController::startCandidate(const PlaybackTrack &track, bool preserveFailureChain)
 {
+    if (!track.payloadLoaded) {
+        m_playback.hydrateForPlayback(track, [this, preserveFailureChain](auto full) {
+            if (!m_closed)
+                startCandidate(full, preserveFailureChain);
+        });
+        return;
+    }
     m_starting = true;
     if (m_playback.sourceKey() != queueKey()) {
         PlaybackTracks history;

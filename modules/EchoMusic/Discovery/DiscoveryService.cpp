@@ -16,6 +16,8 @@ DiscoveryService::DiscoveryService(ApiClient &api, PlaybackService &playback,
       m_rankActions(m_rankSongs, playback, this), m_freeActions(m_freeListen, playback, this),
       m_discoverActions(m_discoverFlow, playback, this)
 {
+    for (auto *catalog : {&m_styleSongs, &m_dailySongs, &m_rankSongs, &m_freeListen})
+        catalog->enableSessionStorage();
     // QML borrows this application-owned object, including explicit invokable
     // returns. GC and engine teardown must never delete a C++ member/context.
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
@@ -394,18 +396,22 @@ void DiscoveryService::syncDiscoverQueue()
 }
 void DiscoveryService::playDiscover(const QString &id)
 {
-    const auto tracks = m_discoverFlow.tracks();
-    for (int index = 0; index < tracks.size(); ++index)
-        if (tracks[index].id == id) {
-            cancel(DiscoverFlow);
-            m_discoverAppendWait = false;
-            // A swipe always adopts the page's complete context, independently
-            // of the ordinary single-song queue preference.
-            m_discoverFollowQueue = true;
-            m_playback.playTracks(tracks, index, tr("刷歌"), DiscoverQueueController::queueKey());
-            syncDiscoverQueue();
+    m_discoverFlow.requestTracks(false, this, [this, id](PlaybackTracks tracks) {
+        if (m_closed)
             return;
-        }
+        for (int index = 0; index < tracks.size(); ++index)
+            if (tracks[index].id == id) {
+                cancel(DiscoverFlow);
+                m_discoverAppendWait = false;
+                // A swipe always adopts the page's complete context, independently
+                // of the ordinary single-song queue preference.
+                m_discoverFollowQueue = true;
+                m_playback.playTracks(tracks, index, tr("刷歌"),
+                                      DiscoverQueueController::queueKey());
+                syncDiscoverQueue();
+                return;
+            }
+    });
 }
 void DiscoveryService::notify(const QString &message, int tone)
 {

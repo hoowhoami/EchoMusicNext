@@ -1,6 +1,7 @@
 #include "EchoUiValue.h"
 #include <QJSValue>
 #include <QJSValueIterator>
+#include <QRectF>
 #include <cmath>
 namespace EchoMusic::EchoUiValue
 {
@@ -78,6 +79,20 @@ QVariant json(const QVariant &input, qsizetype &budget, int depth)
         return std::isfinite(input.toDouble()) ? take(16, input.toDouble()) : QVariant();
     case QMetaType::QString:
         return take(input.toString().size() * 2 + 2, input);
+    case QMetaType::QRect:
+    case QMetaType::QRectF: {
+        const auto rect = input.toRectF();
+        if (!std::isfinite(rect.x()) || !std::isfinite(rect.y()) || !std::isfinite(rect.width()) ||
+            !std::isfinite(rect.height()))
+            return {};
+        // Native glyph geometry is public value data. Normalize it before the
+        // JSON whitelist, rather than silently losing rect and inkRect fields.
+        return json(QVariantMap{{"x", rect.x()},
+                                {"y", rect.y()},
+                                {"width", rect.width()},
+                                {"height", rect.height()}},
+                    budget, depth + 1);
+    }
     case QMetaType::QStringList:
     case QMetaType::QVariantList: {
         const auto values = input.toList();

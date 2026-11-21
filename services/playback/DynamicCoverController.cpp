@@ -7,7 +7,6 @@ namespace EchoMusic
 DynamicCoverController::DynamicCoverController(ApiClient &api, QObject *parent)
     : QObject(parent), m_api(api)
 {
-    m_clock.start();
     connect(&api, &ApiClient::succeeded, this, &DynamicCoverController::succeeded);
     connect(&api, &ApiClient::failed, this, &DynamicCoverController::failed);
     connect(&api, &ApiClient::sessionChanged, this, [this] {
@@ -15,7 +14,6 @@ DynamicCoverController::DynamicCoverController(ApiClient &api, QObject *parent)
         m_urls.clear();
 
         m_cache.clear();
-        m_cacheOrder.clear();
         publish();
         if (m_active)
             request();
@@ -106,18 +104,14 @@ void DynamicCoverController::request()
     // Cache up to 64 artwork resources for five minutes, including misses.
     // Credentials and signed artwork URLs stay out of preferences and queue SQL.
     const auto key = cacheKey();
-    const auto found = m_cache.constFind(key);
-    if (found != m_cache.cend() && found->expires > m_clock.elapsed()) {
-        m_urls = found->urls;
+    if (const auto found = m_cache.lookup(key)) {
+        m_urls = *found;
         m_index = 0;
 
-        m_cacheOrder.removeAll(key);
-        m_cacheOrder.append(key);
         publish();
         return;
     }
     m_cache.remove(key);
-    m_cacheOrder.removeAll(key);
     m_urls.clear();
     m_index = 0;
 
@@ -144,11 +138,7 @@ void DynamicCoverController::succeeded(quint64 id, const QByteArray &bytes)
         return;
 
     const auto key = cacheKey();
-    m_cache.insert(key, {m_urls, m_clock.elapsed() + 300000});
-    m_cacheOrder.removeAll(key);
-    m_cacheOrder.append(key);
-    while (m_cacheOrder.size() > 64)
-        m_cache.remove(m_cacheOrder.takeFirst());
+    m_cache.insert(key, m_urls, 300000);
     m_index = 0;
     publish();
 }

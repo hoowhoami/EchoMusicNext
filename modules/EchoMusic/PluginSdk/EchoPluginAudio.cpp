@@ -31,10 +31,14 @@ QVariantList EchoPluginSpectrumFrame::bandMeans() const
 QJSValue EchoPluginSpectrumFrame::copy(QSpan<const double> values) const
 {
     auto &engine = m_scope.engine();
+    const auto constructor = engine.globalObject().property(QStringLiteral("Float64Array"));
+    // A null QByteArray leaves Qt's JS ArrayBuffer without backing data.
+    // Idle/paused frames still promise independent typed arrays, including
+    // when there are no native samples to copy.
+    if (values.isEmpty())
+        return constructor.callAsConstructor({QJSValue(0)});
     const QByteArray bytes(reinterpret_cast<const char *>(values.data()), values.size_bytes());
-    return engine.globalObject()
-        .property(QStringLiteral("Float64Array"))
-        .callAsConstructor({engine.toScriptValue(bytes)});
+    return constructor.callAsConstructor({engine.toScriptValue(bytes)});
 }
 QJSValue EchoPluginSpectrumFrame::copyBins() const
 {

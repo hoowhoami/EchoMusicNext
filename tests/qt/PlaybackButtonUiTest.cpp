@@ -1,3 +1,4 @@
+#include "CatalogRead.h"
 #include "AccountService.h"
 #include "DiscoveryService.h"
 #include "NativeWindow.h"
@@ -182,7 +183,7 @@ private slots:
         actions.setQueueContext("Fixture catalog", "fixture/catalog");
         SearchModel search(api);
         search.attachPlayback(playback);
-        SearchModelTestAccess::populate(search, catalog.tracks());
+        SearchModelTestAccess::populate(search, readCatalogTracks(&catalog));
         connect(&search, &SearchModel::tracksPlayRequested, &playback,
                 &PlaybackService::playFromSelection);
         ThemeStore theme(settings);

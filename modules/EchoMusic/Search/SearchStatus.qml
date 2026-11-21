@@ -6,24 +6,31 @@ import EchoMusic.Controls
 import EchoMusic.Search
 
 Item {
-    id: status
+    id: root
     required property SearchModel service
     property real listPadding: 24
-    implicitHeight: listPadding + (service.count > 0 || service.hasMore ? 50 : 0) + 40
+    property bool continuousSongs: false
+    readonly property bool failed: service.state === SearchModel.Error
+    implicitHeight: failed ? listPadding + errorLoader.implicitHeight : continuousSongs ? 0 : listPadding + (service.count > 0 || service.hasMore ? 50 : 0) + 40
+    Loader {
+        id: errorLoader
+        anchors.left: parent.left
+        anchors.right: parent.right
+        y: root.listPadding
+        active: root.visible && root.failed
+        sourceComponent: EchoLoadError {
+            message: root.service.errorMessage
+            onRetryRequested: root.service.retry()
+        }
+    }
     RowLayout {
         anchors.horizontalCenter: parent.horizontalCenter
-        y: status.listPadding + 8
-        spacing: 12
+        y: root.listPadding + 8
+        visible: !root.failed && !root.continuousSongs
         Text {
-            text: status.service.state === SearchModel.Error ? status.service.errorMessage : status.service.state === SearchModel.LoadingMore ? qsTr("加载更多中...") : status.service.hasMore ? qsTr("继续下滑加载更多") : status.service.count > 0 ? qsTr("没有更多结果了") : ""
+            text: root.service.state === SearchModel.LoadingMore ? qsTr("加载更多中...") : root.service.hasMore ? qsTr("继续下滑加载更多") : root.service.count > 0 ? qsTr("没有更多结果了") : ""
             color: Theme.secondaryText
             font: Theme.font(13, Theme.mediumWeight)
-        }
-        EchoSoftButton {
-            implicitHeight: 30
-            visible: status.service.state === SearchModel.Error && status.service.count > 0
-            text: qsTr("重试加载")
-            onClicked: status.service.retry()
         }
     }
 }

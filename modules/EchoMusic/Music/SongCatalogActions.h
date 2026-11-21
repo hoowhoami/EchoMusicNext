@@ -29,7 +29,8 @@ public:
     {
         return m_revision;
     }
-    Q_INVOKABLE QVariantMap pluginMenuContext(const QString &id) const;
+    Q_INVOKABLE QString requestPluginMenuContext(const QString &id, QObject *consumer);
+    Q_INVOKABLE bool pluginMenuContextCurrent(const QString &ticket) const;
     Q_INVOKABLE void play(const QString &id = {}, bool replaceContext = true,
                           bool selectedOnly = false);
     QString currentTrackId() const
@@ -75,12 +76,26 @@ signals:
     void favoritesChanged();
     void blacklistChanged();
     void playbackChanged();
+    void pluginMenuContextReady(const QString &ticket, const QVariantMap &context);
 
 private:
+    QObject *beginPlayRead();
     SongCatalogModel &m_model;
     PlaybackService &m_playback;
     QString m_title, m_key;
-    quint64 m_revision = 0;
+    quint64 m_revision = 0, m_playRequest = 0;
+    QPointer<QObject> m_playRead;
     bool m_playInCurrentQueue = false;
+    struct MenuSnapshot
+    {
+        QPointer<QObject> consumer, reader;
+        quint64 epoch = 0;
+        QString id, source;
+        QStringList selected;
+        int selectionCount = 0;
+        QHash<QString, quint64> versions;
+    };
+    QHash<QString, std::shared_ptr<MenuSnapshot>> m_menus;
+    quint64 m_menuTicket = 0;
 };
 } // namespace EchoMusic

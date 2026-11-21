@@ -41,6 +41,7 @@
 #include <QQuickWindow>
 #include <QRegularExpression>
 #include <QSignalSpy>
+#include <QSemaphore>
 #include <QTemporaryDir>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -60,6 +61,33 @@ QVariantList nativeSystemCaptionFrames(QWindow *window);
 using namespace EchoMusic;
 namespace EchoMusic
 {
+class ThemeStoreTestAccess
+{
+public:
+    static QColor sample(const ThemeStore &store)
+    {
+        return store.m_imageSample;
+    }
+    static bool sampling(const ThemeStore &store)
+    {
+        return store.m_sampleRunning;
+    }
+    static bool pending(const ThemeStore &store)
+    {
+        return store.m_sampleTimer.isActive();
+    }
+    static void waitForWorker(ThemeStore &store)
+    {
+        store.m_imageWorkers.waitForDone();
+    }
+    static void holdWorker(ThemeStore &store, QSemaphore &entered, QSemaphore &release)
+    {
+        store.m_imageWorkers.start([&entered, &release] {
+            entered.release();
+            release.acquire();
+        });
+    }
+};
 class PlaybackServiceTestAccess
 {
 public:
@@ -703,6 +731,147 @@ private slots:
         QVERIFY(!theme.imageImporting());
         QCOMPARE(theme.backgroundImage(), retained);
         QVERIFY(QFile::exists(retained.toLocalFile()));
+    }
+    void savedInactiveBackgroundSamplesOnlyWhenSelected()
+    {
+        QTemporaryDir directory;
+        SettingsStore preferences(directory.filePath("preferences.ini"));
+        const auto images = directory.filePath("images");
+        QImage artwork(128, 64, QImage::Format_RGB32);
+        artwork.fill(Qt::white);
+        QPainter painter(&artwork);
+        painter.fillRect(64, 0, 64, 64, Qt::black);
+        painter.end();
+        const auto path = directory.filePath("source.png");
+        QVERIFY(artwork.save(path));
+        {
+            ThemeStore seed(preferences, nullptr, images);
+            seed.importBackground(QUrl::fromLocalFile(path));
+            QTRY_VERIFY(!seed.imageImporting());
+            seed.setBackgroundCrop(QRectF(0, 0, 64, 64));
+            QTRY_COMPARE(ThemeStoreTestAccess::sample(seed), QColor(Qt::white));
+            QVERIFY(seed.applyBackground());
+            seed.selectEcho();
+        }
+        ThemeStore restored(preferences, nullptr, images);
+        QCOMPARE(restored.themeKey(), QString("echo"));
+        QTest::qWait(250);
+        QVERIFY(!ThemeStoreTestAccess::sample(restored).isValid());
+        QVERIFY(!ThemeStoreTestAccess::pending(restored));
+        QVERIFY(!ThemeStoreTestAccess::sampling(restored));
+        restored.previewBackground();
+        QTRY_COMPARE(ThemeStoreTestAccess::sample(restored), QColor(Qt::white));
+        restored.setBackgroundCrop(QRectF(64, 0, 64, 64));
+        QTRY_COMPARE(ThemeStoreTestAccess::sample(restored), QColor(Qt::black));
+        restored.endBackgroundPreview();
+        QCOMPARE(restored.themeKey(), QString("echo"));
+        QTest::qWait(250);
+        QVERIFY(!ThemeStoreTestAccess::pending(restored));
+        restored.previewBackground();
+        QTRY_COMPARE(ThemeStoreTestAccess::sample(restored), QColor(Qt::white));
+    }
+    void inactiveMissingBackgroundReportsOnlyOnPreview()
+    {
+        QTemporaryDir directory;
+        SettingsStore preferences(directory.filePath("preferences.ini"));
+        const auto images = directory.filePath("images");
+        QImage artwork(128, 64, QImage::Format_RGB32);
+        artwork.fill(Qt::white);
+        const auto path = directory.filePath("source.png");
+        QVERIFY(artwork.save(path));
+        QString stored;
+        {
+            ThemeStore seed(preferences, nullptr, images);
+            seed.importBackground(QUrl::fromLocalFile(path));
+            QTRY_VERIFY(!seed.imageImporting());
+            QVERIFY(seed.applyBackground());
+            stored = seed.backgroundImage().toLocalFile();
+            seed.selectEcho();
+        }
+        QVERIFY(QFile::remove(stored));
+        ThemeStore restored(preferences, nullptr, images);
+        QSignalSpy unavailable(&restored, &ThemeStore::backgroundUnavailable);
+        QTest::qWait(250);
+        QCOMPARE(unavailable.size(), 0);
+        QVERIFY(restored.imageError().isEmpty());
+        restored.previewBackground();
+        QTRY_COMPARE(unavailable.size(), 1);
+        QVERIFY(!restored.imageError().isEmpty());
+        QTest::qWait(250);
+        QCOMPARE(unavailable.size(), 1);
+    }
+    void retiredBackgroundSampleDoesNotRestartAfterShutdown()
+    {
+        QTemporaryDir directory;
+        SettingsStore preferences(directory.filePath("preferences.ini"));
+        ThemeStore theme(preferences, nullptr, directory.filePath("images"));
+        QImage artwork(128, 64, QImage::Format_RGB32);
+        artwork.fill(Qt::red);
+        const auto path = directory.filePath("source.png");
+        QVERIFY(artwork.save(path));
+        theme.importBackground(QUrl::fromLocalFile(path));
+        QTRY_VERIFY(!theme.imageImporting());
+        QSemaphore entered, release;
+        ThemeStoreTestAccess::holdWorker(theme, entered, release);
+        const auto unblock = qScopeGuard([&] {
+            release.release();
+            ThemeStoreTestAccess::waitForWorker(theme);
+        });
+        QVERIFY(entered.tryAcquire(1, 1000));
+        theme.setBackgroundCrop(QRectF(0, 0, 64, 64));
+        QTRY_VERIFY(ThemeStoreTestAccess::sampling(theme));
+        theme.setBackgroundCrop(QRectF(64, 0, 64, 64));
+        theme.cancelImageWorkForShutdown();
+        release.release();
+        QTRY_VERIFY(!ThemeStoreTestAccess::sampling(theme));
+        QTest::qWait(250);
+        QVERIFY(!ThemeStoreTestAccess::pending(theme));
+    }
+    void unselectedBackgroundRetiresDecodedPixelsAndCanBeReselected()
+    {
+        QTemporaryDir directory;
+        SettingsStore preferences(directory.filePath("preferences.ini"));
+        ThemeStore theme(preferences, nullptr, directory.filePath("images"));
+        QImage artwork(300, 200, QImage::Format_RGB32);
+        artwork.fill(QColor("#3a70aa"));
+        const auto path = directory.filePath("source.png");
+        QVERIFY(artwork.save(path));
+        theme.importBackground(QUrl::fromLocalFile(path));
+        QTRY_VERIFY(!theme.imageImporting());
+        QVERIFY2(theme.imageError().isEmpty(), qPrintable(theme.imageError()));
+        QVERIFY(theme.applyBackground());
+        const auto stored = theme.backgroundImage();
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Theme
+ThemeBackground { width: 320; height: 240 }
+)",
+                          QUrl());
+        QScopedPointer<QObject> object(component.create());
+        QVERIFY2(object, qPrintable(component.errorString()));
+        auto *image = object->findChild<QQuickItem *>("themeBackgroundImage");
+        QVERIFY(image);
+        QTRY_COMPARE(image->property("status").toInt(), 1);
+        QCOMPARE(image->property("source").toUrl(), stored);
+        for (int cycle = 0; cycle < 3; ++cycle) {
+            theme.selectEcho();
+            QCOMPARE(theme.backgroundImage(), stored);
+            QTRY_COMPARE(image->property("status").toInt(), 0);
+            QVERIFY(image->property("source").toUrl().isEmpty());
+            theme.previewBackground();
+            QTRY_COMPARE(image->property("status").toInt(), 1);
+            QCOMPARE(image->property("source").toUrl(), stored);
+            QVERIFY(theme.applyBackground());
+        }
+        theme.selectSolid(QColor("#abcdef"));
+        QTRY_COMPARE(image->property("status").toInt(), 0);
+        QCOMPARE(theme.backgroundImage(), stored);
+        QVERIFY(QFile::exists(stored.toLocalFile()));
+        QCOMPARE(warnings.size(), 0);
     }
     void managedImagesConvertTaggedColorAndPruneOnlyUnappliedAssets()
     {

@@ -38,6 +38,7 @@ public:
 
 private:
     friend class CommentExtent;
+    friend class DetailsTestAccess;
     QVariantMap geometryEntry(int row) const;
     QList<QVariantMap> m_rows;
 };

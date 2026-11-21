@@ -1,6 +1,7 @@
 #include "DetailsService.h"
 #include <algorithm>
 #include "CommentExtent.h"
+#include "CacheCost.h"
 #include "BarrageController.h"
 #include "ArtistDetailService.h"
 #include "AlbumDetailService.h"
@@ -100,6 +101,27 @@ public:
 class DetailsTestAccess
 {
 public:
+    static void verifySharedCommentSource(CommentsController &c)
+    {
+        auto source = row(1);
+        source.insert("content", QString(4096, QChar(0x4e2d)));
+        source.insert("unknown", QJsonObject{{"nested", QJsonArray{QJsonValue::Null, false}}});
+        c.stream("all").rows = {source};
+        c.rebuild();
+        QCOMPARE(c.model()->rowCount(), 1);
+        const auto &projection = c.m_model.m_rows.first();
+        QCOMPARE(projection.value("source").value<QJsonObject>(), source);
+        const auto decorations = projection.value("entry").value<QJsonObject>();
+        QVERIFY(!decorations.contains("content"));
+        QVERIFY(!decorations.contains("body"));
+        QVERIFY(jsonValueCost(decorations) * 4 < jsonValueCost(source));
+        const auto visible = c.model()->data(c.model()->index(0), CommentsModel::Entry).toMap();
+        QCOMPARE(visible.value("content").toString(), source.value("content").toString());
+        QCOMPARE(QJsonObject::fromVariantMap(visible.value("unknown").toMap()),
+                 source.value("unknown").toObject());
+        QCOMPARE(c.m_model.geometryEntry(0).value("content").toString(),
+                 source.value("content").toString());
+    }
     static void finishDetailReads(SongDetailContext &c)
     {
         c.cancel();
@@ -492,6 +514,12 @@ class DetailsTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void commentsProjectionSharesCanonicalPayloadAndKeepsGeometryText()
+    {
+        ApiClient api;
+        CommentsController controller(api, false, nullptr);
+        DetailsTestAccess::verifySharedCommentSource(controller);
+    }
     void inputPlaceholderAndDocumentShareBaseline()
     {
         QTemporaryDir dir;
@@ -830,7 +858,7 @@ Window {
         QCOMPARE(detail->detail().value("title").toString(), QString("Hash-only song"));
         QVERIFY(detail->errorMessage().isEmpty());
         QCOMPARE(detail->songs()->count(), 1);
-        QVERIFY(detail->songs()->track(hash));
+        QVERIFY(detail->songs()->trackProjection(hash));
         QVERIFY(!calls.contains("krm_audio"));
         QVERIFY(std::none_of(calls.cbegin(), calls.cend(),
                              [](const QString &call) { return call.contains("ranking"); }));

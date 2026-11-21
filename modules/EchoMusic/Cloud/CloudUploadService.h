@@ -1,4 +1,5 @@
 #pragma once
+#include "ValueCache.h"
 #include "ApiClient.h"
 #include "CloudUploadFile.h"
 #include "TaskCenterModel.h"
@@ -179,7 +180,7 @@ private:
     double m_bestScore = -1;
     QJsonObject m_best, m_transfer;
     QString m_authorization, m_storedHash;
-    QHash<QString, QJsonObject> m_cache;
+    ValueCache<QString, QJsonObject> m_cache{512, 8 * 1024 * 1024};
     Lookup m_lookupKind = None;
     QString m_lookupKey, m_step = "pick", m_phase = "idle", m_resumePhase, m_error;
     QJsonArray m_candidates;

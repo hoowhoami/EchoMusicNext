@@ -92,6 +92,12 @@ public:
         model.active().state = SearchModel::State::Loading;
         emit model.changed();
     }
+    static void showError(SearchModel &model)
+    {
+        model.active().state = SearchModel::State::Error;
+        model.active().error = QStringLiteral("搜索请求失败，请稍后重试。");
+        emit model.changed();
+    }
     static void populateDiscovery(SearchModel &model)
     {
         // Canonical UI data only; no upstream API conversion is inferred.
@@ -214,6 +220,47 @@ class SearchUiTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void searchReadErrorUsesSharedRecoveryAndReleasesWhenHidden()
+    {
+        Session session;
+        SearchModelTestAccess::populate(session.search, SearchModel::Kind::Song, 3);
+        QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+        QQmlComponent component(&session.engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Search
+Window {
+ id: window
+ required property SearchModel service
+ width: 400; height: 220; visible: true
+ SearchStatus {
+  objectName: "searchStatus"
+  width: parent.width
+  service: window.service
+  continuousSongs: true
+ }
+})",
+                          QUrl("qrc:/search-error-recovery.qml"));
+        QScopedPointer<QObject> window(component.createWithInitialProperties(
+            {{"service", QVariant::fromValue(&session.search)}}));
+        QVERIFY2(window, qPrintable(component.errorString()));
+        auto *status = window->findChild<QQuickItem *>("searchStatus");
+        QVERIFY(status);
+        QCOMPARE(status->implicitHeight(), qreal(0));
+        SearchModelTestAccess::showError(session.search);
+        QPointer<QQuickItem> retry;
+        QTRY_VERIFY((retry = window->findChild<QQuickItem *>("loadErrorRetry")));
+        QCOMPARE(retry->property("text").toString(), QStringLiteral("重试"));
+        auto *message = window->findChild<QQuickItem *>("loadErrorMessage");
+        QVERIFY(message);
+        QCOMPARE(message->property("text").toString(), session.search.errorMessage());
+        QTRY_VERIFY(status->implicitHeight() >= 60);
+        QVERIFY(retry->mapToItem(status, QPointF()).y() >= 24);
+        status->setVisible(false);
+        QTRY_VERIFY(retry.isNull());
+        QVERIFY2(warnings.isEmpty(),
+                 qPrintable(warnings.isEmpty() ? QString{} : warnings.first().first().toString()));
+    }
     void skeletonLayoutsAcrossThemesAndWidths()
     {
         QTemporaryDir dir;
@@ -959,12 +1006,14 @@ Window {
         QCOMPARE(viewport->property("occlusionHeight").toReal(), qreal(0));
         auto *frame = session.item("shellFrame");
         QVERIFY(frame);
-        QTRY_VERIFY(frame->property("narrow").toBool());
+        QTRY_VERIFY(session.shell.sidebarCollapsed());
         // Finish the real 230->80 sidebar animation before wheel hit testing:
         // GridView cell resizing itself can cancel a wheel animation. Keep the
         // product animation enabled and wait for its actual final geometry.
-        QTRY_VERIFY(std::abs(viewport->width() - (frame->width() - 80 - 4)) <
-                    1.0); // Layout pixel rounding at 180%.
+        auto *panel = session.item("mainPanelSurface");
+        QVERIFY(panel);
+        QTRY_VERIFY(std::abs(panel->mapToItem(frame, QPointF()).x() - 80) < 1.0);
+        QTRY_VERIFY(std::abs(viewport->width() - panel->width()) < 1.0);
         ulong timestamp = 20000;
         for (int tab : {0, 1}) {
             themePage->setProperty("tab", tab);

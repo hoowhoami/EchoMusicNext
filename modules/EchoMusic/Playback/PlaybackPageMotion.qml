@@ -26,6 +26,9 @@ Item {
     property real smallGlyphSize: 0
     property Item snapshotSource: null
     property Component snapshotPlaceholder: null
+    property url snapshotArtworkSource
+    property size snapshotArtworkSize
+    property size snapshotViewSize
     readonly property real cornerBlend: fromBlend + (toBlend - fromBlend) * progress
     readonly property rect currentRect: Qt.rect(fromRect.x + (toRect.x - fromRect.x) * progress, fromRect.y + (toRect.y - fromRect.y) * progress, fromRect.width + (toRect.width - fromRect.width) * progress, fromRect.height + (toRect.height - fromRect.height) * progress)
     readonly property int travelDuration: !Theme.store.motionEnabled ? 0 : coverFlight ? (entering ? 460 : 360) : 400
@@ -63,6 +66,10 @@ Item {
                 const cover = forward ? sourceCover : targetCover;
                 snapshotSource = cover.transitionArtwork;
                 snapshotPlaceholder = cover.status === Image.Ready ? null : cover.transitionPlaceholder;
+                const image = snapshotPlaceholder ? null : snapshotSource as Image;
+                snapshotArtworkSource = image?.source ?? "";
+                snapshotArtworkSize = image?.sourceSize ?? Qt.size(0, 0);
+                snapshotViewSize = image ? Qt.size(image.width, image.height) : Qt.size(0, 0);
             }
         }
         progress = 0;
@@ -75,13 +82,16 @@ Item {
         coverFlight = false;
         snapshotSource = null;
         snapshotPlaceholder = null;
+        snapshotArtworkSource = "";
+        snapshotArtworkSize = Qt.size(0, 0);
+        snapshotViewSize = Qt.size(0, 0);
     }
     visible: coverFlight
     enabled: false
     EchoImageMetrics {
         id: flightMetrics
         item: motion.targetCover
-        active: motion.coverFlight
+        active: motion.coverFlight && motion.snapshotPlaceholder !== null
     }
     // Keep the placeholder at its actual animated size. The shared mask owns
     // its corners, while the glyph travels between the bar and page sizes.
@@ -129,65 +139,103 @@ Item {
                 xScale: motion.currentRect.width / Math.max(1, motion.largeRect.width)
                 yScale: motion.currentRect.height / Math.max(1, motion.largeRect.height)
             }
-            ShaderEffectSource {
-                id: snapshot
-                objectName: "playbackCoverFlightCapture"
+            Loader {
                 anchors.fill: parent
-                sourceItem: placeholderSnapshot.active ? (placeholderSnapshot.item as Item) : motion.snapshotSource
-                hideSource: placeholderSnapshot.active
-                // A frozen small-cover snapshot must retain destination density;
-                // otherwise its source-item geometry downsamples the loaded art.
-                textureSize: flightMetrics.pixelSize
-                live: placeholderSnapshot.active
-                visible: false
-            }
-            Item {
-                id: largeMask
-                anchors.fill: parent
-                visible: false
-                layer.enabled: true
-                layer.smooth: true
-                layer.textureSize: flightMetrics.pixelSize
-                Rectangle {
-                    anchors.fill: parent
-                    radius: motion.targetCover ? motion.targetCover.cornerRadius : 0
-                    antialiasing: true
-                    color: "white"
+                active: !placeholderSnapshot.active
+                sourceComponent: Item {
+                    // Freeze the accepted URL/decode key across interruptions or
+                    // track changes. EchoCover's live cache entry is reused by
+                    // Qt; an already-decoded image needs no capture/resampling.
+                    Image {
+                        id: frozenArtwork
+                        objectName: "playbackCoverFlightImage"
+                        source: motion.snapshotArtworkSource
+                        sourceSize: motion.snapshotArtworkSize
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                        visible: false
+                    }
+                    EchoRoundedImage {
+                        anchors.fill: parent
+                        image: frozenArtwork
+                        cropSize: motion.snapshotViewSize
+                        cornerRadius: motion.smallRadius
+                        opacity: Math.min(1, (1 - motion.cornerBlend) / .35)
+                    }
+                    EchoRoundedImage {
+                        anchors.fill: parent
+                        image: frozenArtwork
+                        cropSize: motion.snapshotViewSize
+                        cornerRadius: motion.targetCover ? motion.targetCover.cornerRadius : 0
+                        opacity: Math.min(1, motion.cornerBlend / .35)
+                    }
                 }
             }
-            Item {
-                id: smallMask
+            Loader {
                 anchors.fill: parent
-                visible: false
-                layer.enabled: true
-                layer.smooth: true
-                layer.textureSize: flightMetrics.pixelSize
-                Rectangle {
-                    anchors.fill: parent
-                    radius: motion.smallRadius
-                    antialiasing: true
-                    color: "white"
+                active: placeholderSnapshot.active
+                sourceComponent: Item {
+                    ShaderEffectSource {
+                        id: snapshot
+                        objectName: "playbackCoverFlightCapture"
+                        anchors.fill: parent
+                        sourceItem: placeholderSnapshot.item as Item
+                        hideSource: true
+                        // Placeholder glyphs are drawn at the destination density,
+                        // independently of the compact bar cover's geometry.
+                        textureSize: flightMetrics.pixelSize
+                        live: true
+                        visible: false
+                    }
+                    Item {
+                        id: largeMask
+                        anchors.fill: parent
+                        visible: false
+                        layer.enabled: true
+                        layer.smooth: true
+                        layer.textureSize: flightMetrics.pixelSize
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: motion.targetCover ? motion.targetCover.cornerRadius : 0
+                            antialiasing: true
+                            color: "white"
+                        }
+                    }
+                    Item {
+                        id: smallMask
+                        anchors.fill: parent
+                        visible: false
+                        layer.enabled: true
+                        layer.smooth: true
+                        layer.textureSize: flightMetrics.pixelSize
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: motion.smallRadius
+                            antialiasing: true
+                            color: "white"
+                        }
+                    }
+                    MultiEffect {
+                        anchors.fill: parent
+                        source: snapshot
+                        maskEnabled: true
+                        maskThresholdMin: 0.5
+                        maskSpreadAtMin: 1
+                        autoPaddingEnabled: false
+                        maskSource: smallMask
+                        opacity: Math.min(1, (1 - motion.cornerBlend) / .35)
+                    }
+                    MultiEffect {
+                        anchors.fill: parent
+                        source: snapshot
+                        maskEnabled: true
+                        maskThresholdMin: 0.5
+                        maskSpreadAtMin: 1
+                        autoPaddingEnabled: false
+                        maskSource: largeMask
+                        opacity: Math.min(1, motion.cornerBlend / .35)
+                    }
                 }
-            }
-            MultiEffect {
-                anchors.fill: parent
-                source: snapshot
-                maskEnabled: true
-                maskThresholdMin: 0.5
-                maskSpreadAtMin: 1
-                autoPaddingEnabled: false
-                maskSource: smallMask
-                opacity: Math.min(1, (1 - motion.cornerBlend) / .35)
-            }
-            MultiEffect {
-                anchors.fill: parent
-                source: snapshot
-                maskEnabled: true
-                maskThresholdMin: 0.5
-                maskSpreadAtMin: 1
-                autoPaddingEnabled: false
-                maskSource: largeMask
-                opacity: Math.min(1, motion.cornerBlend / .35)
             }
         }
     }

@@ -1,3 +1,4 @@
+#include "CacheCost.h"
 #include "SettingsKeys.h"
 #include "PlaybackService.h"
 #include "PlaybackSessionController.h"
@@ -75,6 +76,8 @@ void PlaybackService::attachMetadata(SongMetadataService &metadata)
     if (m_metadata == &metadata)
         return;
     m_metadata = &metadata;
+    if (auto *database = metadata.sessionDatabase())
+        m_cloudSources.enableSessionStorage(*database);
     const auto bindQueue = [this](PlaybackQueueModel *model) {
         model->attachMetadata(m_metadata);
         connect(model, &PlaybackQueueModel::presentationChanged, this, [this] {
@@ -484,12 +487,9 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
                 // Session memory keyed by audio hash: lists loaded after the
                 // play replay these corrections at projection time.
                 if (!m_track.hash.isEmpty())
-                    m_playbackFacts.insert(
-                        m_track.hash.toLower(), new QJsonObject(facts),
-                        std::max(
-                            1, int((QJsonDocument(facts).toJson(QJsonDocument::Compact).size() * 2 +
-                                    1999) /
-                                   2000)));
+                    m_playbackFacts.insert(m_track.hash.toLower(), facts,
+                                           decltype(m_playbackFacts)::NoExpiry,
+                                           std::max(quint64(2000), jsonValueCost(facts) * 2));
                 if (m_metadata)
                     m_metadata->publishEmbedded(
                         {{"hash", m_track.hash},
@@ -607,6 +607,17 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
     bindQueue(queue());
     if (!storagePath.isEmpty()) {
         m_repository = std::make_unique<PlaybackRepository>(storagePath);
+        const auto bindPayloads = [this](PlaybackQueueModel *model) {
+            model->attachRepository(m_repository.get());
+        };
+        connect(&m_catalog, &PlaybackQueueCatalog::modelAdded, this, bindPayloads);
+        bindPayloads(queue());
+        connect(m_repository.get(), &PlaybackRepository::saved, this,
+                [this](const QStringList &keys, const PlaybackPayloadLease &lease) {
+                    for (const auto &state : m_catalog.snapshot())
+                        if (auto *model = m_catalog.modelForKey(state.key))
+                            model->retirePayloads(keys, lease);
+                });
         m_listenTogether->attachRepository(*m_repository);
         connect(m_repository.get(), &PlaybackRepository::loaded, this,
                 [this](quint64 account, quint64 revision, const PlaybackQueueStates &states,
@@ -624,6 +635,21 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
                     if (const auto *track = queue()->at(queue()->currentIndex())) {
                         m_track = *track;
                         m_duration = qint64(track->durationMs);
+                        const auto sequence = m_sequence;
+                        const auto key = track->payloadKey;
+                        m_repository->requestTrack(*track, this,
+                                                   [this, sequence, key](auto full, auto error) {
+                                                       if (m_closing || sequence != m_sequence ||
+                                                           m_track.payloadKey != key)
+                                                           return;
+                                                       if (!error.isEmpty()) {
+                                                           m_error = error;
+                                                           emit changed();
+                                                           return;
+                                                       }
+                                                       m_track = std::move(full);
+                                                       emit changed();
+                                                   });
                     }
                     // A restored track never runs startTrack, and the metadata
                     // presentation only reloads the artwork when the cover URL
@@ -646,10 +672,11 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
             qWarning().noquote() << "Playback storage:" << message;
         });
         connect(m_repository.get(), &PlaybackRepository::historyLoaded, this,
-                [this](quint64 account, quint64 revision, const QJsonArray &entries) {
+                [this](quint64 account, quint64 revision, const QJsonArray &entries,
+                       HistoryPayloadLease lease) {
                     if (m_closing || account != m_account || revision != m_api.sessionRevision())
                         return;
-                    emit historyLoaded(entries);
+                    emit historyLoaded(entries, std::move(lease));
                 });
         connect(m_repository.get(), &PlaybackRepository::historyFailed, this,
                 &PlaybackService::historyFailed);
@@ -664,7 +691,7 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
         });
         m_restoreSequence = m_sequence;
         m_queueRestorePending = true;
-        m_repository->load(PlaybackRepository::SharedQueueScope, m_restoreSequence);
+        m_repository->load(PlaybackRepository::SharedQueueScope, m_restoreSequence, true);
     }
     connect(&api, &ApiClient::sessionChanged, this, [this] {
         const bool restorePending = m_queueRestorePending && m_sequence == m_restoreSequence;
@@ -712,7 +739,7 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
         m_restoreSequence = m_sequence;
         m_queueRestorePending = restorePending;
         if (m_repository && restorePending)
-            m_repository->load(PlaybackRepository::SharedQueueScope, m_restoreSequence);
+            m_repository->load(PlaybackRepository::SharedQueueScope, m_restoreSequence, true);
         else
             persist();
         // Account-owned history is never shared across sessions.
@@ -772,6 +799,8 @@ void PlaybackService::publishProgressStatus()
 }
 void PlaybackService::invalidate(bool preserveLyrics)
 {
+    ++m_queueReadIntent;
+    delete m_queueRead.data();
     m_sessionController->invalidate(preserveLyrics);
 }
 void PlaybackService::playTracks(const PlaybackTracks &tracks, int index, const QString &title,
@@ -819,16 +848,67 @@ void PlaybackService::loadCurrentArtwork()
     // Even an empty source must retire an older in-flight artwork request.
     m_artwork.load(source, m_sequence);
 }
+void PlaybackService::hydrateForPlayback(PlaybackTrack track,
+                                         std::function<void(PlaybackTrack)> done)
+{
+    const auto intent = ++m_queueReadIntent;
+    delete m_queueRead.data();
+    if (m_closing)
+        return;
+    if (track.payloadLoaded) {
+        done(std::move(track));
+        return;
+    }
+    if (!m_repository) {
+        m_error = tr("播放队列存储不可用");
+        emit changed();
+        return;
+    }
+    auto *request = new QObject(this);
+    m_queueRead = request;
+    const QPointer<QObject> guard(request);
+    const auto sequence = m_sequence, session = m_api.sessionRevision();
+    m_repository->requestTrack(std::move(track), request,
+                               [this, intent, sequence, session, guard,
+                                done = std::move(done)](auto full, auto error) mutable {
+                                   if (!guard)
+                                       return;
+                                   guard->deleteLater();
+                                   if (m_closing || intent != m_queueReadIntent ||
+                                       sequence != m_sequence || session != m_api.sessionRevision())
+                                       return;
+                                   if (!error.isEmpty()) {
+                                       m_error = error;
+                                       emit changed();
+                                       return;
+                                   }
+                                   done(std::move(full));
+                               });
+}
 void PlaybackService::startIndex(int index, bool preserveFailureChain)
 {
     const auto *track = queue()->at(index);
     if (m_closing || !track)
         return;
-    if (m_personalFm->active()) {
-        m_personalFm->startCandidate(*track, preserveFailureChain);
-        return;
-    }
-    startTrack(*track, index, preserveFailureChain);
+    const QPointer<PlaybackQueueModel> model(queue());
+    const auto key = track->stableKey(), payload = track->payloadKey;
+    hydrateForPlayback(
+        *track, [this, model, key, payload, preserveFailureChain](PlaybackTrack full) {
+            if (!model || model != queue())
+                return;
+            int row = -1;
+            for (int i = 0; i < model->rowCount(); ++i)
+                if (model->at(i)->stableKey() == key && model->at(i)->payloadKey == payload) {
+                    row = i;
+                    break;
+                }
+            if (row < 0)
+                return;
+            if (m_personalFm->active())
+                m_personalFm->startCandidate(full, preserveFailureChain);
+            else
+                startTrack(full, row, preserveFailureChain);
+        });
 }
 
 bool PlaybackService::adoptCloudIdentity(PlaybackTrack &track) const
@@ -868,6 +948,12 @@ PlaybackTrack PlaybackService::mergeResolvedTrack(const PlaybackTrack &track) co
 void PlaybackService::startTrack(const PlaybackTrack &snapshot, int index,
                                  bool preserveFailureChain)
 {
+    if (!snapshot.payloadLoaded) {
+        hydrateForPlayback(snapshot, [this, index, preserveFailureChain](auto full) {
+            startTrack(full, index, preserveFailureChain);
+        });
+        return;
+    }
     auto resolved = snapshot;
     adoptCloudIdentity(resolved);
     m_failure->started(preserveFailureChain);
@@ -1435,6 +1521,49 @@ void PlaybackService::retry()
 void PlaybackService::requestHistory()
 {
     m_queueController->requestHistory();
+}
+void PlaybackService::requestHistoryTracks(QList<QJsonObject> placeholders, QObject *consumer,
+                                           std::function<void(QList<QJsonObject>, QString)> done)
+{
+    if (m_closing || !m_repository) {
+        done({}, tr("播放历史存储不可用"));
+        return;
+    }
+    QStringList keys;
+    for (const auto &row : placeholders)
+        keys.append(row.value("_history_payload_key").toString());
+    const auto account = m_account, revision = m_api.sessionRevision();
+    const QPointer<PlaybackService> owner(this);
+    m_repository->requestHistoryTracks(
+        account, std::move(keys), consumer,
+        [owner, account, revision, placeholders = std::move(placeholders),
+         done = std::move(done)](auto snapshots, auto error) mutable {
+            if (!owner)
+                return;
+            if (account != owner->m_account || revision != owner->m_api.sessionRevision()) {
+                done({}, tr("播放历史账号已改变"));
+                return;
+            }
+            if (!error.isEmpty()) {
+                done({}, error);
+                return;
+            }
+            QList<QJsonObject> songs;
+            for (int i = 0; i < snapshots.size(); ++i) {
+                auto song = PlaybackTrack::fromSnapshot(snapshots[i]).toCatalog();
+                // Canonical view IDs and ledger facts belong to the accepted
+                // history manifest; complete rights/unknown metadata remain from SQL.
+                song.insert("id", placeholders[i].value("id"));
+                auto metadata = song.value("metadata").toObject();
+                const auto history = placeholders[i].value("metadata").toObject();
+                for (const auto *key : {"history_key", "played_at", "play_count", "listened_ms"})
+                    if (history.contains(key))
+                        metadata.insert(key, history.value(key));
+                song.insert("metadata", metadata);
+                songs.append(std::move(song));
+            }
+            done(std::move(songs), {});
+        });
 }
 void PlaybackService::removeHistory(const QStringList &keys)
 {

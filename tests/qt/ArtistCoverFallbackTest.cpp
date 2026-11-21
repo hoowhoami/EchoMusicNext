@@ -141,7 +141,7 @@ void attach(SongCatalogModel &model, SongMetadataService &service, const QJsonOb
 }
 QString cover(const SongCatalogModel &model, const QString &id)
 {
-    const auto track = model.track(id);
+    const auto track = model.trackProjection(id);
     return track ? track->cover : QString();
 }
 } // namespace
@@ -252,7 +252,7 @@ private slots:
         SearchModelTestAccess::seed(search, api, SearchModel::Kind::Lyric, row);
         QTRY_COMPARE(cover(first, "1"), portrait);
         QTRY_COMPARE(queue.at(0)->cover, portrait);
-        QVERIFY(SongMetadataService::needsCompletion(first.track("1")->toCatalog()));
+        QVERIFY(SongMetadataService::needsCompletion(first.trackProjection("1")->toCatalog()));
         const auto path = dir.filePath("reader.png");
         QImage image(32, 32, QImage::Format_RGB32);
         image.fill(Qt::green);
@@ -265,9 +265,9 @@ private slots:
         QTRY_COMPARE(queue.at(0)->cover, embedded);
         QTRY_COMPARE(search.data(search.index(0), SearchModel::CoverUrl).toString(), embedded);
         QCOMPARE(SearchModelTestAccess::cover(search, SearchModel::Kind::Song), embedded);
-        QVERIFY(!first.track("1")->catalogMetadata.contains("artist_cover_url"));
+        QVERIFY(!first.trackProjection("1")->catalogMetadata.contains("artist_cover_url"));
         QCOMPARE(first.selectedCount(), 1);
-        QCOMPARE(first.track("1")->catalogPrivilege, quint32(40));
+        QCOMPARE(first.trackProjection("1")->catalogPrivilege, quint32(40));
         const auto album = QString("https://example.test/album.jpg");
         queue.updateFacts("1", row["hash"].toString(), {}, {}, {}, album, 0);
         QCOMPARE(queue.at(0)->cover, album);

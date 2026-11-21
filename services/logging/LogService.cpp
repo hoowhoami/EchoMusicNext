@@ -121,26 +121,28 @@ public:
     {
         if (!accepts(level))
             return;
-        if (!m_mutex.tryLock()) {
-            m_dropped.fetch_add(1);
-            return;
+        auto metadata = details;
+        if (!metadata.isEmpty()) {
+            const auto budget = qMax(qsizetype(0), 8192 - message.toUtf8().size());
+            while (metadata.toUtf8().size() > budget)
+                metadata.truncate(metadata.size() / 2);
         }
+        Record record{time ? time : QDateTime::currentMSecsSinceEpoch(),
+                      level,
+                      target.left(80),
+                      message.size() > 8192 ? QStringLiteral("[oversized log omitted]") : message,
+                      fatal,
+                      std::move(metadata)};
+        // Qt producers are control/UI threads; realtime audio emits no Qt logs.
+        // Only swap/push state is locked, never formatting or file I/O. A normal
+        // writer wakeup must not randomly lose an operation's terminal record.
+        const QMutexLocker lock(&m_mutex);
         if (!m_stopping && m_queue.size() < capacity) {
-            auto metadata = details;
-            if (!metadata.isEmpty()) {
-                const auto budget = qMax(qsizetype(0), 8192 - message.toUtf8().size());
-                while (metadata.toUtf8().size() > budget)
-                    metadata.truncate(metadata.size() / 2);
-            }
-            m_queue.push_back(
-                {time ? time : QDateTime::currentMSecsSinceEpoch(), level, target.left(80),
-                 message.size() > 8192 ? QStringLiteral("[oversized log omitted]") : message, fatal,
-                 std::move(metadata)});
+            m_queue.push_back(std::move(record));
             m_ready.wakeOne();
         } else {
             m_dropped.fetch_add(1);
         }
-        m_mutex.unlock();
     }
     void enqueueQt(QtMsgType type, const QMessageLogContext &context, const QString &message,
                    qint64 time)
@@ -297,8 +299,7 @@ protected:
             const auto dropped = m_dropped.exchange(0);
             if (dropped)
                 write({QDateTime::currentMSecsSinceEpoch(), 1, QStringLiteral("echo.logging"),
-                       QStringLiteral("Dropped %1 log entries (queue capacity or contention)")
-                           .arg(dropped)});
+                       QStringLiteral("Dropped %1 log entries (queue capacity)").arg(dropped)});
             for (const auto &record : batch)
                 write(record);
             if (fileAlive)
@@ -390,12 +391,17 @@ QMutex sinkMutex;
 std::shared_ptr<LogSink> sink;
 void messageHandler(QtMsgType type, const QMessageLogContext &context, const QString &message)
 {
+    thread_local bool handling = false;
+    if (handling)
+        return;
+    const QScopedValueRollback guard(handling, true);
     if (type == QtFatalMsg)
         CrashDiagnostics::recordQtFatal(message);
-    if (!sinkMutex.tryLock())
-        return;
-    auto writer = sink;
-    sinkMutex.unlock();
+    std::shared_ptr<LogSink> writer;
+    {
+        const QMutexLocker lock(&sinkMutex);
+        writer = sink;
+    }
     if (writer)
         writer->enqueueQt(type, context, message, rustEmissionTime);
 }

@@ -1,3 +1,4 @@
+#include "CacheCost.h"
 #include "CloudUploadService.h"
 #include "RouteController.h"
 #include "echo_ffi.h"
@@ -500,11 +501,11 @@ void CloudUploadService::startLookup(Lookup kind, const QString &key)
                                               : kind == Manual ? Manual
                                                                : Automatic)) +
                           ":" + key;
-    if (m_cache.contains(cacheKey)) {
+    if (const auto cached = m_cache.lookup(cacheKey)) {
         const auto run = m_run;
-        QTimer::singleShot(0, this, [this, run, cacheKey] {
+        QTimer::singleShot(0, this, [this, run, result = *cached] {
             if (run == m_run && !paused() && !m_closed)
-                applyLookup(m_cache.value(cacheKey));
+                applyLookup(result);
         });
         return;
     }
@@ -701,9 +702,7 @@ void CloudUploadService::accept(quint64 id, const QByteArray &bytes)
     const auto result = QJsonDocument::fromJson(bytes).object();
     if (m_lookupKind != None) {
         const auto cacheKey = QString::number(int(m_lookupKind)) + ":" + m_lookupKey;
-        if (m_cache.size() >= 512)
-            m_cache.clear();
-        m_cache.insert(cacheKey, result);
+        m_cache.insert(cacheKey, result, decltype(m_cache)::NoExpiry, jsonValueCost(result) * 2);
         applyLookup(result);
         return;
     }

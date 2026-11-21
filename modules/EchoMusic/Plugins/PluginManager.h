@@ -1,5 +1,6 @@
 #pragma once
 #include "ShareTarget.h"
+#include "JsonRecordStore.h"
 #include "PluginRuntime.h"
 #include "PluginListModel.h"
 #include "TaskCenterModel.h"
@@ -59,6 +60,7 @@ public:
     /// Main-window startup only; one successful check per process, without polling.
     void startStartupUpdateCheck();
     ~PluginManager() override;
+    void attachRecordStore(JsonRecordStore &);
     PluginFileService *fileGrants()
     {
         return m_runtime.fileService();
@@ -221,6 +223,12 @@ private:
     QNetworkAccessManager m_network;
     QSet<QNetworkReply *> m_replies;
     QVariantList m_sources, m_entries;
+    void cacheManifests();
+    void readManifest(const QString &, std::function<void(QVariantMap, QString)>);
+    void saveCatalog(QVariantList, quint64, QHash<QString, JsonRecordStore::Reference>);
+    JsonRecordStore *m_recordStore = nullptr;
+    QHash<QString, JsonRecordStore::Reference> m_manifests;
+    quint64 m_saveRevision = 0;
     QString m_search, m_sourceFilter, m_fetchedAt, m_installingKey;
     QStringList m_updateQueue;
     QHash<QString, UpdateJob> m_updateJobs;

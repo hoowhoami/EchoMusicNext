@@ -1,3 +1,4 @@
+#include "CatalogRead.h"
 #include "PlaybackRepository_p.h"
 #include "SongCatalogModel.h"
 #include "ArtistDirectorySliceModel.h"
@@ -1549,10 +1550,10 @@ Window {
         QCOMPARE(model.count(), 1);
         model.selectAll(true);
         QCOMPARE(model.selectedCount(), 3);
-        QCOMPARE(model.tracks(true).size(), 3);
+        QCOMPARE(readCatalogTracks(&model, true).size(), 3);
         model.toggleSelected("1");
         QCOMPARE(model.selectedCount(), 2);
-        QCOMPARE(model.tracks(true).first().id, QString("2"));
+        QCOMPARE(readCatalogTracks(&model, true).first().id, QString("2"));
         model.setQuery({});
         model.toggleSort(2);
         const auto ascending = model.item(0).value("resourceId");
@@ -1565,7 +1566,7 @@ Window {
         QCOMPARE(
             model.item(0).value("privilegeTags").toList().first().toMap().value("label").toString(),
             QString("VIP"));
-        const auto track = model.tracks().first();
+        const auto track = readCatalogTracks(&model).first();
         QCOMPARE(track.catalogMetadata.value("audio_id").toInt(), 120);
         QVERIFY(!track.catalogMetadata.value("resources").toArray().isEmpty());
         auto mapOnlyHigh = domainSong(9);
@@ -1984,7 +1985,8 @@ Window {
             db.setDatabaseName(path);
             QVERIFY(db.open());
             QSqlQuery query(db);
-            QVERIFY(query.exec("SELECT track_snapshot FROM playback_history"));
+            QVERIFY(query.exec("SELECT p.snapshot FROM playback_history h JOIN "
+                               "playback_history_payloads p ON p.payload_key=h.payload_key"));
             QVERIFY(query.next());
             QCOMPARE(QJsonDocument::fromJson(query.value(0).toByteArray()).object(),
                      track.toDomain());
@@ -2055,7 +2057,8 @@ Window {
             db.setDatabaseName(path);
             QVERIFY(db.open());
             QSqlQuery query(db);
-            QVERIFY(query.exec("SELECT track_snapshot FROM playback_history"));
+            QVERIFY(query.exec("SELECT p.snapshot FROM playback_history h JOIN "
+                               "playback_history_payloads p ON p.payload_key=h.payload_key"));
             QVERIFY(query.next());
             QCOMPARE(QJsonDocument::fromJson(query.value(0).toByteArray()).object(),
                      track.toDomain());
@@ -2084,11 +2087,11 @@ Window {
         QVERIFY(catalog.data(catalog.index(0), SongCatalogModel::Original).toBool());
         QVERIFY(
             catalog.data(catalog.index(0), SongCatalogModel::DurationText).toString().isEmpty());
-        const auto exported = catalog.track(expected.id);
+        const auto exported = catalog.trackProjection(expected.id);
         QVERIFY(exported);
         QCOMPARE(exported->toDomain(), expected.toDomain());
-        QCOMPARE(catalog.tracks().first().toDomain(), expected.toDomain());
-        QCOMPARE(catalog.tracks(true).first().toDomain(), expected.toDomain());
+        QCOMPARE(readCatalogTracks(&catalog).first().toDomain(), expected.toDomain());
+        QCOMPARE(readCatalogTracks(&catalog, true).first().toDomain(), expected.toDomain());
         // Exporting does not replace the cached page's sorting/filter/selection.
         QCOMPARE(catalog.query(), QString("Metadata"));
         QCOMPARE(catalog.sortField(), 2);
@@ -2096,7 +2099,7 @@ Window {
         catalog.replaceCards(
             {QJsonObject{{"id", 1}, {"creator", "Creator"}, {"duration_ms", 1200}}});
         QVERIFY(catalog.data(catalog.index(0), SongCatalogModel::ArtistLinks).toList().isEmpty());
-        QVERIFY(catalog.tracks().isEmpty());
+        QVERIFY(readCatalogTracks(&catalog).isEmpty());
     }
     void incompleteAndRepeatedCatalogIdsKeepEveryRow()
     {
@@ -2113,7 +2116,7 @@ Window {
             const auto key = model.data(model.index(row), SongCatalogModel::ResourceId).toString();
             QVERIFY(!keys.contains(key));
             keys.insert(key);
-            const auto track = model.track(key);
+            const auto track = model.trackProjection(key);
             QVERIFY(track.has_value());
             QCOMPARE(track->id, row < 2 ? song["id"].toString() : QString());
             if (row >= 2) {
@@ -2146,7 +2149,10 @@ Window {
             QVERIFY(db.open());
             QSqlQuery query(db);
             for (const auto *sql :
-                 {"ALTER TABLE playback_tracks DROP COLUMN catalog_metadata",
+                 {"ALTER TABLE playback_tracks DROP COLUMN payload_key",
+                  "ALTER TABLE playback_history DROP COLUMN payload_key",
+                  "DROP TABLE playback_song_payloads", "DROP TABLE playback_history_payloads",
+                  "ALTER TABLE playback_tracks DROP COLUMN catalog_metadata",
                   "ALTER TABLE playback_tracks DROP COLUMN catalog_privilege",
                   "ALTER TABLE playback_history DROP COLUMN track_snapshot",
                   "ALTER TABLE playback_accounts DROP COLUMN last_local_queue",
@@ -2201,7 +2207,7 @@ Window {
             service.state(DiscoveryService::Style) != DiscoveryService::Loading, 45000);
         QVERIFY2(service.state(DiscoveryService::Style) == DiscoveryService::Ready,
                  qPrintable(service.error(DiscoveryService::Style)));
-        const auto tracks = service.styleSongs()->tracks();
+        const auto tracks = readCatalogTracks(service.styleSongs());
         QVERIFY(!tracks.isEmpty());
         QVERIFY(tracks.first().playable());
         service.play(service.styleSongs(), tracks.first().id, false);
@@ -2219,7 +2225,7 @@ Window {
         service.setPage("ranking", "live-rank", true);
         QTRY_COMPARE_WITH_TIMEOUT(service.state(DiscoveryService::RankSongs),
                                   int(DiscoveryService::Ready), 45000);
-        const auto ranks = service.rankingSongs()->tracks();
+        const auto ranks = readCatalogTracks(service.rankingSongs());
         QVERIFY(!ranks.isEmpty());
         service.play(service.rankingSongs(), ranks.first().id, false);
         QTRY_VERIFY_WITH_TIMEOUT(!playback.loading(), 45000);
@@ -2642,7 +2648,7 @@ Window {
                 QVERIFY(service.rankSongs()->count() > 0);
             else if (tab == 3) {
                 QCOMPARE(service.newSongs()->count(), 30);
-                QVERIFY(!service.newSongs()->tracks().first().catalogMetadata.isEmpty());
+                QVERIFY(!readCatalogTracks(service.newSongs()).first().catalogMetadata.isEmpty());
             } else
                 QVERIFY(service.cards()->count() > 0);
             QTRY_VERIFY(findVisual(window->contentItem(), "explorePage"));
@@ -3040,7 +3046,7 @@ Window {
                                   int(DiscoveryService::Ready), 45000);
         QVERIFY(service.styleSongs()->count() > 0);
         QVERIFY(service.playlists()->count() > 0);
-        QVERIFY(!service.styleSongs()->tracks().first().catalogMetadata.isEmpty());
+        QVERIFY(!readCatalogTracks(service.styleSongs()).first().catalogMetadata.isEmpty());
         service.selectCategory("11292");
         QTRY_COMPARE_WITH_TIMEOUT(service.state(DiscoveryService::Playlists),
                                   int(DiscoveryService::Ready), 45000);

@@ -594,6 +594,7 @@ int PluginManager::updateCount() const
 }
 void PluginManager::rebuild()
 {
+    cacheManifests();
     QVariantList rows;
     const auto enabled = sourceIds();
     for (const auto &value : m_entries) {
@@ -633,11 +634,56 @@ void PluginManager::save()
 {
     m_preferences.setValue(EchoMusic::SettingsKeys::Plugins::Sources, m_sources);
     m_preferences.sync();
+    cacheManifests();
+    saveCatalog(m_entries, ++m_saveRevision, m_manifests);
+}
+void PluginManager::saveCatalog(QVariantList entries, quint64 revision,
+                                QHash<QString, JsonRecordStore::Reference> references)
+{
+    // Rehydrate only for the existing portable catalog write, never for normal
+    // filtering, card reads or update discovery. Superseded saves cannot win.
+    if (m_closing || revision != m_saveRevision)
+        return;
+    if (m_recordStore) {
+        for (int i = 0; i < entries.size(); ++i) {
+            auto record = entries[i].toMap();
+            if (record.contains("manifest"))
+                continue;
+            const auto ref = references.value(record.value("key").toString());
+            if (!ref.snapshot) {
+                emit notice(tr("插件目录缓存保存失败：发布清单不可用"), true);
+                return;
+            }
+            m_recordStore->readAll(
+                ref.snapshot, this,
+                [this, entries = std::move(entries), revision, snapshot = ref.snapshot,
+                 references](QJsonArray manifests, QString error) mutable {
+                    if (m_closing || revision != m_saveRevision)
+                        return;
+                    if (!error.isEmpty()) {
+                        emit notice(error, true);
+                        return;
+                    }
+                    for (auto &value : entries) {
+                        auto row = value.toMap();
+                        const auto current = references.value(row.value("key").toString());
+                        if (current.snapshot == snapshot && current.row < manifests.size()) {
+                            auto full = manifests[current.row].toObject().toVariantMap();
+                            for (auto it = row.cbegin(); it != row.cend(); ++it)
+                                full.insert(it.key(), it.value());
+                            value = std::move(full);
+                        }
+                    }
+                    saveCatalog(std::move(entries), revision, std::move(references));
+                });
+            return;
+        }
+    }
     QDir().mkpath(PluginPaths(m_runtime.directory()).cache() + "/marketplace");
     QSaveFile cache(PluginPaths(m_runtime.directory()).cache() + "/marketplace/catalog.json");
     if (cache.open(QIODevice::WriteOnly)) {
         cache.write(QJsonDocument(QJsonObject{{"schemaVersion", 2},
-                                              {"plugins", QJsonArray::fromVariantList(m_entries)},
+                                              {"plugins", QJsonArray::fromVariantList(entries)},
                                               {"fetchedAt", m_fetchedAt},
                                               {"statistics", QJsonObject::fromVariantMap(m_stats)},
                                               {"statisticsAt", double(m_statsAt)},
@@ -646,6 +692,7 @@ void PluginManager::save()
         cache.commit();
     }
 }
+
 void PluginManager::setSearch(const QString &value)
 {
     if (m_search == value)

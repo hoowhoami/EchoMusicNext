@@ -1,7 +1,7 @@
 #pragma once
 #include "ApiClient.h"
 #include "PlaybackTrack.h"
-#include <QElapsedTimer>
+#include "ValueCache.h"
 #include <QUrl>
 #include <QHash>
 #include <QPointer>
@@ -35,14 +35,7 @@ private:
     ApiClient &m_api;
     PlaybackTrack m_track;
     QStringList m_urls;
-    struct CacheEntry
-    {
-        QStringList urls;
-        qint64 expires;
-    };
-    QElapsedTimer m_clock;
-    QHash<QString, CacheEntry> m_cache;
-    QStringList m_cacheOrder;
+    ValueCache<QString, QStringList> m_cache{64};
     QString cacheKey() const;
 
     quint64 m_request = 0, m_revision = 0;

@@ -1,5 +1,6 @@
 #include "HistoryService.h"
 #include "PlaybackService.h"
+#include "SongPresentation.h"
 #include <QDate>
 #include <QDateTime>
 #include <QLocale>
@@ -308,6 +309,13 @@ HistoryService::HistoryService(ApiClient &api, PlaybackService &playback,
       m_actions(m_songs, playback, this), m_statsShare(*this, playback, this), m_network(network)
 {
     m_songs.attachMetadata(&metadata);
+    if (auto *database = metadata.sessionDatabase()) {
+        m_cache = std::make_unique<SongSourceCache>(*database, this);
+        m_songs.enableSessionStorage(*database);
+        connect(&m_songs, &SongCatalogModel::storageFailed, this, &HistoryService::fail);
+        connect(&m_songs, &SongCatalogModel::presentationsApplied, this,
+                &HistoryService::refreshStatsPresentations);
+    }
     m_songs.setMetadataActive(false);
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
     connect(&api, &ApiClient::sessionChanged, &m_statsShare, &HistoryStatsShare::cancel);
@@ -343,6 +351,11 @@ void HistoryService::refresh()
 {
     if (m_closed || m_loading)
         return;
+    if (m_songs.retryStorage()) {
+        m_error.clear();
+        emit changed();
+        return;
+    }
     cancelMetadata();
     m_loading = true;
     m_error.clear();
@@ -360,10 +373,11 @@ void HistoryService::removeMany(const QStringList &ids)
     QStringList keys;
     QSet<QString> seen;
     for (const auto &id : ids) {
-        const auto track = m_songs.track(id);
+        const auto track = m_songs.trackProjection(id);
         if (!track)
             continue;
-        const auto key = track->catalogMetadata.value("history_key").toString();
+        const auto key = m_cache ? m_historyKeys.value(id)
+                                 : track->catalogMetadata.value("history_key").toString();
         if (!key.isEmpty() && !seen.contains(key)) {
             seen.insert(key);
             keys.append(key);
@@ -384,10 +398,98 @@ void HistoryService::clear()
     m_playback.clearHistory();
     emit notice(tr("播放历史已清空"));
 }
-void HistoryService::accept(const QJsonArray &entries)
+void HistoryService::accept(const QJsonArray &entries, HistoryPayloadLease lease)
 {
     if (m_closed)
         return;
+    if (m_cache) {
+        cancelMetadata();
+        const auto epoch = ++m_sourceEpoch, session = m_api.sessionRevision();
+        m_loading = true;
+        QJsonArray songs, statistics;
+        QList<QJsonObject> views;
+        for (const auto &value : entries) {
+            auto entry = normalizeHistoryEntry(value.toObject());
+            auto track = entry.value("track").toObject();
+            auto view = track.take("_presentation").toObject();
+            entry.insert("track", track);
+            auto song = historySong(entry);
+            if (view.isEmpty())
+                view = SongPresentation::value(song);
+            auto projectedSong = view.value("song").toObject();
+            projectedSong.insert("id", song.value("id"));
+            auto metadata = projectedSong.value("metadata").toObject();
+            const auto history = song.value("metadata").toObject();
+            for (const auto *key : {"history_key", "played_at", "play_count", "listened_ms"})
+                metadata.insert(key, history.value(key));
+            projectedSong.insert("metadata", metadata);
+            view.insert("song", projectedSong);
+            views.append(view);
+            auto placeholder = SongPresentation::projection(song);
+            auto placeholderMetadata = placeholder.value("metadata").toObject();
+            placeholderMetadata.remove("plugin_data");
+            for (const auto *key : {"history_key", "played_at", "play_count", "listened_ms"})
+                placeholderMetadata.insert(key, history.value(key));
+            placeholder.insert("metadata", placeholderMetadata);
+            placeholder.insert("_history_payload_key", entry.value("payload_key"));
+            songs.append(std::move(placeholder));
+            // Statistics need names, artwork and ledger counters, never source
+            // resources, rights or plugin data for every retained history row.
+            QJsonObject statsMetadata;
+            if (track.value("metadata").toObject().contains("artist_refs"))
+                statsMetadata.insert("artist_refs",
+                                     track.value("metadata").toObject().value("artist_refs"));
+            track.insert("metadata", statsMetadata);
+            entry.insert("track", track);
+            entry.remove("payload_key");
+            statistics.append(entry);
+        }
+        const auto previous = m_entries.isEmpty() ? QJsonObject{} : m_entries.first().toObject();
+        const auto latest = statistics.isEmpty() ? QJsonObject{} : statistics.first().toObject();
+        const bool promoted =
+            !previous.isEmpty() && !latest.isEmpty() &&
+            (latest.value("played_at").toInteger() > previous.value("played_at").toInteger() ||
+             (latest.value("key") == previous.value("key") &&
+              latest.value("play_count").toInteger() > previous.value("play_count").toInteger()));
+        const QPointer<HistoryService> owner(this);
+        SongDatasetStore::Loader loader = [owner, session, lease = std::move(lease)](
+                                              auto placeholders, QObject *consumer, auto done) {
+            if (!owner || owner->m_closed || session != owner->m_api.sessionRevision()) {
+                done({}, tr("播放历史已失效"));
+                return;
+            }
+            owner->m_playback.requestHistoryTracks(std::move(placeholders), consumer,
+                                                   std::move(done));
+        };
+        m_cache->cache(
+            std::move(songs), this,
+            [this, epoch, statistics, promoted](auto rows, auto error) {
+                if (m_closed || epoch != m_sourceEpoch)
+                    return;
+                if (!error.isEmpty()) {
+                    fail(error);
+                    return;
+                }
+                m_entries = statistics;
+                m_historyKeys.clear();
+                for (const auto &value : m_entries) {
+                    const auto entry = value.toObject();
+                    m_historyKeys.insert(entry.value("track").toObject().value("id").toString(),
+                                         entry.value("key").toString());
+                }
+                m_stats = buildStats(m_entries);
+                m_songs.replaceCachedRows(rows, true);
+                m_loading = false;
+                m_error.clear();
+                reapplyPlaybackFacts();
+                emit changed();
+                if (promoted)
+                    emit recordPromoted();
+            },
+            std::move(loader), std::move(views));
+        emit changed();
+        return;
+    }
     cancelMetadata();
     const auto previous = m_entries.isEmpty() ? QJsonObject{} : m_entries.first().toObject();
     const auto latest = entries.isEmpty() ? QJsonObject{} : entries.first().toObject();
@@ -416,6 +518,8 @@ void HistoryService::accept(const QJsonArray &entries)
 }
 void HistoryService::completeSongs()
 {
+    if (m_cache)
+        return;
     if (m_closed || !m_active || !m_network || !m_metadataRequests.isEmpty())
         return;
     // Local/offline history stays usable; only real remote IDs are accepted by
@@ -461,6 +565,33 @@ void HistoryService::acceptMetadata(quint64 ticket, const QJsonArray &values)
     if (changed) {
         // Presentation-only snapshot: never call record/remove or write SQL,
         // so completion cannot count a play, change dates or promote a row.
+        m_stats = buildStats(m_entries);
+        emit this->changed();
+    }
+}
+void HistoryService::refreshStatsPresentations(const QStringList &rows)
+{
+    if (!m_cache || m_closed)
+        return;
+    const QSet<QString> wanted(rows.begin(), rows.end());
+    bool changed = false;
+    for (qsizetype i = 0; i < m_entries.size(); ++i) {
+        auto entry = m_entries[i].toObject();
+        auto track = entry.value("track").toObject();
+        if (!wanted.contains(track.value("id").toString()))
+            continue;
+        const auto original = historyTrackSong(track);
+        const auto completed = m_metadata.replay(original);
+        if (original == completed)
+            continue;
+        const auto snapshot = PlaybackTrack::fromDomain(completed).toDomain();
+        for (const auto *key : {"title", "artist", "album_id", "album", "cover", "metadata"})
+            track.insert(key, snapshot.value(key));
+        entry.insert("track", track);
+        m_entries[i] = entry;
+        changed = true;
+    }
+    if (changed) {
         m_stats = buildStats(m_entries);
         emit this->changed();
     }
@@ -568,6 +699,7 @@ void HistoryService::shutdown()
     if (m_closed)
         return;
     m_closed = true;
+    ++m_sourceEpoch;
     m_statsShare.cancel();
     cancelMetadata();
     disconnect(&m_playback, nullptr, this, nullptr);

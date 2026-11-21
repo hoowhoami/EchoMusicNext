@@ -5,6 +5,7 @@ add_subdirectory(bridge)
 add_subdirectory(storage)
 add_subdirectory(account)
 add_subdirectory(sharing)
+add_subdirectory(cache)
 add_subdirectory(library)
 add_subdirectory(platform)
 

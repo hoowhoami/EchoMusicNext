@@ -16,6 +16,9 @@
 #include <QProcess>
 #include <QRegularExpression>
 #include <QLockFile>
+#include <atomic>
+#include <thread>
+#include <vector>
 using namespace EchoMusic;
 namespace
 {
@@ -30,6 +33,38 @@ class LoggingTest final : public QObject
 {
     Q_OBJECT
 private slots:
+    void concurrentQtMessagesBelowCapacityReachTheWriter()
+    {
+        QTemporaryDir directory;
+        {
+            LogService logging(directory.path(), 2, false);
+            std::atomic_bool start = false;
+            std::vector<std::thread> producers;
+            for (int thread = 0; thread < 8; ++thread)
+                producers.emplace_back([&, thread] {
+                    while (!start.load(std::memory_order_acquire))
+                        std::this_thread::yield();
+                    for (int line = 0; line < 16; ++line)
+                        qInfo().noquote()
+                            << QStringLiteral("logger-contention-%1-%2!").arg(thread).arg(line);
+                });
+            start.store(true, std::memory_order_release);
+            for (auto &producer : producers)
+                producer.join();
+        }
+        QByteArray output;
+        for (const auto &name : QDir(directory.path()).entryList({"*.log"}, QDir::Files)) {
+            QFile file(directory.filePath(name));
+            QVERIFY(file.open(QIODevice::ReadOnly));
+            output += file.readAll();
+        }
+        for (int thread = 0; thread < 8; ++thread)
+            for (int line = 0; line < 16; ++line) {
+                const auto marker =
+                    QStringLiteral("logger-contention-%1-%2!").arg(thread).arg(line).toUtf8();
+                QCOMPARE(output.count(marker), 1);
+            }
+    }
     void workerScriptWarningsKeepOriginWhileMessagesComplete()
     {
         QTemporaryDir directory;

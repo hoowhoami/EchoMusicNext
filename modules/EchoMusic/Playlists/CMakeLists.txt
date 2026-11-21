@@ -12,6 +12,7 @@ qt_add_qml_module(
     SOURCES
     PlaylistDetailContext.h
     PlaylistDetailContext.cpp
+    PlaylistDetailStorage.cpp
     PlaylistDetailService.h
     PlaylistDetailService.cpp
     QML_FILES

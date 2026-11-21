@@ -5,6 +5,7 @@
 #include "RouteController.h"
 #include "SongCatalogActions.h"
 #include "SongCatalogModel.h"
+#include "SongSourceCache.h"
 #include <QMap>
 
 namespace EchoMusic
@@ -120,6 +121,11 @@ private:
     // A refresh of an already complete album is committed only after all pages
     // succeed, so a failed refresh cannot truncate a playable cached catalog.
     QJsonArray m_refreshSongs;
+    std::unique_ptr<SongSourceCache> m_refreshCache;
+    QList<SongDatasetStore::CachedRow> m_refreshRows;
+    QPointer<QObject> m_stageRead;
+    bool m_staging = false;
+    quint64 m_stagingRevision = 0;
     quint64 m_generation = 0;
     quint32 m_nextPage = 1, m_pageSize = 30;
     QString m_detailError, m_songError;

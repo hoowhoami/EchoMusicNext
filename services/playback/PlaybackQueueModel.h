@@ -4,9 +4,11 @@
 #include <QSet>
 #include <QPointer>
 #include <QTimer>
+#include <functional>
 namespace EchoMusic
 {
 class SongMetadataService;
+class PlaybackRepository;
 /// Stable song identities and next-priority flags are model state. Delegate
 /// reuse never changes order, selection or the active entry.
 class PlaybackQueueModel final : public QAbstractListModel
@@ -29,6 +31,10 @@ public:
     };
     explicit PlaybackQueueModel(QObject *parent);
     void attachMetadata(SongMetadataService *service);
+    void attachRepository(PlaybackRepository *);
+    void retirePayloads(const QStringList &, const PlaybackPayloadLease &);
+    void requestTrack(int row, QObject *, std::function<void(PlaybackTrack, QString)>);
+    void requestTracks(QObject *, std::function<void(PlaybackTracks, QString)>);
     int rowCount(const QModelIndex &parent = {}) const override
     {
         return parent.isValid() ? 0 : int(m_tracks.size());
@@ -85,7 +91,9 @@ signals:
     void resumeTitleChanged();
 
 private:
+    void preparePayloads();
     void watchMetadata();
+    QPointer<PlaybackRepository> m_repository;
     void refreshMetadata(const QStringList &rows);
     QPointer<SongMetadataService> m_metadata;
     QTimer m_metadataRefresh;

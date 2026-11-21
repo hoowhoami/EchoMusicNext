@@ -138,6 +138,7 @@ void PlaybackLibraryActions::notifyRows()
 }
 void PlaybackLibraryActions::reset()
 {
+    ++m_prepareEpoch;
     m_revision = m_api.sessionRevision();
     m_likedId = 0;
     m_favoriteIntent.reset();
@@ -283,6 +284,7 @@ void PlaybackLibraryActions::prepareTracks(const PlaybackTracks &tracks, bool pl
 {
     if (m_busy || tracks.isEmpty())
         return;
+    ++m_prepareEpoch;
     m_playbackQueues = playbackQueues;
     m_songs.clear();
     for (const auto &track : tracks)
@@ -303,8 +305,27 @@ void PlaybackLibraryActions::prepareCurrent()
 {
     if (m_busy || !m_playback.hasTrack())
         return;
+    const auto track = m_playback.currentTrack();
+    if (!track.payloadLoaded) {
+        const auto epoch = ++m_prepareEpoch;
+        const auto session = m_api.sessionRevision();
+        m_playback.queue()->requestTrack(m_playback.queue()->currentIndex(), this,
+                                         [this, epoch, session](auto full, auto error) {
+                                             if (epoch != m_prepareEpoch ||
+                                                 session != m_api.sessionRevision())
+                                                 return;
+                                             if (!error.isEmpty()) {
+                                                 m_error = error;
+                                                 emit notice(error, true);
+                                                 return;
+                                             }
+                                             prepareTracks({full}, true);
+                                         });
+        return;
+    }
+    ++m_prepareEpoch;
     m_playbackQueues = true;
-    m_songs = {m_playback.currentTrack()};
+    m_songs = {track};
     m_selected.clear();
     m_results.clear();
     m_multiple = false;
@@ -318,16 +339,19 @@ void PlaybackLibraryActions::prepareViewedQueue()
 {
     if (m_busy || !m_playback.queueCatalog()->viewModel())
         return;
-    m_playbackQueues = true;
-    m_songs = m_playback.queueCatalog()->viewModel()->tracks();
-    if (m_songs.isEmpty())
-        return;
-    m_selected.clear();
-    m_results.clear();
-    m_multiple = false;
-    m_error.clear();
-    rebuild();
-    emit dialogRequested();
+    const auto epoch = ++m_prepareEpoch;
+    const auto session = m_api.sessionRevision();
+    m_playback.queueCatalog()->viewModel()->requestTracks(
+        this, [this, epoch, session](auto tracks, auto error) {
+            if (epoch != m_prepareEpoch || session != m_api.sessionRevision())
+                return;
+            if (!error.isEmpty()) {
+                m_error = error;
+                emit notice(error, true);
+                return;
+            }
+            prepareTracks(tracks, true);
+        });
 }
 void PlaybackLibraryActions::setMultiple(bool value)
 {

@@ -1,3 +1,4 @@
+#include "CatalogRead.h"
 #include "PlaylistDetailService.h"
 #include "FavoriteSongIndex.h"
 #include "ShellSettings.h"
@@ -103,9 +104,33 @@ public:
         service.accept(id, QJsonDocument(values).toJson());
     }
 };
+class CloudAudioIndexTestAccess
+{
+public:
+    static void page(CloudAudioIndex &source, const QJsonObject &root)
+    {
+        source.acceptCachedPage(root);
+    }
+};
 class PlaylistDetailContextTestAccess
 {
 public:
+    static bool hasRichMirror(const PlaylistDetailContext &c)
+    {
+        for (const auto &row : c.m_cloudEntries)
+            if (row.value("song").toObject().contains("title") ||
+                !row.value("metadata").toObject().isEmpty())
+                return true;
+        return false;
+    }
+    static int hints(const PlaylistDetailContext &c)
+    {
+        return c.m_hintAttempted.size();
+    }
+    static bool enriching(const PlaylistDetailContext &c)
+    {
+        return c.m_enriching;
+    }
     static void finishPlayback(PlaylistDetailContext &c, const QJsonArray &songs)
     {
         c.cancel();
@@ -372,6 +397,85 @@ class PlaylistDetailTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void storedCloudPlaylistUsesBoundedHintReadsBeyondTheHotCache()
+    {
+        QTemporaryDir dir;
+        SessionDatabase database(dir.filePath("session"));
+        {
+            SettingsStore prefs(dir.filePath("prefs.ini"));
+            ApiClient api(DeviceIdentity::temporary());
+            QVERIFY(api.setNetworkTransport(1));
+            QVERIFY(api.setAccount(100, "offline-domain-fixture"));
+            SongMetadataService metadata(api);
+            metadata.enableSqlIndex(database);
+            PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+            playback.attachMetadata(metadata);
+            UserPlaylistModel library(api);
+            UserPlaylistModelTestAccess::seed(library, api);
+            PlaylistMutationService mutations(api);
+            RouteController router;
+            router.registerPage({"playlist-detail", "/playlist/:id", QUrl("qrc:/unused.qml")});
+            QVERIFY(router.navigate("playlist-detail", {}, "cover-playlist"));
+            PlaylistDetailContext context(api, playback, library, mutations, metadata,
+                                          *router.current(), false);
+            PlaylistDetailContextTestAccess::seed(context, "Stored playlist");
+            PlaylistDetailContextTestAccess::cloud(context);
+            QJsonArray hints, entries;
+            for (int i = 1; i <= 130; ++i) {
+                auto entry = playlistSong(i);
+                entry.insert("file_id", 1000 + i);
+                entry.insert("sort_index", 131 - i);
+                auto meta = entry.value("metadata").toObject();
+                meta.insert("opaque", QJsonValue::Null);
+                entry.insert("metadata", meta);
+                entries.append(entry);
+                auto song = entry.value("song").toObject();
+                song.insert("cover_url", QString("https://example.com/%1.jpg").arg(i));
+                hints.append(QJsonObject{{"song", song},
+                                         {"metadata", QJsonObject{}},
+                                         {"file_id", 2000 + i},
+                                         {"audio_id", 3000 + i},
+                                         {"source_file_name", "Original.flac"}});
+            }
+            PlaylistDetailContextTestAccess::pending(context, 14001, 1);
+            PlaylistDetailContextTestAccess::accept(
+                context, 14001,
+                QJsonObject{
+                    {"cloud_list_id", 7},
+                    {"revision", 9},
+                    {"page", QJsonObject{{"items", entries}, {"total", 130}, {"page", 1}}}});
+            QTRY_VERIFY(context.complete());
+            CloudAudioIndexTestAccess::page(
+                *playback.cloudSources(),
+                {{"page", QJsonObject{{"items", hints}, {"total", 130}}}});
+            QTRY_VERIFY(playback.cloudSources()->complete());
+
+            QTRY_COMPARE(PlaylistDetailContextTestAccess::hints(context), 130);
+            QTRY_VERIFY(!PlaylistDetailContextTestAccess::enriching(context));
+            QTRY_VERIFY(context.songs()->presentationsReady());
+            QCOMPARE(context.songs()->totalCount(), 130);
+            QVERIFY(!PlaylistDetailContextTestAccess::hasRichMirror(context));
+            const auto tracks = readCatalogTracks(context.songs());
+            QCOMPARE(tracks.size(), 130);
+            QCOMPARE(tracks.first().id, QString("130"));
+            QCOMPARE(tracks.first().cover, QString("https://example.com/130.jpg"));
+            QVERIFY(tracks.first().catalogMetadata.value("opaque").isNull());
+            QCOMPARE(tracks.first().catalogMetadata.value("resources"),
+                     playlistSong(130).value("metadata").toObject().value("resources"));
+            QTRY_COMPARE(library.coverFor("cover-playlist", {}),
+                         QString("https://example.com/130.jpg"));
+            QTest::qWait(80);
+            QCOMPARE(PlaylistDetailContextTestAccess::hints(context), 130);
+            context.shutdown();
+            QSignalSpy closed(&playback, &PlaybackService::closed);
+            playback.shutdown();
+            QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+            api.shutdown();
+        }
+        QSignalSpy closed(&database, &SessionDatabase::closed);
+        database.shutdown();
+        QTRY_COMPARE(closed.size(), 1);
+    }
     void hashlessPlaylistRowsDoNotStopPaginationOrEnterPlayback_data()
     {
         QTest::addColumn<bool>("cloud");
@@ -429,7 +533,7 @@ private slots:
         QCOMPARE(context->songs()->totalCount(), 3);
         QCOMPARE(context->total(), quint64(6));
         QCOMPARE(context->filteredInvalidCount(), quint64(3));
-        const auto tracks = context->songs()->tracks();
+        const auto tracks = readCatalogTracks(context->songs());
         QCOMPARE(tracks[0].id, QString("1"));
         QCOMPARE(tracks[1].id, QString("2"));
         QCOMPARE(tracks[2].id, QString("3"));
@@ -789,7 +893,7 @@ Window {
         QVERIFY(SongMetadataService::needsCompletion(song));
         SongCatalogModel model;
         model.appendSongs({song});
-        auto before = model.track("64323384").value();
+        auto before = model.trackProjection("64323384").value();
         QCOMPARE(before.title, QString("我的楼兰"));
         QCOMPARE(before.artist, QString("云朵"));
         QCOMPARE(before.artistLinks()[0].toMap()["id"].toString(), QString());
@@ -800,7 +904,7 @@ Window {
             {"title", "我的楼兰"},
             {"artists", QJsonArray{QJsonObject{{"id", 6743}, {"name", "云朵"}}}}};
         model.applyPresentations({presentation});
-        const auto after = model.track("64323384").value();
+        const auto after = model.trackProjection("64323384").value();
         QCOMPARE(after.artistLinks()[0].toMap()["id"].toString(), QString("6743"));
         QCOMPARE(after.title, QString("我的楼兰"));
         QCOMPARE(after.catalogMetadata["artists"].toArray(), QJsonArray{rawArtists});
@@ -901,7 +1005,7 @@ Window {
                  QString("https://example.com/second.jpg"));
         QCOMPARE(sidebar.index(0, 0).data(UserPlaylistModel::CoverUrlRole).toString(),
                  context->detail()["cover_url"].toString());
-        const auto before = context->songs()->track("1").value();
+        const auto before = context->songs()->trackProjection("1").value();
         context->songs()->toggleSelected("1");
         QSignalSpy resets(context->songs(), &QAbstractItemModel::modelReset);
         PlaylistDetailContextTestAccess::resumeCachedPresentation(
@@ -912,10 +1016,10 @@ Window {
                          {"album_title", "Album"},
                          {"artists", QJsonArray{QJsonObject{{"id", 8}, {"name", "Artist"}}}},
                          {"cover_url", "https://example.com/first.jpg"}}});
-        QTRY_COMPARE(context->songs()->track("1")->title, QString("Original (Live)"));
+        QTRY_COMPARE(context->songs()->trackProjection("1")->title, QString("Original (Live)"));
         QCOMPARE(resets.size(), 0);
         QCOMPARE(context->songs()->selectedCount(), 1);
-        const auto after = context->songs()->track("1").value();
+        const auto after = context->songs()->trackProjection("1").value();
         QCOMPARE(after.hash, before.hash);
         QCOMPARE(after.catalogPrivilege, before.catalogPrivilege);
         QCOMPARE(after.catalogMetadata["resources"], before.catalogMetadata["resources"]);
@@ -1132,7 +1236,7 @@ Window {
         QCOMPARE(model.count(), 4);
         QCOMPARE(model.selectedCount(), 1);
         QVERIFY(model.item(1)["resourceId"].toString() != model.item(2)["resourceId"].toString());
-        QCOMPARE(model.track("3")->catalogMetadata["payment_type"].toInt(), 3);
+        QCOMPARE(model.trackProjection("3")->catalogMetadata["payment_type"].toInt(), 3);
         model.setQuery("3");
         model.appendSongs({song(4)});
         QCOMPARE(model.count(), 1);
@@ -1341,7 +1445,7 @@ Window {
         QVERIFY2(library.favoriteSongs()->errorMessage().isEmpty(),
                  qPrintable(library.favoriteSongs()->errorMessage()));
         QVERIFY(context->songs()->count() > 0);
-        const auto tracks = context->songs()->tracks();
+        const auto tracks = readCatalogTracks(context->songs());
         QVERIFY(!tracks.isEmpty());
         QVERIFY(tracks.first().catalogMetadata["rights"].isObject());
         QVERIFY(!tracks.first().catalogMetadata["artists"].toArray().isEmpty());
@@ -1932,11 +2036,12 @@ Window {
             QVERIFY(context->complete());
             QVERIFY(context->songs()->count() > 100);
             QCOMPARE(context->owned(), ownedLive);
-            QVERIFY(context->songs()->tracks().first().catalogMetadata["rights"].isObject());
+            QVERIFY(
+                readCatalogTracks(context->songs()).first().catalogMetadata["rights"].isObject());
             QTRY_VERIFY_WITH_TIMEOUT(!PlaylistDetailContextTestAccess::completing(*context), 45000);
             if (ownedLive) {
                 int originals = 0;
-                for (const auto &track : context->songs()->tracks()) {
+                for (const auto &track : readCatalogTracks(context->songs())) {
                     const auto raw = track.catalogMetadata["source_file_name"].toString();
                     QVERIFY(!raw.isEmpty());
                     if (raw.endsWith(".mp3", Qt::CaseInsensitive)) {
@@ -2142,7 +2247,7 @@ Window {
                     list->setProperty("contentY", 500);
                     QTRY_COMPARE(header->property("progress").toReal(), 1.);
                     if (!live) {
-                        const auto tracks = context->songs()->tracks();
+                        const auto tracks = readCatalogTracks(context->songs());
                         QVERIFY(tracks.size() > 12);
                         PlaybackServiceTestAccess::present(playback, tracks[12]);
                         const auto clickLocate = [&] {

@@ -1,4 +1,5 @@
 #include "ApiClient.h"
+#include "CatalogRead.h"
 #include "FavoriteSongIndex.h"
 #include "CloudService.h"
 #include "FavoritesService.h"
@@ -12,6 +13,7 @@
 #include "PurchasedService.h"
 #include "RouteController.h"
 #include "SongCatalogModel.h"
+#include "SongCatalogActions.h"
 #include "SocialUserModel.h"
 #include "UserPlaylistModel.h"
 #include "SidebarPlaylistModel.h"
@@ -34,6 +36,7 @@
 #include <QJsonObject>
 #include "SettingsStore.h"
 #include <QSignalSpy>
+#include <QSemaphore>
 #include <QTemporaryDir>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -281,9 +284,22 @@ public:
         service.accept(request, QJsonDocument(values).toJson());
     }
 };
+class CloudAudioIndexTestAccess
+{
+public:
+    static void page(CloudAudioIndex &source, const QJsonObject &root)
+    {
+        source.acceptCachedPage(root);
+    }
+};
 class CloudServiceTestAccess
 {
 public:
+    static void beginSharedRefresh(CloudService &s)
+    {
+        s.m_refreshingShared = true;
+        s.m_playback.cloudSources()->invalidate();
+    }
     static quint64 listRequest(const CloudService &s)
     {
         return s.m_listRequest;
@@ -631,6 +647,289 @@ class LibraryPagesTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void favoriteSharedRecordsKeepJournalAndOpaqueDataWithoutPageCopies()
+    {
+        QTemporaryDir dir;
+        SessionDatabase database(dir.filePath("session"));
+        {
+            ApiClient api(DeviceIdentity::temporary());
+            QVERIFY(api.setNetworkTransport(1));
+            QVERIFY(api.setAccount(100, "offline-domain-fixture"));
+            UserPlaylistModel library(api);
+            UserPlaylistModelTestAccess::seed(library, api, "我喜欢的音乐", 1, 0, 7);
+            auto *source = library.favoriteSongs();
+            source->enableSessionStorage(database);
+            const auto row = [](int id, int sort) {
+                const QJsonObject song{{"id", QString::number(id)},
+                                       {"hash", QString::number(id, 16).rightJustified(32, '0')},
+                                       {"title", QString("Favorite %1").arg(id)},
+                                       {"cover_url", QString("https://example.com/%1").arg(id)}};
+                const QJsonObject metadata{
+                    {"opaque", QJsonValue::Null},
+                    {"resources", QJsonArray{QJsonObject{{"quality", "flac"}}}}};
+                return QJsonObject{{"file_id", 90 + id},
+                                   {"sort_index", sort},
+                                   {"song", song},
+                                   {"metadata", metadata}};
+            };
+            FavoriteSongIndexTestAccess::page(*source, {row(1, 2), row(2, 1)}, 2);
+            QTRY_VERIFY(source->complete());
+            QVERIFY(source->cached());
+            QVERIFY(!source->rows().first().toObject().value("song").toObject().contains("title"));
+            QCOMPARE(source->fileId({"2", {}, 2}), quint64(92));
+            SongCatalogModel page;
+            page.enableSessionStorage(database);
+            page.replaceCachedRows(source->cachedRows());
+            auto tracks = readCatalogTracks(&page);
+            QCOMPARE(tracks.size(), 2);
+            QCOMPARE(tracks.first().id, QString("2"));
+            QVERIFY(tracks.first().catalogMetadata.value("opaque").isNull());
+            std::optional<QString> cover;
+            source->requestCover(this, [&](QString value) { cover = value; });
+            QTRY_VERIFY(cover.has_value());
+            QCOMPARE(*cover, QString("https://example.com/2"));
+            source->add({row(3, 0)});
+            QTRY_VERIFY(source->contains({"3", {}, 3}));
+            FavoriteSongIndexTestAccess::start(*source);
+            FavoriteSongIndexTestAccess::page(*source, {row(1, 2), row(2, 1)}, 2);
+            QTRY_VERIFY(source->complete());
+            QVERIFY(source->contains({"3", {}, 3}));
+            page.replaceCachedRows(source->cachedRows());
+            QCOMPARE(readCatalogTracks(&page).size(), 3);
+            api.shutdown();
+        }
+        QSignalSpy closed(&database, &SessionDatabase::closed);
+        database.shutdown();
+        QTRY_COMPARE(closed.size(), 1);
+    }
+    void cloudSharedPageAndPlaybackReadOneDataset()
+    {
+        QTemporaryDir dir;
+        SessionDatabase database(dir.filePath("session"));
+        {
+            SettingsStore prefs(dir.filePath("prefs.ini"));
+            ApiClient api(DeviceIdentity::temporary());
+            QVERIFY(api.setNetworkTransport(1));
+            QVERIFY(api.setAccount(100, "offline-domain-fixture"));
+            SongMetadataService metadata(api);
+            metadata.enableSqlIndex(database);
+            PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+            playback.attachMetadata(metadata);
+            RouteController router;
+            CloudService service(api, playback, metadata, router, false);
+            service.registerRoutes(router);
+            QVERIFY(router.navigate("cloud"));
+            auto *source = playback.cloudSources();
+            const QJsonObject row{
+                {"file_id", 91},
+                {"audio_id", 71},
+                {"hash_std", QString(32, 'b')},
+                {"source_file_name", "Original.flac"},
+                {"added_at_seconds", 100},
+                {"sort_index", 1},
+                {"song",
+                 QJsonObject{{"id", "1"}, {"hash", QString(32, 'a')}, {"title", "Cloud song"}}},
+                {"metadata",
+                 QJsonObject{{"opaque", QJsonValue::Null}, {"resources", QJsonArray{1, 2}}}}};
+            CloudAudioIndexTestAccess::page(
+                *source, {{"page", QJsonObject{{"items", QJsonArray{row}}, {"total", 1}}},
+                          {"counters", QJsonObject{{"used_size", 123}, {"max_size", 456}}}});
+            QTRY_VERIFY(source->complete());
+            QCOMPARE(service.songs()->totalCount(), 1);
+            QVERIFY(CloudServiceTestAccess::file(service, 91).isEmpty());
+            QVERIFY(service.canRemoveSong("1"));
+            QCOMPARE(service.storageUsedBytes(), qint64(123));
+            const auto tracks = readCatalogTracks(service.songs());
+            QCOMPARE(tracks.size(), 1);
+            QVERIFY(tracks.first().catalogMetadata.value("opaque").isNull());
+            QCOMPARE(tracks.first()
+                         .catalogMetadata.value("cloud_source")
+                         .toObject()
+                         .value("file_id")
+                         .toInt(),
+                     91);
+            PlaybackTrack lookup;
+            lookup.id = "1";
+            lookup.songId = 1;
+            lookup.hash = QString(32, 'c');
+            QVERIFY(source->source(lookup).isEmpty());
+            QVERIFY(source->loading());
+            QTRY_VERIFY(!source->source(lookup).isEmpty());
+            QCOMPARE(source->source(lookup).value("name").toString(), QString("Original.flac"));
+            CloudServiceTestAccess::beginSharedRefresh(service);
+            QCOMPARE(service.songs()->totalCount(), 1);
+            QCOMPARE(service.storageUsedBytes(), qint64(123));
+            CloudAudioIndexTestAccess::page(
+                *source, {{"page", QJsonObject{{"items", QJsonArray{}}, {"total", 0}}}});
+            QTRY_VERIFY(source->complete());
+            QCOMPARE(service.songs()->totalCount(), 0);
+            service.shutdown();
+            router.shutdown();
+            QSignalSpy closed(&playback, &PlaybackService::closed);
+            playback.shutdown();
+            QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+            api.shutdown();
+        }
+        QSignalSpy closed(&database, &SessionDatabase::closed);
+        database.shutdown();
+        QTRY_COMPARE(closed.size(), 1);
+    }
+    void loadErrorWrapsAndSharesRetryAction()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ThemeStore theme(prefs);
+        theme.setMotionEnabled(false);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this, [&](const auto &items) {
+            for (const auto &item : items)
+                warnings.append(item.toString());
+        });
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Controls
+import EchoMusic.Theme
+Window {
+ id: window
+ width: 560; height: 220; visible: true; color: Theme.main
+ property int retries: 0
+ EchoLoadError {
+  objectName: "loadFailure"
+  anchors.centerIn: parent
+  width: parent.width
+  message: "网络请求失败，请检查网络连接后重试。已经加载的歌曲仍可继续浏览。"
+  onRetryRequested: window.retries++
+ }
+})",
+                          QUrl("qrc:/load-error-style.qml"));
+        QScopedPointer<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window);
+        auto *failure = root->findChild<QQuickItem *>("loadFailure");
+        auto *button = root->findChild<QQuickItem *>("loadErrorRetry");
+        auto *message = root->findChild<QQuickItem *>("loadErrorMessage");
+        QVERIFY(failure && button && message);
+        const auto artifacts = qEnvironmentVariable("ECHO_CACHE_STYLE_ARTIFACTS");
+        if (!artifacts.isEmpty())
+            QVERIFY(QDir().mkpath(artifacts));
+        for (auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+            theme.setMode(mode);
+            for (int width : {260, 560}) {
+                window->resize(width, 220);
+                QTRY_COMPARE(failure->width(), qreal(width));
+                QTRY_VERIFY(message->height() > 0);
+                QCOMPARE(button->property("text").toString(), QString("重试"));
+                QCOMPARE(button->height(), qreal(36));
+                const auto point = button->mapToItem(failure, QPointF());
+                QVERIFY(point.x() >= 0 && point.x() + button->width() <= failure->width());
+                QVERIFY(!message->property("truncated").toBool());
+                if (width == 260)
+                    QTRY_VERIFY(message->property("lineCount").toInt() > 1);
+                if (!artifacts.isEmpty()) {
+                    QTest::qWait(100);
+                    QVERIFY(window->grabWindow().save(
+                        artifacts + QString("/error-%1-%2.png").arg(int(mode)).arg(width)));
+                }
+            }
+        }
+        QVERIFY(QMetaObject::invokeMethod(button, "clicked"));
+        QCOMPARE(root->property("retries").toInt(), 1);
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+    }
+    void songListPrefetchesShortPagesAndBeforeTheEndWithoutMovingTheAnchor()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        SongCatalogModel model;
+        SongCatalogActions actions(model, playback);
+        model.setMetadataActive(false);
+        const auto rows = [](int first, int count) {
+            QJsonArray values;
+            for (int i = first; i < first + count; ++i)
+                values.append(
+                    QJsonObject{{"id", QString::number(i)}, {"title", QString("Song %1").arg(i)}});
+            return values;
+        };
+        model.replaceSongs(rows(0, 3));
+        ThemeStore theme(prefs);
+        theme.setMotionEnabled(false);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Controls
+import EchoMusic.Music
+Window {
+ id: window
+ required property SongCatalogModel collection
+ required property SongCatalogActions actions
+ property bool busy: false
+ property string failure: ""
+ property int requests: 0
+ width: 900; height: 600; visible: true
+ EchoPageScrollContainer {
+  id: page
+  anchors.fill: parent
+  scrollView: body.listView
+  CatalogSongList {
+   id: body
+   anchors.fill: parent
+   collection: window.collection
+   actions: window.actions
+   pageContainer: page
+   hasMore: true
+   loadingMore: window.busy
+   errorMessage: window.failure
+   onLoadMoreRequested: { window.requests++; window.busy = true; }
+   onRetryRequested: window.failure = ""
+  }
+ }
+})",
+                          QUrl("qrc:/catalog-preload.qml"));
+        QScopedPointer<QObject> root(
+            component.createWithInitialProperties({{"collection", QVariant::fromValue(&model)},
+                                                   {"actions", QVariant::fromValue(&actions)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *list = root->findChild<QQuickItem *>("discoverySongs");
+        QVERIFY(list);
+        QTRY_COMPARE(root->property("requests").toInt(), 1);
+        model.replaceSongs(rows(0, 100));
+        root->setProperty("busy", false);
+        QTRY_VERIFY(list->property("contentHeight").toReal() > list->height() * 3);
+        QCoreApplication::processEvents();
+        QCOMPARE(root->property("requests").toInt(), 1);
+        list->setProperty("contentY",
+                          list->property("contentHeight").toReal() - list->height() * 1.5);
+        QVERIFY(!list->property("atYEnd").toBool());
+        QTRY_COMPARE(root->property("requests").toInt(), 2);
+        const auto anchor = list->property("contentY").toReal();
+        model.appendSongs(rows(100, 50));
+        root->setProperty("busy", false);
+        QCoreApplication::processEvents();
+        QCOMPARE(list->property("contentY").toReal(), anchor);
+        QCOMPARE(root->property("requests").toInt(), 2);
+        root->setProperty("failure", "failed page");
+        list->setProperty("contentY", list->property("contentHeight").toReal() - list->height());
+        QCoreApplication::processEvents();
+        QCOMPARE(root->property("requests").toInt(), 2);
+        QObject *retry = nullptr;
+        QTRY_VERIFY((retry = root->findChild<QObject *>("loadErrorRetry")));
+        QCOMPARE(retry->property("text").toString(), QString("重试"));
+        QVERIFY(QMetaObject::invokeMethod(retry, "clicked"));
+        QTRY_COMPARE(root->property("requests").toInt(), 3);
+        root.reset();
+        QSignalSpy closed(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+        api.shutdown();
+    }
 
     void collectionSnapshotsPreserveUnchangedRows()
     {
@@ -1015,7 +1314,8 @@ Window {
         FavoriteSongIndexTestAccess::page(*index, {first}, 4);
         QVERIFY(index->contains({"1", "ABC", 1})); // First page is usable immediately.
         QVERIFY(!index->complete());
-        FavoriteSongIndexTestAccess::page(*index, {first}, 4); // A duplicate-hash page is not EOF.
+        FavoriteSongIndexTestAccess::page(*index, {first},
+                                          4); // A duplicate-hash page is not EOF.
         QVERIFY(index->loading());
         auto query =
             ApiClientTestAccess::request(api, FavoriteSongIndexTestAccess::request(*index))["query"]
@@ -1075,7 +1375,8 @@ Window {
         const auto read = FavoriteSongIndexTestAccess::request(*index);
         QVERIFY(read);
         QVERIFY(router.navigate("favorites"));
-        QCOMPARE(FavoriteSongIndexTestAccess::request(*index), read); // Joining the existing read.
+        QCOMPARE(FavoriteSongIndexTestAccess::request(*index),
+                 read); // Joining the existing read.
         const auto row = [](int id) {
             return QJsonObject{{"song", QJsonObject{{"id", QString::number(id)},
                                                     {"title", QString::number(id)},
@@ -2152,11 +2453,11 @@ ApplicationWindow {
             {});
         QVERIFY(!cloud.loading());
         QCOMPARE(cloud.songs()->count(), 3);
-        QVERIFY(cloud.songs()->track(unmatchedId));
-        QCOMPARE(cloud.songs()->track(unmatchedId)->cover,
+        QVERIFY(cloud.songs()->trackProjection(unmatchedId));
+        QCOMPARE(cloud.songs()->trackProjection(unmatchedId)->cover,
                  QString("https://example.test/cloud-artist.jpg"));
         QVERIFY(CloudServiceTestAccess::metadataTicket(cloud));
-        const auto original = cloud.songs()->track("cloud-file:102").value();
+        const auto original = cloud.songs()->trackProjection("cloud-file:102").value();
         cloud.songs()->toggleSelected("cloud-file:102");
         cloud.songs()->setQuery("正式歌手");
         QCOMPARE(cloud.songs()->count(), 0);
@@ -2165,28 +2466,28 @@ ApplicationWindow {
         QCOMPARE(cloud.songs()->selectedCount(), 1);
         cloud.songs()->setQuery({});
         for (const auto &id : {QString("1"), QString("cloud-file:102")}) {
-            const auto track = cloud.songs()->track(id).value();
+            const auto track = cloud.songs()->trackProjection(id).value();
             QCOMPARE(track.album, QString("正式专辑"));
             QCOMPARE(track.artistLinks()[0].toMap()["id"].toString(), QString("51"));
             QCOMPARE(track.catalogPrivilege, quint32(0));
         }
-        const auto completed = cloud.songs()->track("cloud-file:102").value();
+        const auto completed = cloud.songs()->trackProjection("cloud-file:102").value();
         QCOMPARE(completed.hash, original.hash);
         QCOMPARE(completed.durationMs, original.durationMs);
         QCOMPARE(completed.catalogMetadata["source_file_name"],
                  original.catalogMetadata["source_file_name"]);
         QCOMPARE(completed.catalogMetadata["opaque"].toInt(), 42);
         QCOMPARE(CloudServiceTestAccess::file(cloud, 102)["sort_index"].toInt(), 102);
-        QVERIFY(cloud.songs()->track(unmatchedId)->album.isEmpty());
+        QVERIFY(cloud.songs()->trackProjection(unmatchedId)->album.isEmpty());
         // A repeated song on a later page consumes shared cached facts, while
         // the first two files retain their completion through re-projection.
         CloudServiceTestAccess::acceptPage(
             cloud, {{"page", 2}, {"total", 4}, {"items", QJsonArray{file(104, "1")}}}, {});
         QVERIFY(!cloud.loading());
         QCOMPARE(cloud.songs()->count(), 4);
-        QTRY_COMPARE(cloud.songs()->track("cloud-file:104")->album, QString("正式专辑"));
-        QCOMPARE(cloud.songs()->track("cloud-file:102")->album, QString("正式专辑"));
-        QCOMPARE(cloud.songs()->track(unmatchedId)->cover,
+        QTRY_COMPARE(cloud.songs()->trackProjection("cloud-file:104")->album, QString("正式专辑"));
+        QCOMPARE(cloud.songs()->trackProjection("cloud-file:102")->album, QString("正式专辑"));
+        QCOMPARE(cloud.songs()->trackProjection(unmatchedId)->cover,
                  QString("https://example.test/cloud-artist.jpg"));
         QCOMPARE(cloud.songs()->selectedCount(), 1);
         QCOMPARE(cloud.songs()->item(0)["resourceId"].toString(), QString("1"));
@@ -2241,15 +2542,15 @@ ApplicationWindow {
         QVERIFY(retired);
         cloud.refresh();
         CloudServiceTestAccess::metadata(cloud, retired, facts);
-        QVERIFY(cloud.songs()->track("1")->album.isEmpty());
+        QVERIFY(cloud.songs()->trackProjection("1")->album.isEmpty());
         CloudServiceTestAccess::acceptPage(cloud, page, {});
         // Leave cancels both the page read and optional consumers.
         QVERIFY(router.navigate("other"));
         QCOMPARE(CloudServiceTestAccess::metadataTicket(cloud), quint64(0));
         SongMetadataServiceTestAccess::complete(metadata, {"1"}, facts);
-        QVERIFY(cloud.songs()->track("1")->album.isEmpty());
+        QVERIFY(cloud.songs()->trackProjection("1")->album.isEmpty());
         router.back();
-        QTRY_COMPARE(cloud.songs()->track("1")->album, QString("新专辑"));
+        QTRY_COMPARE(cloud.songs()->trackProjection("1")->album, QString("新专辑"));
         CloudServiceTestAccess::acceptPage(cloud, page, {});
         const auto oldSession = CloudServiceTestAccess::metadataTicket(cloud);
         QVERIFY(oldSession);
@@ -2314,13 +2615,13 @@ ApplicationWindow {
         const auto nextPage = FavoritesServiceTestAccess::songRequest(favorites);
         QVERIFY(nextPage);
         QVERIFY(FavoritesServiceTestAccess::metadataTicket(favorites));
-        const auto original = favorites.songs()->track("3").value();
+        const auto original = favorites.songs()->trackProjection("3").value();
         favorites.songs()->toggleSelected("3");
         favorites.songs()->setQuery("正式歌手3");
         QCOMPARE(favorites.songs()->count(), 0);
         SongMetadataServiceTestAccess::complete(metadata, {"3", "4"}, {presentation(3)});
         QTRY_COMPARE(favorites.songs()->count(), 1);
-        QCOMPARE(favorites.songs()->track("3")->album, QString("正式专辑3"));
+        QCOMPARE(favorites.songs()->trackProjection("3")->album, QString("正式专辑3"));
         QCOMPARE(favorites.songs()->selectedCount(), 1);
         favorites.songs()->setQuery({});
         api.cancel(nextPage);
@@ -2331,11 +2632,11 @@ ApplicationWindow {
         QCOMPARE(favorites.songs()->count(), 4);
         for (int i = 0; i < 4; ++i)
             QCOMPARE(favorites.songs()->item(i)["resourceId"].toString(), QString::number(i + 1));
-        QCOMPARE(favorites.songs()->track("3")->album, QString("正式专辑3"));
+        QCOMPARE(favorites.songs()->trackProjection("3")->album, QString("正式专辑3"));
         SongMetadataServiceTestAccess::complete(metadata, {"1", "2"},
                                                 {presentation(2), presentation(1)});
         QTRY_COMPARE(FavoritesServiceTestAccess::metadataTicket(favorites), quint64(0));
-        const auto completed = favorites.songs()->track("3").value();
+        const auto completed = favorites.songs()->trackProjection("3").value();
         QCOMPARE(completed.hash, original.hash);
         QCOMPARE(completed.durationMs, original.durationMs);
         QCOMPARE(completed.catalogPrivilege, original.catalogPrivilege);
@@ -2411,13 +2712,13 @@ ApplicationWindow {
         FavoritesServiceTestAccess::acceptSongs(favorites, {row}, 1, request);
         QVERIFY(FavoritesServiceTestAccess::metadataTicket(favorites) != retired);
         FavoritesServiceTestAccess::metadata(favorites, retired, facts);
-        QVERIFY(favorites.songs()->track("1")->cover.isEmpty());
+        QVERIFY(favorites.songs()->trackProjection("1")->cover.isEmpty());
         QVERIFY(router.navigate("other"));
         QCOMPARE(FavoritesServiceTestAccess::metadataTicket(favorites), quint64(0));
         SongMetadataServiceTestAccess::complete(metadata, {"1"}, facts);
-        QVERIFY(favorites.songs()->track("1")->cover.isEmpty());
+        QVERIFY(favorites.songs()->trackProjection("1")->cover.isEmpty());
         router.back();
-        QTRY_COMPARE(favorites.songs()->track("1")->album, QString("新专辑"));
+        QTRY_COMPARE(favorites.songs()->trackProjection("1")->album, QString("新专辑"));
         favorites.refresh();
         const auto refreshed = FavoritesServiceTestAccess::songRequest(favorites);
         api.cancel(refreshed);
@@ -3719,7 +4020,8 @@ Window {
         QVERIFY(router.navigate("cloud"));
         QVERIFY(cloud.loading());
         respond(page(1, 1, 100, 205));
-        QCOMPARE(cloud.songs()->count(), 100); // First screen is published before the next read.
+        QCOMPARE(cloud.songs()->count(),
+                 100); // First screen is published before the next read.
         cloud.songs()->toggleSelected("1");
         const QPersistentModelIndex retained(cloud.songs()->index(0));
         QSignalSpy resets(cloud.songs(), &QAbstractItemModel::modelReset);
@@ -3728,7 +4030,8 @@ Window {
             const auto request = CloudServiceTestAccess::listRequest(cloud);
             cloud.loadMore();
             cloud.loadMore();
-            QCOMPARE(CloudServiceTestAccess::listRequest(cloud), request); // One request at a time.
+            QCOMPARE(CloudServiceTestAccess::listRequest(cloud),
+                     request); // One request at a time.
             respond(page(number, (number - 1) * 100 + 1, number == 2 ? 100 : 5, 205));
         }
         QCOMPARE(cloud.songs()->count(), 205);
@@ -3891,6 +4194,69 @@ Window {
         QVERIFY(notices.last().at(1).toBool());
     }
 
+    void purchasedBackgroundPaginationWaitsForSlowSessionWrites()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setAccount(101, "backpressure-test-only-token"));
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        RouteController router;
+        SessionDatabase database(dir.filePath("session"));
+        {
+            PurchasedService purchased(api, playback, router, true);
+            purchased.songs()->enableSessionStorage(database);
+            purchased.registerRoutes(router);
+            QVERIFY(router.navigate("purchased"));
+            const auto firstRequest = PurchasedServiceTestAccess::request(purchased);
+            const auto albums = PurchasedServiceTestAccess::request(purchased, true);
+            QVERIFY(firstRequest && albums);
+            PurchasedServiceTestAccess::acceptAlbums(purchased, {}, 0, 1, albums);
+            auto gate = std::make_shared<QSemaphore>();
+            struct Release
+            {
+                std::shared_ptr<QSemaphore> gate;
+                ~Release()
+                {
+                    gate->release();
+                }
+            } release{gate};
+            QVERIFY(database.submit(
+                this, [gate](QSqlDatabase &, const QString &) { return gate->tryAcquire(1, 5000); },
+                [](bool) {}));
+            QJsonArray first, last;
+            for (int i = 1; i <= 35; ++i) {
+                const QJsonObject value{{"id", QString::number(i)},
+                                        {"hash", "0123456789ABCDEF0123456789ABCDEF"},
+                                        {"title", QString("Song %1").arg(i)}};
+                (i <= 30 ? first : last).append(value);
+            }
+            PurchasedServiceTestAccess::acceptSongs(purchased, first, 35, 1, firstRequest);
+            QCOMPARE(purchased.songs()->totalCount(), 30);
+            QVERIFY(!purchased.songs()->storageReady());
+            QCoreApplication::sendPostedEvents(&purchased, QEvent::MetaCall);
+            QVERIFY(!PurchasedServiceTestAccess::request(purchased));
+            gate->release();
+            quint64 next = 0;
+            QTRY_VERIFY((next = PurchasedServiceTestAccess::request(purchased)));
+            QCOMPARE(ApiClientTestAccess::request(api, next)
+                         .value("query")
+                         .toObject()
+                         .value("page")
+                         .toInt(),
+                     2);
+            PurchasedServiceTestAccess::acceptSongs(purchased, last, 35, 2, next);
+            QTRY_VERIFY(purchased.songs()->storageReady());
+            QCOMPARE(purchased.songs()->totalCount(), 35);
+            QVERIFY(!purchased.hasMore());
+            QVERIFY(!PurchasedServiceTestAccess::request(purchased));
+            purchased.shutdown();
+            router.shutdown();
+        }
+        QSignalSpy closed(&database, &SessionDatabase::closed);
+        database.shutdown();
+        QTRY_COMPARE(closed.size(), 1);
+    }
     void purchasedDomainRowsPopulateSongsAndAlbumCards()
     {
         QTemporaryDir dir;
@@ -3920,8 +4286,8 @@ Window {
         QCOMPARE(purchased.songs()->count(), 1);
         QCOMPARE(purchased.songs()->item(0).value("title").toString(), QString("Purchased title"));
         QCOMPARE(purchased.songs()->item(0).value("albumId").toString(), QString("456"));
-        QCOMPARE(purchased.songs()->track("123")->durationMs, quint64(250409));
-        QVERIFY(purchased.songs()->track("123")->playable());
+        QCOMPARE(purchased.songs()->trackProjection("123")->durationMs, quint64(250409));
+        QVERIFY(purchased.songs()->trackProjection("123")->playable());
         QCOMPARE(purchased.songsTotal(), quint64(2));
         QVERIFY(purchased.hasMore());
         PurchasedServiceTestAccess::acceptSongs(purchased, {}, 2, 2);

@@ -1,3 +1,4 @@
+#include "../MenuContextRead.h"
 #include "PluginRuntimeTest.h"
 #include "PluginRuntimeEcosystemFixture.h"
 #include "EchoPluginShortcuts.h"
@@ -119,7 +120,7 @@ void PluginRuntimeTest::ecosystemSidebarSongMenuAndPresentation()
         QJsonArray{QJsonObject{{"id", track.id}, {"hash", track.hash}, {"title", track.title}}});
     songs.selectAll(true);
     SongCatalogActions actions(songs, host.playback);
-    auto context = actions.pluginMenuContext(track.id);
+    auto context = readMenuContext(actions, track.id);
     QCOMPARE(context.value("selectedTracks").toList().size(), 1);
     auto *menus = EchoSongMenuRegistry::forEngine(host.engine);
     auto entries = menus->entries(context);
@@ -140,6 +141,7 @@ ApplicationWindow {
     auto *songMenu = menuWindow->findChild<QObject *>("actualSongMenu");
     QVERIFY(songMenu);
     QTRY_VERIFY(songMenu->property("visible").toBool());
+    QTRY_VERIFY(songMenu->property("pluginContextLoaded").toBool());
     scope->ui()->setState({{"id", QString()}, {"calls", 0}});
     bool picked = false;
     QVERIFY(QMetaObject::invokeMethod(menuWindow.get(), "pickPlugin", Q_RETURN_ARG(bool, picked)));

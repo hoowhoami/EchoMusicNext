@@ -7,8 +7,8 @@ qt_add_qml_module(
     SharingTypes.h
     SongCatalogModel.h
     SongCatalogModel.cpp
-    SongRowFacts.h
-    SongRowFacts.cpp
+    SongCatalogStorage.cpp
+    SongCatalogWindow.cpp
     SongCatalogActions.h
     SongCatalogActions.cpp
     ArtistDirectorySliceModel.h
@@ -37,7 +37,7 @@ qt_add_qml_module(
 )
 target_link_libraries(
     echo_music
-    PUBLIC echo_playback_service
+    PUBLIC echo_playback_service echo_session_cache
     PRIVATE echo_build_options
             echo_theme
             echo_themeplugin

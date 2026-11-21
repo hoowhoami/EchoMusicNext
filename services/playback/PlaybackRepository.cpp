@@ -2,6 +2,7 @@
 #include "EmbeddedCoverPresentation.h"
 #include "ArtistCoverPresentation.h"
 #include "SqlDiagnostics.h"
+#include "SongPresentation.h"
 #include <QDir>
 #include <QFileInfo>
 #include <QSqlQuery>
@@ -13,10 +14,64 @@
 #include <QSet>
 #include <QJsonDocument>
 #include <utility>
+#include <QPointer>
 namespace EchoMusic
 {
+namespace
+{
+QJsonObject historyProjection(const QJsonObject &snapshot)
+{
+    auto track = PlaybackTrack::fromSnapshot(snapshot);
+    auto presentation = SongPresentation::value(track.toCatalog());
+    auto song = presentation.value("song").toObject();
+    auto metadata = song.value("metadata").toObject();
+    metadata.remove("plugin_data");
+    song.insert("metadata", metadata);
+    presentation.insert("song", song);
+    track.catalogMetadata = PlaybackTrack::publicMetadata(track.catalogMetadata);
+    track.catalogMetadata.remove("plugin_data");
+    auto projected = track.toDomain();
+    projected.insert("_presentation", presentation);
+    return projected;
+}
+} // namespace
+PlaybackPayloadSnapshot::~PlaybackPayloadSnapshot()
+{
+    if (!m_retirement)
+        return;
+    // Disarming under the same lock keeps a last release on another thread
+    // from posting to a storage worker that is already being destroyed.
+    const std::lock_guard guard(m_retirement->mutex);
+    if (m_retirement->notify)
+        m_retirement->notify();
+}
+PlaybackStorageWorker::PlaybackStorageWorker(QObject *parent)
+    : QObject(parent), m_queueRetirement(std::make_shared<PlaybackPayloadSnapshot::Retirement>()),
+      m_retirement(std::make_shared<HistoryPayloadSnapshot::Retirement>())
+{
+    m_historyCollection.setSingleShot(true);
+    m_historyCollection.setInterval(25);
+    connect(&m_historyCollection, &QTimer::timeout, this,
+            &PlaybackStorageWorker::collectHistoryPayloads);
+    m_queueCollection.setSingleShot(true);
+    m_queueCollection.setInterval(25);
+    connect(&m_queueCollection, &QTimer::timeout, this,
+            &PlaybackStorageWorker::collectQueuePayloads);
+    m_retirement->notify = [this] {
+        QMetaObject::invokeMethod(
+            this, [this] { scheduleHistoryCollection(); }, Qt::QueuedConnection);
+    };
+    m_queueRetirement->notify = [this] {
+        QMetaObject::invokeMethod(
+            this, [this] { scheduleQueueCollection(); }, Qt::QueuedConnection);
+    };
+}
 PlaybackStorageWorker::~PlaybackStorageWorker()
 {
+    for (const auto &retirement : {m_retirement, m_queueRetirement}) {
+        const std::lock_guard guard(retirement->mutex);
+        retirement->notify = {};
+    }
     const auto name = m_database.connectionName();
     m_database.close();
     m_database = {};
@@ -48,9 +103,9 @@ void PlaybackStorageWorker::initialize(const QString &path)
     }
     const auto schemaVersion = q.value(0).toInt();
     q.finish();
-    if (schemaVersion > 5) {
-        SqlDiagnostics::unsupportedVersion(m_database, schemaVersion, 5);
-        emit failed(tr("播放数据库版本不受支持（实际版本 %1，当前支持至 5）").arg(schemaVersion));
+    if (schemaVersion > 6) {
+        SqlDiagnostics::unsupportedVersion(m_database, schemaVersion, 6);
+        emit failed(tr("播放数据库版本不受支持（实际版本 %1，当前支持至 6）").arg(schemaVersion));
         return;
     }
     if (!m_database.transaction()) {
@@ -133,21 +188,137 @@ void PlaybackStorageWorker::initialize(const QString &path)
         emit failed(message);
         return;
     }
+    if (!q.exec("CREATE TABLE IF NOT EXISTS playback_song_payloads(payload_key TEXT PRIMARY "
+                "KEY,metadata TEXT NOT NULL)")) {
+        m_database.rollback();
+        emit failed(
+            SqlDiagnostics::failure(m_database, "initialize.payload_schema", q.lastError()));
+        return;
+    }
+    if (schemaVersion < 6) {
+        bool columnExists = false;
+        if (q.exec("PRAGMA table_info(playback_tracks)"))
+            while (q.next())
+                columnExists |= q.value(1).toString() == "payload_key";
+        q.finish();
+        if (!columnExists &&
+            !q.exec(
+                "ALTER TABLE playback_tracks ADD COLUMN payload_key TEXT NOT NULL DEFAULT ''")) {
+            m_database.rollback();
+            emit failed(
+                SqlDiagnostics::failure(m_database, "initialize.upgrade_v6", q.lastError()));
+            return;
+        }
+        QSqlQuery rows(m_database), insert(m_database), update(m_database);
+        if (!rows.exec("SELECT rowid,catalog_metadata FROM playback_tracks")) {
+            m_database.rollback();
+            emit failed(SqlDiagnostics::failure(m_database, "initialize.upgrade_v6.read",
+                                                rows.lastError()));
+            return;
+        }
+        insert.prepare("INSERT INTO playback_song_payloads(payload_key,metadata) VALUES(?,?)");
+        update.prepare("UPDATE playback_tracks SET catalog_metadata=?,payload_key=? WHERE rowid=?");
+        while (rows.next()) {
+            const auto bytes = rows.value(1).toByteArray();
+            QJsonParseError error;
+            const auto metadata = QJsonDocument::fromJson(bytes, &error);
+            if (error.error != QJsonParseError::NoError || !metadata.isObject()) {
+                m_database.rollback();
+                emit failed(tr("播放队列的曲目资料已损坏"));
+                return;
+            }
+            const auto key = QUuid::createUuid().toString(QUuid::WithoutBraces);
+            insert.bindValue(0, key);
+            insert.bindValue(1, bytes);
+            update.bindValue(0, QJsonDocument(PlaybackTrack::publicMetadata(metadata.object()))
+                                    .toJson(QJsonDocument::Compact));
+            update.bindValue(1, key);
+            update.bindValue(2, rows.value(0));
+            if (!insert.exec() || !update.exec()) {
+                m_database.rollback();
+                emit failed(tr("升级播放队列资料失败"));
+                return;
+            }
+        }
+        if (rows.lastError().isValid() || !q.exec("PRAGMA user_version=6")) {
+            m_database.rollback();
+            emit failed(tr("升级播放队列资料失败"));
+            return;
+        }
+    }
+    if (!q.exec("CREATE TABLE IF NOT EXISTS playback_history_payloads(account_id TEXT NOT "
+                "NULL,payload_key TEXT PRIMARY KEY,snapshot TEXT NOT NULL)")) {
+        m_database.rollback();
+        emit failed(tr("创建历史歌曲资料表失败"));
+        return;
+    }
+    bool historyPayloadColumn = false;
+    if (q.exec("PRAGMA table_info(playback_history)"))
+        while (q.next())
+            historyPayloadColumn |= q.value(1).toString() == "payload_key";
+    q.finish();
+    if (!historyPayloadColumn) {
+        if (!q.exec(
+                "ALTER TABLE playback_history ADD COLUMN payload_key TEXT NOT NULL DEFAULT ''")) {
+            m_database.rollback();
+            emit failed(tr("升级历史歌曲资料失败"));
+            return;
+        }
+        QSqlQuery rows(m_database), insert(m_database), update(m_database);
+        if (!rows.exec("SELECT rowid,account_id,track_snapshot FROM playback_history")) {
+            m_database.rollback();
+            emit failed(tr("读取历史歌曲资料失败"));
+            return;
+        }
+        insert.prepare(
+            "INSERT INTO playback_history_payloads(account_id,payload_key,snapshot) VALUES(?,?,?)");
+        update.prepare("UPDATE playback_history SET track_snapshot=?,payload_key=? WHERE rowid=?");
+        while (rows.next()) {
+            const auto bytes = rows.value(2).toByteArray();
+            const auto key = QUuid::createUuid().toString(QUuid::WithoutBraces);
+            const auto document = QJsonDocument::fromJson(bytes);
+            // Preserve corrupt source bytes for diagnosis; a bad history row
+            // reports a history read failure, never blocks unrelated queue startup.
+            const auto projected = document.isObject() ? historyProjection(document.object())
+                                                       : QJsonObject{{"_invalid", true}};
+            insert.bindValue(0, rows.value(1));
+            insert.bindValue(1, key);
+            insert.bindValue(2, bytes);
+            update.bindValue(0, QJsonDocument(projected).toJson(QJsonDocument::Compact));
+            update.bindValue(1, key);
+            update.bindValue(2, rows.value(0));
+            if (!insert.exec() || !update.exec()) {
+                m_database.rollback();
+                emit failed(tr("升级历史歌曲资料失败"));
+                return;
+            }
+        }
+        if (rows.lastError().isValid()) {
+            m_database.rollback();
+            emit failed(tr("升级历史歌曲资料失败"));
+            return;
+        }
+    }
     if (!m_database.commit()) {
         emit failed(
             SqlDiagnostics::failure(m_database, "initialize.commit", m_database.lastError()));
         return;
     }
     for (const auto *sql :
-         {"PRAGMA foreign_keys=ON", "PRAGMA journal_mode=WAL", "PRAGMA synchronous=NORMAL"})
+         {"PRAGMA foreign_keys=ON", "PRAGMA journal_mode=WAL", "PRAGMA synchronous=NORMAL",
+          "CREATE INDEX IF NOT EXISTS playback_history_payload_ref ON "
+          "playback_history(payload_key)",
+          "CREATE INDEX IF NOT EXISTS playback_queue_payload_ref ON "
+          "playback_tracks(payload_key)"})
         if (!q.exec(QString::fromLatin1(sql))) {
             emit failed(
                 SqlDiagnostics::failure(m_database, "initialize.configure_wal", q.lastError()));
             return;
         }
     m_valid = true;
+    collectPayloads();
 }
-void PlaybackStorageWorker::load(quint64 account, quint64 revision)
+void PlaybackStorageWorker::load(quint64 account, quint64 revision, bool projectionsOnly)
 {
     if (!m_valid)
         return;
@@ -186,7 +357,8 @@ void PlaybackStorageWorker::load(quint64 account, quint64 revision)
         tracks.prepare(
             "SELECT "
             "catalog_id,hash,title,artist,album,cover,local_path,album_id,song_id,duration_ms,next_"
-            "rank,catalog_metadata,catalog_privilege FROM playback_tracks WHERE account_id=? AND "
+            "rank,catalog_metadata,catalog_privilege,payload_key FROM playback_tracks WHERE "
+            "account_id=? AND "
             "queue_key=? ORDER BY ordinal");
         tracks.addBindValue(user);
         tracks.addBindValue(state.key);
@@ -216,6 +388,16 @@ void PlaybackStorageWorker::load(quint64 account, quint64 revision)
             }
             t.catalogMetadata = metadata.object();
             t.catalogPrivilege = tracks.value(12).toUInt();
+            t.payloadKey = tracks.value(13).toString();
+            t.payloadLoaded = false;
+            if (!projectionsOnly) {
+                auto result = hydrate(t);
+                if (!result.second.isEmpty()) {
+                    emit failed(result.second);
+                    return;
+                }
+                t = std::move(result.first);
+            }
             if (tracks.value(10).toInt() >= 0)
                 next.insert(tracks.value(10).toInt(), t.key());
             state.tracks.append(std::move(t));
@@ -231,6 +413,18 @@ void PlaybackStorageWorker::load(quint64 account, quint64 revision)
     if (q.lastError().isValid()) {
         emit failed(SqlDiagnostics::failure(m_database, "load_queues.fetch", q.lastError()));
         return;
+    }
+    QStringList keys;
+    for (const auto &state : std::as_const(states))
+        for (const auto &track : state.tracks)
+            if (!track.payloadLoaded)
+                keys.append(track.payloadKey);
+    if (!keys.isEmpty()) {
+        const auto lease = queueLease(keys);
+        for (auto &state : states)
+            for (auto &track : state.tracks)
+                if (!track.payloadLoaded)
+                    track.payloadLease = lease;
     }
     emit loaded(account, revision, states, active, lastLocal);
 }
@@ -254,7 +448,15 @@ void PlaybackStorageWorker::save(quint64 account, const PlaybackQueueStates &sta
     const char *operation = "save_queues.delete";
     QSqlQuery queues(m_database), tracks(m_database);
     queues.prepare("INSERT INTO playback_queues VALUES(?,?,?,?,?,?)");
-    tracks.prepare("INSERT INTO playback_tracks VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+    tracks.prepare("INSERT INTO "
+                   "playback_tracks(account_id,queue_key,ordinal,catalog_id,hash,title,artist,"
+                   "album,cover,local_path,album_id,song_id,duration_ms,next_rank,catalog_metadata,"
+                   "catalog_privilege,payload_key) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+    QSqlQuery payloads(m_database), exists(m_database);
+    payloads.prepare("INSERT INTO playback_song_payloads(payload_key,metadata) VALUES(?,?) ON "
+                     "CONFLICT(payload_key) DO NOTHING");
+    exists.prepare("SELECT 1 FROM playback_song_payloads WHERE payload_key=?");
+    QStringList storedKeys;
     for (int i = 0; ok && i < states.size(); ++i) {
         const auto &s = states[i];
         queues.bindValue(0, user);
@@ -272,8 +474,32 @@ void PlaybackStorageWorker::save(quint64 account, const PlaybackQueueStates &sta
             const auto &t = s.tracks[row];
             const auto clean = [](const QString &v) { return v.isNull() ? QStringLiteral("") : v; };
             auto metadata = t.catalogMetadata;
+            const auto payloadKey = t.payloadKey.isEmpty()
+                                        ? QUuid::createUuid().toString(QUuid::WithoutBraces)
+                                        : t.payloadKey;
             metadata.remove("embedded_cover_url");
             metadata.remove("artist_cover_url");
+            if (t.payloadLoaded) {
+                payloads.bindValue(0, payloadKey);
+                payloads.bindValue(1, QJsonDocument(metadata).toJson(QJsonDocument::Compact));
+                ok = payloads.exec();
+                if (!ok) {
+                    writeError = payloads.lastError();
+                    operation = "save_queues.payload";
+                    break;
+                }
+            } else {
+                exists.bindValue(0, payloadKey);
+                if (!exists.exec() || !exists.next()) {
+                    ok = false;
+                    writeError = exists.lastError();
+                    operation = "save_queues.missing_payload";
+                    break;
+                }
+                exists.finish();
+            }
+            storedKeys.append(payloadKey);
+            metadata = PlaybackTrack::publicMetadata(metadata);
             const QVariantList values{user,
                                       s.key,
                                       row,
@@ -292,7 +518,8 @@ void PlaybackStorageWorker::save(quint64 account, const PlaybackQueueStates &sta
                                       qint64(t.durationMs),
                                       int(s.next.indexOf(t.key())),
                                       QJsonDocument(metadata).toJson(QJsonDocument::Compact),
-                                      t.catalogPrivilege};
+                                      t.catalogPrivilege,
+                                      payloadKey};
             for (int v = 0; v < values.size(); ++v)
                 tracks.bindValue(v, values[v]);
             ok = tracks.exec();
@@ -321,40 +548,256 @@ void PlaybackStorageWorker::save(quint64 account, const PlaybackQueueStates &sta
         SqlDiagnostics::failure(m_database, operation, writeError);
         m_database.rollback();
         emit failed(tr("保存播放队列失败"));
-    } else if (!m_database.commit())
+    } else if (!m_database.commit()) {
+        const auto error = m_database.lastError();
+        m_database.rollback();
+        emit failed(SqlDiagnostics::failure(m_database, "save_queues.commit", error));
+    } else {
+        emit saved(storedKeys, queueLease(storedKeys));
+        scheduleQueueCollection();
+    }
+}
+std::pair<PlaybackTrack, QString> PlaybackStorageWorker::hydrate(PlaybackTrack track)
+{
+    if (track.payloadLoaded)
+        return {std::move(track), {}};
+    if (!m_valid)
+        return {{}, tr("播放队列存储不可用")};
+    QSqlQuery query(m_database);
+    query.prepare("SELECT metadata FROM playback_song_payloads WHERE payload_key=?");
+    query.addBindValue(track.payloadKey);
+    if (!query.exec())
+        return {{}, SqlDiagnostics::failure(m_database, "read_queue_payload", query.lastError())};
+    if (!query.next())
+        return {{}, tr("播放队列的曲目资料已失效")};
+    QJsonParseError error;
+    const auto document = QJsonDocument::fromJson(query.value(0).toByteArray(), &error);
+    if (error.error != QJsonParseError::NoError || !document.isObject())
+        return {{}, tr("播放队列的曲目资料已损坏")};
+    auto metadata = document.object();
+    const auto previous = PlaybackTrack::publicMetadata(metadata);
+    for (auto it = previous.begin(); it != previous.end(); ++it)
+        if (!track.catalogMetadata.contains(it.key()))
+            metadata.remove(it.key());
+    for (auto it = track.catalogMetadata.begin(); it != track.catalogMetadata.end(); ++it)
+        metadata.insert(it.key(), it.value());
+    track.catalogMetadata = std::move(metadata);
+    track.payloadLoaded = true;
+    track.payloadLease.reset();
+    return {std::move(track), {}};
+}
+PlaybackPayloadLease PlaybackStorageWorker::queueLease(const QStringList &keys)
+{
+    auto lease = std::shared_ptr<PlaybackPayloadSnapshot>(new PlaybackPayloadSnapshot);
+    lease->m_keys = keys;
+    lease->m_retirement = m_queueRetirement;
+    m_queueLeases.append(lease);
+    return lease;
+}
+void PlaybackStorageWorker::scheduleQueueCollection()
+{
+    if (!m_valid)
+        return;
+    m_queueCollectionCursor = 0;
+    if (!m_queueCollection.isActive())
+        m_queueCollection.start();
+}
+void PlaybackStorageWorker::collectQueuePayloads()
+{
+    if (!m_valid)
+        return;
+    QSet<QString> pinned;
+    QList<PlaybackPayloadLease> leases;
+    for (auto it = m_queueLeases.begin(); it != m_queueLeases.end();) {
+        if (auto lease = it->lock()) {
+            for (const auto &key : lease->m_keys)
+                pinned.insert(key);
+            leases.append(std::move(lease));
+            ++it;
+        } else
+            it = m_queueLeases.erase(it);
+    }
+    // Bound scanned rows as well as deletes, including when all old records
+    // are pinned. The reference index avoids rescanning every live queue.
+    QSqlQuery query(m_database);
+    query.prepare("SELECT p.rowid,p.payload_key,EXISTS(SELECT 1 FROM playback_tracks t WHERE "
+                  "t.payload_key=p.payload_key) FROM playback_song_payloads p WHERE p.rowid>? "
+                  "ORDER BY p.rowid LIMIT 256");
+    query.addBindValue(m_queueCollectionCursor);
+    if (!query.exec()) {
+        emit failed(SqlDiagnostics::failure(m_database, "collect_queue.select", query.lastError()));
+        return;
+    }
+    int scanned = 0;
+    auto cursor = m_queueCollectionCursor;
+    QStringList retired;
+    while (query.next()) {
+        ++scanned;
+        cursor = query.value(0).toLongLong();
+        const auto key = query.value(1).toString();
+        if (!query.value(2).toBool() && !pinned.contains(key))
+            retired.append(key);
+    }
+    if (query.lastError().isValid()) {
+        emit failed(SqlDiagnostics::failure(m_database, "collect_queue.fetch", query.lastError()));
+        return;
+    }
+    query.finish();
+    if (!retired.isEmpty()) {
+        if (!m_database.transaction()) {
+            emit failed(
+                SqlDiagnostics::failure(m_database, "collect_queue.begin", m_database.lastError()));
+            return;
+        }
+        query.prepare("DELETE FROM playback_song_payloads WHERE payload_key=?");
+        for (const auto &key : retired) {
+            query.bindValue(0, key);
+            if (!query.exec()) {
+                const auto error = query.lastError();
+                m_database.rollback();
+                emit failed(SqlDiagnostics::failure(m_database, "collect_queue.delete", error));
+                return;
+            }
+        }
+        if (!m_database.commit()) {
+            const auto error = m_database.lastError();
+            m_database.rollback();
+            emit failed(SqlDiagnostics::failure(m_database, "collect_queue.commit", error));
+            return;
+        }
+    }
+    m_queueCollectionCursor = cursor;
+    if (scanned == 256)
+        m_queueCollection.start();
+}
+void PlaybackStorageWorker::collectPayloads()
+{
+    if (!m_valid)
+        return;
+    QSqlQuery query(m_database);
+    if (!query.exec("DELETE FROM playback_song_payloads WHERE payload_key NOT IN (SELECT "
+                    "payload_key FROM playback_tracks)"))
         emit failed(
-            SqlDiagnostics::failure(m_database, "save_queues.commit", m_database.lastError()));
+            SqlDiagnostics::failure(m_database, "retire_queue_payloads", query.lastError()));
+    if (!query.exec("DELETE FROM playback_history_payloads WHERE payload_key NOT IN (SELECT "
+                    "payload_key FROM playback_history)"))
+        emit failed(
+            SqlDiagnostics::failure(m_database, "retire_history_payloads", query.lastError()));
+}
+void PlaybackStorageWorker::scheduleHistoryCollection()
+{
+    if (m_valid && !m_historyCollection.isActive())
+        m_historyCollection.start();
+}
+void PlaybackStorageWorker::collectHistoryPayloads()
+{
+    if (!m_valid)
+        return;
+    QSet<QString> pinned;
+    QList<HistoryPayloadLease> leases;
+    for (auto it = m_historyLeases.begin(); it != m_historyLeases.end();) {
+        if (auto lease = it->lock()) {
+            for (const auto &key : lease->m_keys)
+                pinned.insert(key);
+            leases.append(std::move(lease));
+            ++it;
+        } else
+            it = m_historyLeases.erase(it);
+    }
+    QSqlQuery query(m_database);
+    if (!query.exec("SELECT payload_key FROM playback_history_payloads WHERE payload_key NOT IN "
+                    "(SELECT payload_key FROM playback_history)")) {
+        emit failed(
+            SqlDiagnostics::failure(m_database, "collect_history.select", query.lastError()));
+        return;
+    }
+    QStringList retired;
+    while (retired.size() < 256 && query.next()) {
+        const auto key = query.value(0).toString();
+        if (!pinned.contains(key))
+            retired.append(key);
+    }
+    if (query.lastError().isValid()) {
+        emit failed(
+            SqlDiagnostics::failure(m_database, "collect_history.fetch", query.lastError()));
+        return;
+    }
+    query.finish();
+    if (retired.isEmpty())
+        return;
+    if (!m_database.transaction()) {
+        emit failed(
+            SqlDiagnostics::failure(m_database, "collect_history.begin", m_database.lastError()));
+        return;
+    }
+    query.prepare("DELETE FROM playback_history_payloads WHERE payload_key=?");
+    for (const auto &key : retired) {
+        query.bindValue(0, key);
+        if (!query.exec()) {
+            const auto error = query.lastError();
+            m_database.rollback();
+            emit failed(SqlDiagnostics::failure(m_database, "collect_history.delete", error));
+            return;
+        }
+    }
+    if (!m_database.commit()) {
+        const auto error = m_database.lastError();
+        m_database.rollback();
+        emit failed(SqlDiagnostics::failure(m_database, "collect_history.commit", error));
+    } else if (retired.size() == 256)
+        scheduleHistoryCollection();
 }
 void PlaybackStorageWorker::record(quint64 account, const PlaybackTrack &track, qint64 listenedMs)
 {
     if (!m_valid || !track.playable() || listenedMs < 0)
         return;
+    if (!m_database.transaction()) {
+        emit failed(
+            SqlDiagnostics::failure(m_database, "record_history.begin", m_database.lastError()));
+        return;
+    }
+    const auto key = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    const auto snapshot = track.toDomain();
+    QSqlQuery payload(m_database);
+    payload.prepare(
+        "INSERT INTO playback_history_payloads(account_id,payload_key,snapshot) VALUES(?,?,?)");
+    payload.addBindValue(QString::number(account));
+    payload.addBindValue(key);
+    payload.addBindValue(QJsonDocument(snapshot).toJson(QJsonDocument::Compact));
     QSqlQuery q(m_database);
     q.prepare("INSERT INTO "
               "playback_history(account_id,track_key,catalog_id,hash,title,artist,cover,played_at,"
-              "listened_ms,play_count,track_snapshot) VALUES(?,?,?,?,?,?,?,?,?,1,?) ON "
-              "CONFLICT(account_id,track_key) DO UPDATE SET "
+              "listened_ms,play_count,track_snapshot,payload_key) VALUES(?,?,?,?,?,?,?,?,?,1,?,?) "
+              "ON CONFLICT(account_id,track_key) DO UPDATE SET "
               "played_at=excluded.played_at,listened_ms=playback_history.listened_ms+excluded."
               "listened_ms,play_count=playback_history.play_count+1,track_snapshot=excluded.track_"
-              "snapshot,title=excluded.title,artist=excluded.artist,cover=excluded.cover");
-    for (const auto &v : QVariantList{
-             QString::number(account), historyKey(track),
-             track.id.isNull() ? QStringLiteral("") : track.id,
-             track.hash.isNull() ? QStringLiteral("") : track.hash,
-             track.title.isNull() ? QStringLiteral("") : track.title,
-             track.artist.isNull() ? QStringLiteral("") : track.artist,
-             hasEmbeddedCover(track.catalogMetadata, track.cover) ||
-                     hasArtistCover(track.catalogMetadata, track.cover) || track.cover.isNull()
-                 ? QStringLiteral("")
-                 : track.cover,
+              "snapshot,payload_key=excluded.payload_key,title=excluded.title,artist=excluded."
+              "artist,cover=excluded.cover");
+    const auto clean = [](const QString &value) {
+        return value.isNull() ? QStringLiteral("") : value;
+    };
+    for (const auto &value : QVariantList{
+             QString::number(account), historyKey(track), clean(track.id), clean(track.hash),
+             clean(track.title), clean(track.artist),
+             clean(hasEmbeddedCover(track.catalogMetadata, track.cover) ||
+                           hasArtistCover(track.catalogMetadata, track.cover)
+                       ? QString()
+                       : track.cover),
              QDateTime::currentMSecsSinceEpoch(), listenedMs,
-             QJsonDocument(track.toDomain()).toJson(QJsonDocument::Compact)})
-        q.addBindValue(v);
-    if (!q.exec())
-        emit failed(SqlDiagnostics::failure(m_database, "record_history", q.lastError()));
-    else
+             QJsonDocument(historyProjection(snapshot)).toJson(QJsonDocument::Compact), key})
+        q.addBindValue(value);
+    if (!payload.exec() || !q.exec() || !m_database.commit()) {
+        const auto error = payload.lastError().isValid() ? payload.lastError()
+                           : q.lastError().isValid()     ? q.lastError()
+                                                         : m_database.lastError();
+        m_database.rollback();
+        emit failed(SqlDiagnostics::failure(m_database, "record_history", error));
+    } else {
+        scheduleHistoryCollection();
         emit historyChanged(account);
+    }
 }
+
 void PlaybackStorageWorker::addHistoryTime(quint64 account, const PlaybackTrack &track,
                                            qint64 listenedMs)
 {
@@ -376,16 +819,20 @@ QString PlaybackStorageWorker::historyKey(const PlaybackTrack &track)
     // audio hash so equal hashes share one row.
     return track.stableKey();
 }
-void PlaybackStorageWorker::loadHistory(quint64 account, quint64 revision)
+void PlaybackStorageWorker::loadHistory(quint64 account, quint64 revision, bool projectionsOnly)
 {
     if (!m_valid) {
         emit historyFailed(tr("播放历史存储不可用"));
         return;
     }
     QSqlQuery q(m_database);
-    q.prepare("SELECT track_key,played_at,listened_ms,play_count,track_snapshot,rowid "
-              "FROM playback_history WHERE account_id=? ORDER BY played_at DESC, rowid DESC "
-              "LIMIT 1000");
+    q.prepare(
+        QString(
+            "SELECT h.track_key,h.played_at,h.listened_ms,h.play_count,%1,h.rowid,h.payload_key "
+            "FROM playback_history h LEFT JOIN playback_history_payloads p ON "
+            "p.payload_key=h.payload_key AND p.account_id=h.account_id WHERE h.account_id=? ORDER "
+            "BY h.played_at DESC,h.rowid DESC LIMIT 1000")
+            .arg(projectionsOnly ? "h.track_snapshot" : "p.snapshot"));
     q.addBindValue(QString::number(account));
     if (!q.exec()) {
         emit historyFailed(SqlDiagnostics::failure(m_database, "load_history", q.lastError()));
@@ -396,7 +843,7 @@ void PlaybackStorageWorker::loadHistory(quint64 account, quint64 revision)
     // repeats count on a single line; catalog rows never merge.
     struct Row
     {
-        QString key, rowid;
+        QString key, rowid, payloadKey;
         qint64 playedAt = 0, listenedMs = 0, playCount = 0;
     };
     QList<Row> rows;
@@ -407,12 +854,13 @@ void PlaybackStorageWorker::loadHistory(quint64 account, quint64 revision)
     while (q.next()) {
         QJsonParseError error;
         const auto snapshot = QJsonDocument::fromJson(q.value(4).toByteArray(), &error);
-        if (error.error != QJsonParseError::NoError || !snapshot.isObject()) {
+        if (error.error != QJsonParseError::NoError || !snapshot.isObject() ||
+            snapshot.object().value("_invalid").toBool()) {
             emit historyFailed(tr("播放历史的曲目资料已损坏"));
             return;
         }
-        Row row{q.value(0).toString(), q.value(5).toString(), q.value(1).toLongLong(),
-                q.value(2).toLongLong(), q.value(3).toLongLong()};
+        Row row{q.value(0).toString(),   q.value(5).toString(),   q.value(6).toString(),
+                q.value(1).toLongLong(), q.value(2).toLongLong(), q.value(3).toLongLong()};
         const auto object = snapshot.object();
         const auto hash = object.value("hash").toString().toLower();
         bool numeric = false;
@@ -491,8 +939,44 @@ void PlaybackStorageWorker::loadHistory(quint64 account, quint64 revision)
                                    {"played_at", rows[i].playedAt},
                                    {"listened_ms", rows[i].listenedMs},
                                    {"play_count", rows[i].playCount},
-                                   {"track", snapshots[i]}});
-    emit historyLoaded(account, revision, entries);
+                                   {"track", snapshots[i]},
+                                   {"payload_key", rows[i].payloadKey}});
+    auto lease = std::shared_ptr<HistoryPayloadSnapshot>(new HistoryPayloadSnapshot);
+    lease->m_retirement = m_retirement;
+    for (const auto &row : rows)
+        lease->m_keys.append(row.payloadKey);
+    m_historyLeases.append(lease);
+    emit historyLoaded(account, revision, entries, std::move(lease));
+    scheduleHistoryCollection();
+}
+std::pair<QList<QJsonObject>, QString> PlaybackStorageWorker::historyTracks(quint64 account,
+                                                                            const QStringList &keys)
+{
+    if (!m_valid)
+        return {{}, tr("播放历史存储不可用")};
+    if (keys.size() > 128)
+        return {{}, tr("播放历史读取数量无效")};
+    QList<QJsonObject> values;
+    qint64 bytes = 0;
+    QSqlQuery query(m_database);
+    query.prepare(
+        "SELECT snapshot FROM playback_history_payloads WHERE account_id=? AND payload_key=?");
+    for (const auto &key : keys) {
+        query.bindValue(0, QString::number(account));
+        query.bindValue(1, key);
+        if (!query.exec() || !query.next())
+            return {{}, tr("历史歌曲资料已失效，请重试")};
+        const auto payload = query.value(0).toByteArray();
+        if (!values.isEmpty() && payload.size() > 2 * 1024 * 1024 - bytes)
+            break;
+        QJsonParseError error;
+        const auto document = QJsonDocument::fromJson(payload, &error);
+        if (error.error != QJsonParseError::NoError || !document.isObject())
+            return {{}, tr("播放历史的曲目资料已损坏")};
+        values.append(document.object());
+        bytes += payload.size();
+    }
+    return {std::move(values), {}};
 }
 void PlaybackStorageWorker::removeHistory(quint64 account, const QStringList &keys)
 {
@@ -516,6 +1000,7 @@ void PlaybackStorageWorker::removeHistory(quint64 account, const QStringList &ke
         emit historyFailed(SqlDiagnostics::failure(m_database, "remove_history", q.lastError()));
         return;
     }
+    scheduleHistoryCollection();
     emit historyChanged(account);
 }
 void PlaybackStorageWorker::clearHistory(quint64 account)
@@ -529,10 +1014,18 @@ void PlaybackStorageWorker::clearHistory(quint64 account)
         emit historyFailed(SqlDiagnostics::failure(m_database, "clear_history", q.lastError()));
         return;
     }
+    scheduleHistoryCollection();
     emit historyChanged(account);
 }
 void PlaybackStorageWorker::close()
 {
+    m_queueCollection.stop();
+    m_historyCollection.stop();
+    for (const auto &retirement : {m_retirement, m_queueRetirement}) {
+        const std::lock_guard guard(retirement->mutex);
+        retirement->notify = {};
+    }
+    collectPayloads();
     m_valid = false;
     m_database.close();
     emit drained();
@@ -637,9 +1130,12 @@ PlaybackRepository::PlaybackRepository(const QString &path, QObject *parent)
     : QObject(parent), m_worker(new PlaybackStorageWorker)
 {
     qRegisterMetaType<PlaybackQueueStates>();
+    qRegisterMetaType<HistoryPayloadLease>();
+    qRegisterMetaType<PlaybackPayloadLease>();
     m_worker->moveToThread(&m_thread);
     m_thread.setObjectName("echo-playback-storage");
     connect(m_worker, &PlaybackStorageWorker::loaded, this, &PlaybackRepository::loaded);
+    connect(m_worker, &PlaybackStorageWorker::saved, this, &PlaybackRepository::saved);
     connect(m_worker, &PlaybackStorageWorker::historyLoaded, this,
             &PlaybackRepository::historyLoaded);
     connect(m_worker, &PlaybackStorageWorker::historyFailed, this,
@@ -660,10 +1156,28 @@ PlaybackRepository::~PlaybackRepository()
     shutdown();
     m_thread.wait();
 }
-void PlaybackRepository::load(quint64 a, quint64 r)
+void PlaybackRepository::load(quint64 a, quint64 r, bool projectionsOnly)
 {
     if (!m_closing)
-        QMetaObject::invokeMethod(m_worker, [worker = m_worker, a, r] { worker->load(a, r); });
+        QMetaObject::invokeMethod(m_worker, [worker = m_worker, a, r, projectionsOnly] {
+            worker->load(a, r, projectionsOnly);
+        });
+}
+void PlaybackRepository::requestTrack(PlaybackTrack track, QObject *consumer,
+                                      std::function<void(PlaybackTrack, QString)> done)
+{
+    if (m_closing || !consumer)
+        return;
+    const QPointer<QObject> guard(consumer);
+    QMetaObject::invokeMethod(m_worker, [this, worker = m_worker, guard, track = std::move(track),
+                                         done = std::move(done)]() mutable {
+        auto result = worker->hydrate(std::move(track));
+        QMetaObject::invokeMethod(
+            this, [guard, result = std::move(result), done = std::move(done)]() mutable {
+                if (guard)
+                    done(std::move(result.first), std::move(result.second));
+            });
+    });
 }
 void PlaybackRepository::save(quint64 a, const PlaybackQueueStates &s, const QString &key,
                               const QString &lastLocal)
@@ -685,11 +1199,28 @@ void PlaybackRepository::addHistoryTime(quint64 a, const PlaybackTrack &t, qint6
         QMetaObject::invokeMethod(
             m_worker, [worker = m_worker, a, t, ms] { worker->addHistoryTime(a, t, ms); });
 }
-void PlaybackRepository::loadHistory(quint64 a, quint64 r)
+void PlaybackRepository::loadHistory(quint64 a, quint64 r, bool projectionsOnly)
 {
     if (!m_closing)
-        QMetaObject::invokeMethod(m_worker,
-                                  [worker = m_worker, a, r] { worker->loadHistory(a, r); });
+        QMetaObject::invokeMethod(m_worker, [worker = m_worker, a, r, projectionsOnly] {
+            worker->loadHistory(a, r, projectionsOnly);
+        });
+}
+void PlaybackRepository::requestHistoryTracks(quint64 account, QStringList keys, QObject *consumer,
+                                              std::function<void(QList<QJsonObject>, QString)> done)
+{
+    if (m_closing || !consumer)
+        return;
+    const QPointer<QObject> guard(consumer);
+    QMetaObject::invokeMethod(m_worker, [this, worker = m_worker, account, keys = std::move(keys),
+                                         guard, done = std::move(done)]() mutable {
+        auto result = worker->historyTracks(account, keys);
+        QMetaObject::invokeMethod(
+            this, [guard, result = std::move(result), done = std::move(done)]() mutable {
+                if (guard)
+                    done(std::move(result.first), std::move(result.second));
+            });
+    });
 }
 void PlaybackRepository::removeHistory(quint64 a, const QStringList &keys)
 {

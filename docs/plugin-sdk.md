@@ -34,7 +34,7 @@
 
 声明 `audio.spectrum` feature 和 `audioSpectrum` capability 后，可订阅播放器实际输出的 PCM 频谱。订阅提供帧、状态及暂停/释放操作；`dispose` 后句柄失效。多个订阅共享分析，暂停或没有可见订阅时停止采集与 FFT 请求。
 
-需要逐帧数据时声明 `audio.spectrum.frames`，在 `frameChanged` 读取 `currentFrame`。标量和预声明的线性频段均值可直接读取。调用 `copyBins()`、`copyWaveform()` 可保留独立的 Float64Array。
+需要逐帧数据时声明 `audio.spectrum.frames`，在 `frameChanged` 读取 `currentFrame`。标量和预声明的线性频段均值可直接读取。调用 `copyBins()`、`copyWaveform()` 可保留独立的 Float64Array；没有样本时返回零长度数组，可直接传给标准 TypedArray 方法。
 
 支持 fps 0（不额外限帧）或 1–60、binCount 8–512、fftSize 256–8192 的指定二次幂、smoothing 0–0.95、log / linear / mel 频率映射及可选波形。帧包含 source、state、时间、采样率、FFT 大小、频段、peak / rms 等资料。Rust FFT 数组由 Qt 借用，原生帧携带曲目与配置世代。高级 GPU 绘图使用 `ctx.graphics` 和 `EchoGpuSurface`，支持纹理、缓冲、渲染/计算管线和局部 HDR 输入的 SDR 映射；默认 SDR，不修改宿主窗口。当前没有局部 HDR 实屏输出后端。硬件状态与接口 feature 分开查询，详见[绘图指南](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/graphics.md)。
 
@@ -223,7 +223,7 @@ lease.dispose();
 
 ### 原生状态、模型与成组提交
 
-公开区域提供 `stateSchema/actionSchema`、原生属性通知、状态选择器、坐标转换和逐字段 `visualSources`。共享 Qt 控件的内容、背景及指示器可按需借入组合；编辑内容和密码不会加入状态快照。设置/选择/滚动/焦点动作沿原生 Qt 路径执行，撤下后恢复原绑定与焦点关系。
+公开区域提供 `stateSchema/actionSchema`、原生属性通知、状态选择器、坐标转换和逐字段 `visualSources`。公开状态中的原生矩形规范为 `{x,y,width,height}` JSON对象，包含歌词字形的 `rect/inkRect`，可直接读取与序列化。共享 Qt 控件的内容、背景及指示器可按需借入组合；编辑内容和密码不会加入状态快照。设置/选择/滚动/焦点动作沿原生 Qt 路径执行，撤下后恢复原绑定与焦点关系。
 
 `ui.models` 对应 `parts.contributeModel`：原生 List/Grid/Table 与数值、列表、JS 数组模型保留源数据，扩展行列通过源索引映射；实际歌曲列表与表头共用复合列协议，支持列宽及表头命令。`position/anchor` 支持相对定位，`operation/target` 支持受管隐藏、移动和替换；`native:<key>` 定位原条目，`native:#<index>` 使用本次源索引，插件条目用 `<owner>:<contribution>:<key>`。菜单支持组与子菜单；Tab/设置目录保留原业务索引及正文入口。
 

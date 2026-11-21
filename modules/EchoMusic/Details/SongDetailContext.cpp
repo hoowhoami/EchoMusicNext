@@ -72,7 +72,7 @@ SongDetailContext::SongDetailContext(ApiClient &a, PlaybackService &p, RouteCont
     connect(&m_songs, &SongCatalogModel::presentationsApplied, this, [this] {
         if (m_songs.totalCount() != 1)
             return;
-        const auto track = m_songs.track(m_songs.sourceItem(0)["resourceId"].toString());
+        const auto track = m_songs.trackProjection(m_songs.sourceItem(0)["resourceId"].toString());
         if (!track)
             return;
         const auto song = track->toCatalog();

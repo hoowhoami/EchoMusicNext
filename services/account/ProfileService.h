@@ -93,6 +93,7 @@ public:
     Q_ENUM(SocialTab)
     explicit ProfileService(ApiClient &api, AccountService &account, QObject *parent = nullptr);
     ~ProfileService() override;
+    void attachRecordStore(JsonRecordStore &);
     AccountService *account() const
     {
         return &m_account;
@@ -219,7 +220,8 @@ private:
     QVariantList m_chatMessages;
     QJsonArray m_unmappedChatRecords;
     QString m_chatTag, m_chatError, m_chatSubmitted;
-    quint64 m_chatRead = 0, m_chatWrite = 0;
+    quint64 m_chatRead = 0, m_chatWrite = 0, m_chatActivation = 0;
+    QSet<QString> m_socialReads;
     QTimer m_chatRefresh;
     QJsonArray reconcileFollows(int tab, QJsonArray rows, bool readback);
     void loadSocial(SocialTab tab, bool force);

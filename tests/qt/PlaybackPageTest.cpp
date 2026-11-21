@@ -1,5 +1,6 @@
 #include "TaskbarLyricController.h"
 #include "PlaybackPageTest.h"
+#include <QtQuick/private/qquickimagebase_p_p.h>
 #include "FloatingPlayerController.h"
 #include "RenderedInk.h"
 #include "EchoBackdropRoot.h"
@@ -1154,11 +1155,11 @@ void PlaybackPageTest::pageArtworkTransitionPreservesGeometryAndReverses()
         QCOMPARE(motion->property("travelDuration").toInt(), 460);
         QPointer<QQuickItem> flight;
         QTRY_VERIFY((flight = session.item("playbackCoverFlight")));
-        auto *captureItem = session.item("playbackCoverFlightCapture");
-        QVERIFY(captureItem);
-        const auto required =
-            qCeil(large.width() * scale * session.window->effectiveDevicePixelRatio());
-        QVERIFY(captureItem->property("textureSize").toSize().width() >= required);
+        auto *flightImage = session.item("playbackCoverFlightImage");
+        QVERIFY(flightImage);
+        QVERIFY(!session.item("playbackCoverFlightCapture"));
+        QCOMPARE(flightImage->property("source").toUrl(), sourceImage->property("source").toUrl());
+        QCOMPARE(flightImage->property("sourceSize").toSize(), decoded);
         QTRY_VERIFY_WITH_TIMEOUT(motion->property("progress").toDouble() > 0, 2000);
         QTest::qWait(60);
         const auto middle = motion->property("currentRect").toRectF();
@@ -1644,6 +1645,36 @@ Item {
     QTest::qWait(80);
     const auto moving = session.window->grabWindow();
     QVERIFY(!moving.isNull());
+    if (artworkStatus == 1) {
+        // A track may change while a compositor flight is interrupted. Its
+        // accepted artwork must remain frozen until that flight is retired.
+        auto *frozen = findVisual(host, "playbackCoverFlightImage");
+        QVERIFY(frozen);
+        auto *originalImage = qobject_cast<QQuickImageBase *>(findVisual(small, "coverImage"));
+        auto *flightImage = qobject_cast<QQuickImageBase *>(frozen);
+        QVERIFY(originalImage && flightImage);
+        auto *originalPixels = QQuickImageBasePrivate::get(originalImage)->currentPix;
+        auto *flightPixels = QQuickImageBasePrivate::get(flightImage)->currentPix;
+        QVERIFY(originalPixels->textureFactory());
+        QCOMPARE(flightPixels->textureFactory(), originalPixels->textureFactory());
+        const auto accepted = frozen->property("source").toUrl();
+        QImage replacement(128, 128, QImage::Format_RGB32);
+        replacement.fill(Qt::green);
+        const auto replacementPath = session.directory.filePath("replacement-artwork.png");
+        QVERIFY(replacement.save(replacementPath));
+        host->setProperty("artwork", QUrl::fromLocalFile(replacementPath));
+        QTRY_COMPARE(small->property("status").toInt(), 1);
+        QTest::qWait(80);
+        QCOMPARE(frozen->property("source").toUrl(), accepted);
+        const auto replaced = session.window->grabWindow();
+        const auto bounds = large->mapRectToScene(QRectF(16, 16, 248, 248));
+        const auto dpr = moving.devicePixelRatio();
+        const QRect area(qRound(bounds.x() * dpr), qRound(bounds.y() * dpr),
+                         qRound(bounds.width() * dpr), qRound(bounds.height() * dpr));
+        QCOMPARE(replaced.copy(area), moving.copy(area));
+        host->setProperty("artwork", QUrl::fromLocalFile(path));
+        QTRY_COMPARE(small->property("status").toInt(), 1);
+    }
     QVERIFY(QMetaObject::invokeMethod(motion, "finish"));
     large->setVisible(true);
     QTRY_VERIFY(artworkStatus == 3 ? (large->property("status").toInt() == 3 ||

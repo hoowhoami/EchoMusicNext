@@ -1,4 +1,7 @@
 #include "HistoryService.h"
+#include "CatalogRead.h"
+#include <QSqlQuery>
+#include <optional>
 #include "NativeWindow.h"
 #include "NetworkPreferences.h"
 #include "PlaybackRepository.h"
@@ -135,6 +138,96 @@ class HistoryTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void sharedHistoryKeepsRichSnapshotsInDurableSqlAndReadsThemOnDemand()
+    {
+        QTemporaryDir dir;
+        SessionDatabase database(dir.filePath("session"));
+        {
+            SettingsStore prefs(dir.filePath("prefs.ini"));
+            ApiClient api(DeviceIdentity::temporary());
+            QVERIFY(api.setNetworkTransport(1));
+            QVERIFY(api.setAccount(100, "offline-domain-fixture"));
+            SongMetadataService metadata(api);
+            metadata.enableSqlIndex(database);
+            PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+            playback.attachMetadata(metadata);
+            RouteController router;
+            HistoryService service(api, playback, metadata, router, false);
+            service.registerRoutes(router);
+            QVERIFY(router.navigate("history"));
+            auto *repository = PlaybackServiceTestAccess::repository(playback);
+            auto first = historyTrack("1", "First");
+            first.catalogMetadata.insert("opaque", QJsonValue::Null);
+            first.catalogMetadata.insert("resources", QJsonArray{QString(400000, 'r')});
+            auto second = historyTrack("2", "Second");
+            second.catalogMetadata = first.catalogMetadata;
+            repository->record(100, first, 1000);
+            repository->record(100, second, 2000);
+            QTRY_COMPARE(service.songs()->totalCount(), 2);
+            QTRY_VERIFY(!service.loading());
+            QCOMPARE(service.stats().value("listenedMs").toLongLong(), qint64(3000));
+            for (const auto &value : HistoryServiceTestAccess::entries(service)) {
+                const auto meta =
+                    value.toObject().value("track").toObject().value("metadata").toObject();
+                QVERIFY(!meta.contains("resources"));
+                QVERIFY(!meta.contains("opaque"));
+            }
+            std::optional<int> bytes;
+            QVERIFY(database.submit(
+                this,
+                [](QSqlDatabase &db, const QString &) {
+                    QSqlQuery query(db);
+                    return query.exec(
+                               "SELECT coalesce(sum(length(payload)),0) FROM song_payload") &&
+                                   query.next()
+                               ? query.value(0).toInt()
+                               : -1;
+                },
+                [&](int value) { bytes = value; }));
+            QTRY_VERIFY(bytes.has_value());
+            QVERIFY(*bytes > 0 && *bytes < 50000);
+            const auto tracks = readCatalogTracks(service.songs());
+            QCOMPARE(tracks.size(), 2);
+            for (const auto &track : tracks) {
+                QVERIFY(track.catalogMetadata.value("opaque").isNull());
+                QCOMPARE(
+                    track.catalogMetadata.value("resources").toArray().first().toString().size(),
+                    400000);
+                QVERIFY(!track.catalogMetadata.value("history_key").toString().isEmpty());
+            }
+            // Deleting ledger membership must not destroy an admitted immutable
+            // source version; another account can never resolve its private key.
+            QSignalSpy manifest(repository, &PlaybackRepository::historyLoaded);
+            repository->loadHistory(100, 1234, true);
+            QTRY_COMPARE(manifest.size(), 1);
+            const auto entries = manifest.first()[2].toJsonArray();
+            QStringList keys;
+            for (const auto &entry : entries)
+                keys.append(entry.toObject().value("payload_key").toString());
+            repository->clearHistory(100);
+            std::optional<QList<QJsonObject>> retained;
+            repository->requestHistoryTracks(100, keys, this, [&](auto rows, auto error) {
+                QVERIFY2(error.isEmpty(), qPrintable(error));
+                retained = rows;
+            });
+            QTRY_VERIFY(retained.has_value());
+            QCOMPARE(retained->size(), 2);
+            QString isolation;
+            repository->requestHistoryTracks(200, keys, this,
+                                             [&](auto, auto error) { isolation = error; });
+            QTRY_VERIFY(!isolation.isEmpty());
+            QTRY_COMPARE(service.songs()->totalCount(), 0);
+            service.shutdown();
+            router.shutdown();
+            QSignalSpy closed(&playback, &PlaybackService::closed);
+            playback.shutdown();
+            QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+            api.shutdown();
+        }
+        QSignalSpy closed(&database, &SessionDatabase::closed);
+        database.shutdown();
+        QTRY_COMPARE(closed.size(), 1);
+    }
     void loadedOccurrenceImmediatelyPromotesHistoryWithoutDoubleCounting()
     {
         QTemporaryDir dir;
@@ -270,7 +363,7 @@ private slots:
         QVERIFY(!service.loading());
         const auto before = HistoryServiceTestAccess::entries(service);
         const auto statsBefore = service.stats();
-        const auto trackBefore = service.songs()->track("1").value();
+        const auto trackBefore = service.songs()->trackProjection("1").value();
         service.songs()->toggleSelected("1");
         service.songs()->setQuery("正式歌手");
         QCOMPARE(service.songs()->count(), 0);
@@ -294,7 +387,7 @@ private slots:
         QCOMPARE(HistoryServiceTestAccess::metadataTicket(service), quint64(0));
         QVERIFY(!service.loading());
         QCOMPARE(service.songs()->selectedCount(), 1);
-        const auto completed = service.songs()->track("1").value();
+        const auto completed = service.songs()->trackProjection("1").value();
         QCOMPARE(completed.title, QString("正式歌曲"));
         QCOMPARE(completed.album, QString("正式专辑"));
         QCOMPARE(completed.hash, trackBefore.hash);
@@ -366,23 +459,27 @@ private slots:
         service.refresh();
         HistoryServiceTestAccess::accept(service, entries);
         HistoryServiceTestAccess::metadata(service, retired, facts);
-        QVERIFY(service.songs()->track("1")->cover.isEmpty());
+        QVERIFY(service.songs()->trackProjection("1")->cover.isEmpty());
         QVERIFY(router.navigate("other"));
         QCOMPARE(HistoryServiceTestAccess::metadataTicket(service), quint64(0));
         SongMetadataServiceTestAccess::complete(metadata, {"1"}, facts);
-        QTRY_COMPARE(service.songs()->track("1")->cover, QString("https://example.test/1.jpg"));
+        QTRY_COMPARE(service.songs()->trackProjection("1")->cover,
+                     QString("https://example.test/1.jpg"));
         router.back();
-        QTRY_COMPARE(service.songs()->track("1")->cover, QString("https://example.test/1.jpg"));
+        QTRY_COMPARE(service.songs()->trackProjection("1")->cover,
+                     QString("https://example.test/1.jpg"));
         HistoryServiceTestAccess::accept(service, entries);
         const auto removing = HistoryServiceTestAccess::metadataTicket(service);
         service.remove("1");
         HistoryServiceTestAccess::metadata(service, removing, facts);
-        QCOMPARE(service.songs()->track("1")->cover, QString("https://example.test/1.jpg"));
+        QCOMPARE(service.songs()->trackProjection("1")->cover,
+                 QString("https://example.test/1.jpg"));
         HistoryServiceTestAccess::accept(service, entries);
         const auto clearing = HistoryServiceTestAccess::metadataTicket(service);
         service.clear();
         HistoryServiceTestAccess::metadata(service, clearing, facts);
-        QCOMPARE(service.songs()->track("1")->cover, QString("https://example.test/1.jpg"));
+        QCOMPARE(service.songs()->trackProjection("1")->cover,
+                 QString("https://example.test/1.jpg"));
         HistoryServiceTestAccess::accept(service, entries);
         const auto oldSession = HistoryServiceTestAccess::metadataTicket(service);
         QVERIFY(api.setAccount(200, "other-offline-domain-fixture"));
@@ -437,7 +534,7 @@ private slots:
         QCOMPARE(item["title"].toString(), QString("第一首"));
         QCOMPARE(item["artistText"].toString(), QString("周杰伦"));
         QVERIFY(service.songs()
-                    ->track(service.songs()->item(1)["resourceId"].toString())
+                    ->trackProjection(service.songs()->item(1)["resourceId"].toString())
                     ->catalogMetadata.contains("history_key"));
         QCOMPARE(item["durationText"].toString(), QString("3:00"));
         // Removing uses the view id's history key, not a provider identity.

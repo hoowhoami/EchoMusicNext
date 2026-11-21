@@ -41,6 +41,25 @@ PlaylistDetailContext::PlaylistDetailContext(ApiClient &api, PlaybackService &pl
       m_network(networkEnabled)
 {
     m_songs.attachMetadata(&metadata);
+    if (auto *database = metadata.sessionDatabase()) {
+        m_sourceCache = std::make_unique<SongSourceCache>(*database, this);
+        m_songs.enableSessionStorage(*database);
+        connect(&m_songs, &SongCatalogModel::storageFailed, this, [this](const QString &error) {
+            delete m_hintRead.data();
+            m_enriching = false;
+            m_hintAttempted.clear();
+            m_error = error;
+            emit changed();
+        });
+        connect(&m_songs, &SongCatalogModel::presentationProgress, this,
+                &PlaylistDetailContext::enrichStoredEntries);
+        connect(m_playback.cloudSources(), &CloudAudioIndex::listingSettled, this, [this] {
+            if (m_playback.cloudSources()->complete()) {
+                m_hintAttempted.clear();
+                enrichStoredEntries();
+            }
+        });
+    }
     // QML borrows this application-owned object, including explicit invokable
     // returns. GC and engine teardown must never delete a C++ member/context.
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
@@ -110,9 +129,14 @@ PlaylistDetailContext::PlaylistDetailContext(ApiClient &api, PlaybackService &pl
             // later pagination and automatic playlist covers on the same snapshot.
             if (m_closed)
                 return;
+            if (m_sourceCache) {
+                if (m_complete)
+                    publishCover();
+                return;
+            }
             for (const auto &id : rows) {
                 const auto found = m_cloudEntryRows.constFind(id);
-                const auto track = m_songs.track(id);
+                const auto track = m_songs.trackProjection(id);
                 if (found == m_cloudEntryRows.cend() || !track)
                     continue;
                 auto &entry = m_cloudEntries[*found];
@@ -139,7 +163,8 @@ PlaylistDetailContext::PlaylistDetailContext(ApiClient &api, PlaybackService &pl
     connect(&m_playback, &PlaybackService::trackFactsApplied, this,
             &PlaylistDetailContext::applyPlaybackFacts);
     connect(m_playback.cloudSources(), &CloudAudioIndex::settled, this, [this] {
-        if (m_closed || m_reconcilingTracks || !m_cloud || !active() || !enrichCloudEntries())
+        if (m_sourceCache || m_closed || m_reconcilingTracks || !m_cloud || !active() ||
+            !enrichCloudEntries())
             return;
         QJsonArray songs;
         for (const auto &entry : std::as_const(m_cloudEntries)) {
@@ -195,6 +220,11 @@ void PlaylistDetailContext::cancel()
     if (m_comments)
         m_comments->suspend();
     ++m_generation;
+    delete m_sourceRead.data();
+    delete m_hintRead.data();
+    delete m_coverRead.data();
+    m_storingPage = m_enriching = false;
+    m_hintAttempted.clear();
     for (auto ticket : m_metadataRequests.keys())
         m_metadata.cancel(ticket);
     m_metadataRequests.clear();
@@ -227,9 +257,11 @@ void PlaylistDetailContext::activate()
     }
     // A kept-alive page can have finished pagination while optional metadata
     // was canceled on hide. Resume those consumers without reloading tracks.
-    if (m_network && m_metadataRequests.isEmpty())
+    if (!m_sourceCache && m_network && m_metadataRequests.isEmpty())
         if (const auto ticket = m_metadata.request(m_songs.incompletePresentationIds()))
             m_metadataRequests.insert(ticket, {0, m_api.sessionRevision(), m_generation});
+    if (m_sourceCache)
+        enrichStoredEntries();
     if (!m_complete && m_error.isEmpty()) {
         resolveSource();
     }
@@ -238,7 +270,13 @@ void PlaylistDetailContext::reload()
 {
     if (m_closed)
         return;
+    if (m_songs.retryStorage()) {
+        m_error.clear();
+        emit changed();
+        return;
+    }
     cancel();
+    clearStoredRows();
     m_pendingTrackReadback = {};
     m_reconcilingTracks = false;
     m_cloudEntries.clear();
@@ -280,6 +318,7 @@ void PlaylistDetailContext::applyTrackReadback(const QJsonObject &snapshot, quin
         return;
     }
     cancelPageRequests();
+    clearStoredRows();
     m_reconcilingTracks = true;
     m_revision = revision;
     m_revisionsKnown = revision.has_value();
@@ -428,6 +467,10 @@ void PlaylistDetailContext::accept(quint64 id, const QByteArray &bytes)
 }
 void PlaylistDetailContext::consumeBatch()
 {
+    if (m_sourceCache) {
+        consumeStoredBatch();
+        return;
+    }
     while (m_pages.contains(m_nextPage) || m_pageErrors.contains(m_nextPage)) {
         if (m_pageErrors.contains(m_nextPage)) {
             failMessage(m_pageErrors.take(m_nextPage));
@@ -454,7 +497,7 @@ void PlaylistDetailContext::consumeBatch()
             song.insert("metadata", entry["metadata"]);
             songs.append(song);
             const auto id = song["id"].toString();
-            if (!acceptedIds.contains(id) && !m_songs.track(id)) {
+            if (!acceptedIds.contains(id) && !m_songs.trackProjection(id)) {
                 acceptedIds.insert(id);
                 accepted.append(song);
             }
@@ -549,7 +592,7 @@ void PlaylistDetailContext::consumeBatch()
 }
 void PlaylistDetailContext::completePage(const QJsonArray &songs)
 {
-    if (!m_network)
+    if (m_sourceCache || !m_network)
         return;
     QStringList ids;
     for (const auto &value : songs) {
@@ -564,6 +607,10 @@ void PlaylistDetailContext::publishCover()
 {
     if (!m_cloud || !m_complete || !m_revision || !m_revisionsKnown || !active())
         return;
+    if (m_sourceCache) {
+        publishStoredCover();
+        return;
+    }
     QString cover;
     // Entries already have stable sort ascending order, independent of arrival.
     // Use original covers first; enrichment only fills missing presentation.
@@ -577,7 +624,7 @@ void PlaylistDetailContext::publishCover()
     }
     m_library.publishAutoCover(*m_cloud, *m_revision, cover, m_api.sessionRevision());
 }
-bool PlaylistDetailContext::enrichEntry(QJsonObject &entry)
+bool PlaylistDetailContext::enrichEntry(QJsonObject &entry, std::optional<QJsonObject> known)
 {
     auto song = entry["song"].toObject();
     const auto hash = song["hash"].toString().trimmed();
@@ -598,7 +645,7 @@ bool PlaylistDetailContext::enrichEntry(QJsonObject &entry)
         return false;
     // Cloud playlist entries keep only title + hash; the cloud file index knows
     // the same audio by hash and carries the remaining presentation facts.
-    const auto cloud = m_playback.cloudSources()->byHash(hash);
+    const auto cloud = known ? *known : m_playback.cloudSources()->byHash(hash);
     if (cloud.isEmpty())
         return false;
     bool changed = false;
@@ -686,7 +733,11 @@ void PlaylistDetailContext::applyPlaybackFacts(const QJsonObject &facts)
             (!cloudHash.isEmpty() && rowHash.compare(cloudHash, Qt::CaseInsensitive) == 0);
         if (!same)
             continue;
-        applyFactsToEntry(entry, facts, &projected);
+        if (m_sourceCache) {
+            auto transient = entry;
+            applyFactsToEntry(transient, facts, &projected);
+        } else
+            applyFactsToEntry(entry, facts, &projected);
     }
     if (!projected.isEmpty())
         m_songs.applyPresentations(projected);

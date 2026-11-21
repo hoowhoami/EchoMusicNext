@@ -4,6 +4,9 @@
 void PluginRuntimeTest::marketplaceInstallsActualPackageAndRejectsTampering()
 {
     Host host;
+    QTemporaryDir sessionDirectory;
+    EchoMusic::SessionDatabase sessionDatabase(sessionDirectory.filePath("records"));
+    EchoMusic::JsonRecordStore recordStore(sessionDatabase);
     PluginManager manager(host.runtime, host.settings);
     QTcpServer server;
     QVERIFY(server.listen(QHostAddress::LocalHost));
@@ -242,7 +245,11 @@ ApplicationWindow {
         browsingRows.append(row);
     }
     manager.m_entries = browsingRows;
+    manager.attachRecordStore(recordStore);
     manager.rebuild();
+    QVERIFY(!manager.m_entries.first().toMap().contains("manifest"));
+    QVERIFY(!manager.entry(installKey).contains("manifest"));
+    QTRY_VERIFY(recordStore.persisted(manager.m_manifests.value(installKey).snapshot));
     auto *list = visual(uiWindow->contentItem(), "pluginCardList");
     QVERIFY(list);
     QSignalSpy resets(manager.catalog(), &QAbstractItemModel::modelReset);

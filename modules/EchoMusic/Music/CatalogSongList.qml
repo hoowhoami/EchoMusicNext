@@ -18,8 +18,11 @@ Item {
     property real topMargin: 0
     property real bottomMargin: 48
     property bool loading: false
-    onLoadingChanged: if (!loading && resourceActive && collection.count > 0)
-        Qt.callLater(listMotion.promote)
+    onLoadingChanged: {
+        if (!loading && resourceActive && collection.count > 0)
+            Qt.callLater(listMotion.promote);
+        schedulePreload();
+    }
     property string errorMessage: ""
     property bool resourceActive: true
     /// The row with an open context menu retains its context-target fill.
@@ -32,8 +35,11 @@ Item {
     property bool hasMore: false
     property bool loadingMore: false
     signal loadMoreRequested
-    /// Optional explicit footer below populated rows, such as a load-more action.
-    property Component loadMoreComponent: null
+    property int preloadRowCount: -1
+    onHasMoreChanged: schedulePreload()
+    onLoadingMoreChanged: schedulePreload()
+    onResourceActiveChanged: schedulePreload()
+    onErrorMessageChanged: schedulePreload()
     readonly property string activeTrackId: actions.currentTrackId
     readonly property alias listView: songs
     readonly property SongListGeometry geometry: songs.geometry
@@ -76,13 +82,34 @@ Item {
             root.pageContainer.anchorRestored = root.restoreScrollAnchor(anchor);
         }
     }
+    function schedulePreload(): void {
+        if (root.resourceActive && root.visible && !preloadTimer.running)
+            preloadTimer.start();
+    }
+    Timer {
+        id: preloadTimer
+        interval: 0
+        repeat: false
+        onTriggered: root.checkLoadMore()
+    }
     function checkLoadMore(): void {
-        if (!root.hasMore || root.loadingMore || root.loading || !songs.visible)
+        if (!root.resourceActive || !root.hasMore || root.loadingMore || root.loading || root.errorMessage.length > 0 || !songs.visible || songs.height <= 0)
             return;
-        // contentY changes fire for every pixel of the tail; the guard above
-        // plus the page-side requestPending flag bound this to one request.
-        if (songs.atYEnd && songs.contentHeight > songs.height)
+        if (root.preloadRowCount !== root.collection.count) {
+            root.preloadRowCount = root.collection.count;
+            songs.forceLayout();
+        }
+        // Fill short pages and prefetch one viewport before the tail. The
+        // domain owner still owns the request/page guard and failure retry.
+        const remaining = songs.contentHeight - (songs.contentY - songs.originY + songs.height);
+        if (remaining <= Math.max(240, songs.height))
             root.loadMoreRequested();
+    }
+    Connections {
+        target: root.collection
+        function onChanged(): void {
+            root.schedulePreload();
+        }
     }
     ListView {
         id: songs
@@ -103,8 +130,10 @@ Item {
         }
         cacheBuffer: 240
         boundsBehavior: Flickable.StopAtBounds
-        onMovementEnded: root.checkLoadMore()
-        onAtYEndChanged: root.checkLoadMore()
+        onContentYChanged: root.schedulePreload()
+        onContentHeightChanged: root.schedulePreload()
+        onHeightChanged: root.schedulePreload()
+        onVisibleChanged: root.schedulePreload()
         ScrollBar.vertical: EchoPageScrollBar {
             view: songs
             container: root.pageContainer
@@ -129,6 +158,7 @@ Item {
                 required qualityLabel
                 required catalogPlayable
                 required original
+                required property bool presentationReady
                 property bool pooled: false
                 width: songs.width
                 geometry: songs.geometry
@@ -143,6 +173,19 @@ Item {
                 }
                 ListView.onPooled: pooled = true
                 ListView.onReused: pooled = false
+                Binding {
+                    target: row.contentItem
+                    property: "visible"
+                    value: row.presentationReady
+                }
+                Loader {
+                    anchors.fill: parent
+                    active: !row.presentationReady && row.resourceActive
+                    sourceComponent: SongSkeletonRow {
+                        geometry: songs.geometry
+                        animate: row.resourceActive
+                    }
+                }
                 contextTarget: root.menuSongId.length > 0 && resourceId === root.menuSongId
                 onPlayRequested: id => root.actions.playOrToggle(id)
                 onDoubleClicked: if (!row.pendingPlay)
@@ -169,58 +212,50 @@ Item {
             width: songs.width
             readonly property bool empty: !root.loading && root.collection.count === 0
             // Partial-result errors appear below populated rows with an inline retry.
-            readonly property bool inlineError: !root.loading && root.errorMessage.length > 0 && root.collection.count > 0
-            readonly property bool pagination: root.collection.count > 0 && !root.loading && !inlineError && (root.loadingMore || root.loadMoreComponent !== null)
+            readonly property bool errorState: !root.loading && root.errorMessage.length > 0
             readonly property Item emptyLoaderItem: emptyLoader.item as Item
-            visible: empty || inlineError || pagination
-            height: empty ? (emptyLoaderItem ? emptyLoaderItem.implicitHeight : 156) : inlineError ? 56 : pagination ? (loadMoreLoader.item ? (loadMoreLoader.item as Item).implicitHeight : 44) : 0
+            visible: empty || errorState
+            height: errorState ? errorLoader.implicitHeight : empty ? (emptyLoaderItem ? emptyLoaderItem.implicitHeight : 156) : 0
             Loader {
                 id: emptyLoader
                 anchors.left: parent.left
                 anchors.right: parent.right
-                active: catalogFooter.empty && root.emptyComponent !== null
+                active: catalogFooter.empty && !catalogFooter.errorState && root.emptyComponent !== null
                 sourceComponent: root.emptyComponent
             }
             ColumnLayout {
                 anchors.centerIn: parent
-                visible: !emptyLoader.active && (catalogFooter.empty || catalogFooter.inlineError)
+                visible: !emptyLoader.active && catalogFooter.empty && !catalogFooter.errorState
                 spacing: 8
                 Text {
                     Layout.maximumWidth: Math.max(0, catalogFooter.width - 48)
-                    text: root.errorMessage.length > 0 ? root.errorMessage : root.collection.query.length ? qsTr("未找到匹配歌曲") : qsTr("暂无歌曲")
+                    text: root.collection.query.length ? qsTr("未找到匹配歌曲") : qsTr("暂无歌曲")
                     textFormat: Text.PlainText
                     color: Theme.secondaryText
                     font: Theme.font(12, Theme.regularWeight)
                 }
-                EchoSoftButton {
-                    Layout.alignment: Qt.AlignHCenter
-                    visible: root.errorMessage.length > 0
-                    text: qsTr("重新加载")
-                    onClicked: root.retryRequested()
-                }
             }
             Loader {
-                id: loadMoreLoader
-                anchors.top: parent.top
+                id: errorLoader
                 anchors.left: parent.left
                 anchors.right: parent.right
-                active: catalogFooter.pagination
-                sourceComponent: root.loadMoreComponent !== null ? root.loadMoreComponent : defaultLoadMore
-            }
-            Component {
-                id: defaultLoadMore
-                Item {
-                    implicitHeight: 44
-                    Text {
-                        anchors.centerIn: parent
-                        text: qsTr("正在加载更多…")
-                        textFormat: Text.PlainText
-                        color: Theme.secondaryText
-                        font: Theme.font(12, Theme.regularWeight)
-                    }
+                active: root.resourceActive && root.visible && catalogFooter.errorState
+                sourceComponent: EchoLoadError {
+                    message: root.errorMessage
+                    onRetryRequested: root.retryRequested()
                 }
             }
         }
+    }
+    EchoSpinner {
+        objectName: "catalogMoreSpinner"
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 12
+        width: 18
+        height: 18
+        visible: root.resourceActive && !root.loading && root.loadingMore && root.collection.count > 0 && root.errorMessage.length === 0
+        resourceActive: visible
     }
     // A separate, bounded presentation view never receives song roles and
     // has no business state. It releases all eight skeletons when idle.

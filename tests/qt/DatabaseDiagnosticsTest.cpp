@@ -10,6 +10,7 @@
 #include <QTemporaryDir>
 #include <QUuid>
 #include <QtTest>
+#include <thread>
 
 using namespace EchoMusic;
 namespace
@@ -71,6 +72,167 @@ private slots:
     {
         qInstallMessageHandler(previousHandler);
         previousHandler = nullptr;
+    }
+    void queueCollectionKeepsSnapshotsRollsBackAndReclaimsWhileRunning()
+    {
+        QTemporaryDir directory;
+        const auto path = directory.filePath("queue.sqlite");
+        PlaybackTracks survivingShutdown;
+        Database observer(path);
+        {
+            PlaybackStorageWorker storage;
+            QSignalSpy errors(&storage, &PlaybackStorageWorker::failed);
+            QSignalSpy saved(&storage, &PlaybackStorageWorker::saved);
+            QSignalSpy loaded(&storage, &PlaybackStorageWorker::loaded);
+            storage.initialize(path);
+            QVERIFY(observer.db.open());
+            const auto count = [&] {
+                QSqlQuery query(observer.db);
+                return query.exec("SELECT count(*) FROM playback_song_payloads") && query.next()
+                           ? query.value(0).toInt()
+                           : -1;
+            };
+            PlaybackTracks originals;
+            for (int i = 0; i < 600; ++i) {
+                auto track = sampleTrack();
+                track.id = QString::number(i);
+                track.payloadKey = "original-" + track.id;
+                track.catalogMetadata = QJsonObject{{"revision", 0},
+                                                    {"unknown", QJsonValue::Null},
+                                                    {"resources", QJsonArray{QString(4096, 'a')}}};
+                originals.append(track);
+            }
+            storage.save(42, {{"old", "Old queue", originals, 0, {}}}, "old");
+            storage.load(42, 1, true);
+            QCOMPARE(loaded.size(), 1);
+            auto retained = loaded.first()[2].value<PlaybackQueueStates>().first().tracks;
+            QVERIFY(retained.first().payloadLease);
+            loaded.clear();
+            saved.clear();
+            auto other = sampleTrack();
+            other.payloadKey = "other-account";
+            storage.save(99, {{"other", "Other", {other}, 0, {}}}, "other");
+            auto replacement = sampleTrack();
+            replacement.payloadKey = "replacement";
+            storage.save(42, {{"new", "Replacement", {replacement}, 0, {}}}, "new");
+            saved.clear();
+            QTest::qWait(150);
+            QCOMPARE(count(), 602); // Both current scopes plus the fixed old snapshot.
+            auto hydrated = storage.hydrate(retained.first());
+            QVERIFY2(hydrated.second.isEmpty(), qPrintable(hydrated.second));
+            QCOMPARE(hydrated.first.catalogMetadata, originals.first().catalogMetadata);
+            QVERIFY(!hydrated.first.payloadLease); // Full source no longer needs cold storage.
+            QSqlQuery query(observer.db);
+            QVERIFY(query.exec(
+                "EXPLAIN QUERY PLAN SELECT 1 FROM playback_tracks WHERE payload_key='x'"));
+            QVERIFY(query.next());
+            QVERIFY(query.value(3).toString().contains("playback_queue_payload_ref"));
+            query.finish();
+            QVERIFY(
+                query.exec("CREATE TRIGGER reject_queue BEFORE INSERT ON playback_tracks "
+                           "WHEN NEW.payload_key='failed' BEGIN SELECT RAISE(ABORT,'test'); END"));
+            auto failed = replacement;
+            failed.payloadKey = "failed";
+            storage.save(42, {{"broken", "Broken", {failed}, 0, {}}}, "broken");
+            QCOMPARE(errors.size(), 1);
+            QCOMPARE(count(),
+                     602); // Failed replacement cannot remove current or publish a version.
+            errors.clear();
+            QVERIFY(query.exec("DROP TRIGGER reject_queue"));
+            storage.save(42, {}, "default"); // Clear/eviction preserves the admitted old snapshot.
+            saved.clear();
+            QTRY_COMPARE(count(), 601);
+            QVERIFY(query.exec(
+                "CREATE TRIGGER reject_collection BEFORE DELETE ON playback_song_payloads "
+                "BEGIN SELECT RAISE(ABORT,'test'); END"));
+            std::thread release([held = std::move(retained)]() mutable { held.clear(); });
+            release.join();
+            QTRY_VERIFY(!errors.isEmpty());
+            QCOMPARE(count(), 601); // A failed collection is an atomic rollback.
+            errors.clear();
+            QVERIFY(query.exec("DROP TRIGGER reject_collection"));
+            storage.save(99, {{"other", "Other", {other}, 0, {}}}, "other");
+            saved.clear();
+            QTRY_COMPARE(count(), 1); // More than two collection batches, without close/reopen.
+            storage.load(99, 2, true);
+            survivingShutdown = loaded.last()[2].value<PlaybackQueueStates>().first().tracks;
+            loaded.clear();
+            storage.save(99, {}, "default");
+            saved.clear();
+            QTest::qWait(75);
+            QCOMPARE(count(), 1);
+            QVERIFY(errors.isEmpty());
+            storage.close();
+            QCOMPARE(count(), 0);
+        }
+        std::thread release([held = std::move(survivingShutdown)]() mutable { held.clear(); });
+        release.join();
+    }
+    void historyCollectionKeepsLeasedVersionsAndReclaimsAfterLastRelease()
+    {
+        QTemporaryDir directory;
+        const auto path = directory.filePath("history.sqlite");
+        HistoryPayloadLease survivingShutdown;
+        Database observer(path);
+        {
+            PlaybackStorageWorker storage;
+            QSignalSpy errors(&storage, &PlaybackStorageWorker::failed);
+            QSignalSpy manifests(&storage, &PlaybackStorageWorker::historyLoaded);
+            storage.initialize(path);
+            QVERIFY(observer.db.open());
+            const auto count = [&] {
+                QSqlQuery query(observer.db);
+                return query.exec("SELECT count(*) FROM playback_history_payloads") && query.next()
+                           ? query.value(0).toInt()
+                           : -1;
+            };
+            auto track = sampleTrack();
+            track.catalogMetadata.insert("unknown", QJsonValue::Null);
+            storage.record(42, track, 10);
+            storage.loadHistory(42, 1, true);
+            QCOMPARE(manifests.size(), 1);
+            auto lease = manifests.first()[3].value<HistoryPayloadLease>();
+            QVERIFY(lease);
+            const auto key = manifests.first()[2]
+                                 .toJsonArray()
+                                 .first()
+                                 .toObject()
+                                 .value("payload_key")
+                                 .toString();
+            manifests.clear();
+            for (int i = 0; i < 600; ++i) {
+                track.catalogMetadata.insert("revision", i);
+                storage.record(42, track, 10);
+            }
+            storage.record(99, track, 20);
+            // More than one 256-row collection batch; current account rows and
+            // a published old snapshot must all survive.
+            QTRY_COMPARE(count(), 3);
+            const auto old = storage.historyTracks(42, {key});
+            QVERIFY2(old.second.isEmpty(), qPrintable(old.second));
+            QCOMPARE(old.first.size(), 1);
+            QVERIFY(old.first.first().value("metadata").toObject().value("unknown").isNull());
+            QVERIFY(!old.first.first().value("metadata").toObject().contains("revision"));
+            QVERIFY(!storage.historyTracks(99, {key}).second.isEmpty());
+            storage.clearHistory(42);
+            QTRY_COMPARE(count(), 2);
+            // Last release may occur away from the worker. It schedules one
+            // coalesced collection, with no polling or unsafe worker ownership.
+            std::thread release([held = std::move(lease)]() mutable { held.reset(); });
+            release.join();
+            QTRY_COMPARE(count(), 1);
+            QVERIFY(!storage.historyTracks(42, {key}).second.isEmpty());
+            storage.loadHistory(99, 2, true);
+            survivingShutdown = manifests.last()[3].value<HistoryPayloadLease>();
+            manifests.clear();
+            storage.clearHistory(99);
+            QTest::qWait(60);
+            QCOMPARE(count(), 1);
+            QVERIFY(errors.isEmpty());
+            storage.close();
+            QCOMPARE(count(), 0);
+        }
+        survivingShutdown.reset();
     }
     void chinesePathsPreserveMusicAndPlaybackAfterReopen()
     {
@@ -201,12 +363,12 @@ private slots:
             worker.close();
         }
         QVERIFY(message.contains("999"));
-        QVERIFY(message.contains(playback ? "5" : "6"));
+        QVERIFY(message.contains("6"));
         QCOMPARE(records.size(), 1);
         QCOMPARE(records.first()["database"].toString(), filename);
         QCOMPARE(records.first()["operation"].toString(), QString("check_user_version"));
         QCOMPARE(records.first()["actual_version"].toInt(), 999);
-        QCOMPARE(records.first()["supported_version"].toInt(), playback ? 5 : 6);
+        QCOMPARE(records.first()["supported_version"].toInt(), 6);
         Database database(path);
         QVERIFY(database.db.open());
         QSqlQuery query(database.db);
@@ -379,7 +541,7 @@ private slots:
             // rejects the merge's UPDATE while allowing the original read.
             QVERIFY(query.exec("INSERT INTO playback_history SELECT account_id,'legacy-alias',"
                                "catalog_id,hash,title,artist,cover,played_at-1,listened_ms,"
-                               "play_count,track_snapshot FROM playback_history"));
+                               "play_count,track_snapshot,payload_key FROM playback_history"));
             QVERIFY(query.exec("CREATE TRIGGER reject_merge BEFORE UPDATE ON playback_history "
                                "BEGIN SELECT RAISE(ABORT,'merge blocked'); END"));
         }

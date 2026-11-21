@@ -36,6 +36,16 @@ FavoritesService::FavoritesService(ApiClient &api, PlaybackService &playback,
       m_users(this), m_network(network)
 {
     m_songs.attachMetadata(&metadata);
+    if (auto *database = metadata.sessionDatabase()) {
+        m_library.favoriteSongs()->enableSessionStorage(*database);
+        m_songs.enableSessionStorage(*database);
+        connect(&m_songs, &SongCatalogModel::presentationProgress, this,
+                &FavoritesService::publishCover);
+        connect(&m_songs, &SongCatalogModel::storageFailed, this, [this](const QString &error) {
+            m_error = error;
+            emit changed();
+        });
+    }
     m_songs.setMetadataActive(false);
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
     m_actions.setQueueContext(tr("我最喜爱"), "queue:favorites");
@@ -115,7 +125,7 @@ bool FavoritesService::removeSongs(const QStringList &ids)
     const QSet<QString> selected(ids.begin(), ids.end());
     QSet<quint64> seen;
     QList<ApiClient::PlaylistTrackFileId> files;
-    for (const auto &value : m_songRows) {
+    for (const auto &value : m_library.favoriteSongs()->rows()) {
         const auto entry = value.toObject();
         if (!selected.contains(entry["song"].toObject()["id"].toString()))
             continue;
@@ -261,12 +271,20 @@ void FavoritesService::syncLikedSongs()
     m_likedId = favorites->listId();
     m_songRevision = favorites->revision();
     m_songCoverConsistent = favorites->coverConsistent();
-    m_songRows = favorites->rows();
+    m_songRows = m_metadata.sessionDatabase() ? QJsonArray{} : favorites->rows();
     m_songReceived = favorites->received();
-    m_songTotal = quint64(m_songRows.size());
+    m_songTotal = quint64(favorites->rows().size());
     m_songHasMore = !favorites->complete() && favorites->loading();
     m_likedLoaded = favorites->complete();
     m_error = favorites->errorMessage();
+    if (m_metadata.sessionDatabase()) {
+        if (favorites->cached())
+            m_songs.replaceCachedRows(favorites->cachedRows(), true);
+        if (m_likedLoaded)
+            publishCover();
+        emit changed();
+        return;
+    }
     QJsonArray songs;
     for (const auto &value : m_songRows) {
         const auto row = value.toObject();
@@ -298,6 +316,11 @@ void FavoritesService::refresh()
 {
     if (m_closed)
         return;
+    if (m_tab == 0 && m_songs.retryStorage()) {
+        m_error.clear();
+        emit changed();
+        return;
+    }
     m_error.clear();
     switch (m_tab) {
     case 0:
@@ -444,6 +467,7 @@ void FavoritesService::setSingerQuery(const QString &query)
 }
 void FavoritesService::cancelMetadata()
 {
+    delete m_coverRead.data();
     ++m_songGeneration;
     const auto tickets = m_metadataRequests.keys();
     m_metadataRequests.clear();
@@ -511,6 +535,30 @@ void FavoritesService::publishCover()
     if (m_closed || !m_active || !m_likedLoaded || !m_likedId || !m_songRevision ||
         !m_songCoverConsistent)
         return;
+    if (m_metadata.sessionDatabase()) {
+        auto *favorites = m_library.favoriteSongs();
+        if (!favorites->cached())
+            return;
+        delete m_coverRead.data();
+        auto *request = new QObject(this);
+        m_coverRead = request;
+        const QPointer<QObject> guard(request);
+        const auto session = m_api.sessionRevision(), list = m_likedId,
+                   generation = favorites->generation();
+        const auto revision = *m_songRevision;
+        favorites->requestCover(
+            request, [this, guard, session, list, generation, revision](QString cover) {
+                if (!guard)
+                    return;
+                guard->deleteLater();
+                if (m_closed || !m_active || session != m_api.sessionRevision() ||
+                    list != m_likedId || generation != m_library.favoriteSongs()->generation() ||
+                    !m_songRevision || revision != *m_songRevision)
+                    return;
+                m_library.publishAutoCover({list}, revision, cover, session);
+            });
+        return;
+    }
     QString cover;
     std::optional<qint64> position;
     bool found = false;
@@ -542,7 +590,7 @@ void FavoritesService::cancelAll()
 void FavoritesService::reset()
 {
     if (m_pending.isEmpty() && !m_likedLoaded && !m_followLoaded && !m_videosLoaded &&
-        m_songRows.isEmpty() && m_metadataRequests.isEmpty())
+        m_songRows.isEmpty() && !m_songs.totalCount() && m_metadataRequests.isEmpty())
         return;
     cancelAll();
     m_likedId = 0;

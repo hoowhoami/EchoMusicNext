@@ -10,6 +10,7 @@
 #include <QtTest>
 #include <QNetworkProxy>
 #include <QScopeGuard>
+#include <optional>
 #include <iostream>
 using namespace EchoMusic;
 namespace EchoMusic
@@ -124,6 +125,145 @@ class QueueSemanticsTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void admittedBatchReadsSurviveQueueReplacementAndConsumerCancellation()
+    {
+        QTemporaryDir directory;
+        const auto path = directory.filePath("queue.sqlite");
+        PlaybackRepository repository(path);
+        PlaybackQueueModel model(this);
+        model.attachRepository(&repository);
+        connect(
+            &repository, &PlaybackRepository::saved, &model,
+            [&model](const auto &keys, const auto &lease) { model.retirePayloads(keys, lease); });
+        QSignalSpy saved(&repository, &PlaybackRepository::saved);
+        QSignalSpy errors(&repository, &PlaybackRepository::failed);
+        PlaybackTracks originals;
+        for (int i = 0; i < 300; ++i) {
+            auto value = track(QString::number(i));
+            value.catalogMetadata.insert("unknown", QJsonValue::Null);
+            value.catalogMetadata.insert("resources",
+                                         QJsonArray{QString(4096, QChar('a' + i % 26))});
+            originals.append(value);
+        }
+        model.replace(originals);
+        repository.save(0, {{"original", "Original", model.tracks(), 0, {}}}, "original");
+        QTRY_COMPARE(saved.size(), 1);
+        saved.clear();
+        QVERIFY(!model.at(0)->payloadLoaded);
+        std::optional<PlaybackTracks> result;
+        QString failure;
+        model.requestTracks(this, [&](auto values, auto error) {
+            result = std::move(values);
+            failure = error;
+        });
+        model.replace({track("replacement")});
+        repository.save(0, {{"replacement", "Replacement", model.tracks(), 0, {}}}, "replacement");
+        QTRY_COMPARE(saved.size(), 1);
+        saved.clear();
+        QTRY_VERIFY_WITH_TIMEOUT(result.has_value(), 30000);
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+        QCOMPARE(result->size(), originals.size());
+        for (int i = 0; i < originals.size(); ++i) {
+            QCOMPARE(result->at(i).catalogMetadata, originals[i].catalogMetadata);
+            QVERIFY(!result->at(i).payloadLease);
+        }
+        result.reset();
+        auto *cancelled = new QObject;
+        bool delivered = false;
+        model.requestTracks(cancelled, [&](auto, auto) { delivered = true; });
+        delete cancelled;
+        model.clear();
+        repository.save(0, {}, "default");
+        QTRY_COMPARE(saved.size(), 1);
+        saved.clear();
+        QSignalSpy loaded(&repository, &PlaybackRepository::loaded);
+        repository.load(0, 77, true);
+        QTRY_COMPARE(loaded.size(), 1);
+        QVERIFY(loaded.first()[2].value<PlaybackQueueStates>().isEmpty());
+        QVERIFY(!delivered);
+        QVERIFY(errors.isEmpty());
+        QSignalSpy closed(&repository, &PlaybackRepository::closed);
+        repository.shutdown();
+        QTRY_COMPARE(closed.size(), 1);
+    }
+    void persistentQueuePayloadsHydrateOnDemandAndSurviveThinSaves()
+    {
+        QTemporaryDir dir;
+        const auto path = dir.filePath("playback.sqlite");
+        const QJsonObject metadata{
+            {"opaque", QJsonValue::Null},
+            {"resources", QJsonArray{QJsonObject{{"quality", "flac"}, {"size", 123}}}},
+            {"plugin_data", QJsonObject{{"visible", 7}}},
+            {"artist_refs", QJsonArray{QJsonObject{{"name", "Original"}}}}};
+        {
+            PlaybackRepository repository(path);
+            PlaybackQueueModel model(this);
+            model.attachRepository(&repository);
+            auto full = track("one");
+            full.catalogMetadata = metadata;
+            model.replace({full});
+            QSignalSpy saved(&repository, &PlaybackRepository::saved);
+            repository.save(0, {{"default", "Queue", model.tracks(), 0, {}}}, "default");
+            QTRY_COMPARE(saved.size(), 1);
+            model.retirePayloads(saved.first().first().toStringList(),
+                                 saved.first()[1].value<PlaybackPayloadLease>());
+            QVERIFY(!model.at(0)->payloadLoaded);
+            QVERIFY(!model.at(0)->catalogMetadata.contains("resources"));
+            QCOMPARE(model.at(0)->publicValue().value("data").toMap().value("visible").toInt(), 7);
+            model.updateFacts("one", {}, {}, "Corrected artist", {});
+            // The artist was already present, so use the presentation channel
+            // to model a genuine accepted correction on the public fields.
+            auto thin = *model.at(0);
+            thin.title = "Corrected title";
+            thin.catalogMetadata.insert("artist_refs",
+                                        QJsonArray{QJsonObject{{"name", "Corrected"}}});
+            repository.save(0, {{"default", "Queue", {thin}, 0, {}}}, "default");
+            QTRY_COMPARE(saved.size(), 2);
+            std::optional<PlaybackTrack> hydrated;
+            QString error;
+            repository.requestTrack(thin, this, [&](auto value, auto failure) {
+                hydrated = value;
+                error = failure;
+            });
+            QTRY_VERIFY(hydrated.has_value());
+            QVERIFY2(error.isEmpty(), qPrintable(error));
+            QVERIFY(hydrated->payloadLoaded);
+            QVERIFY(hydrated->catalogMetadata.value("opaque").isNull());
+            QCOMPARE(hydrated->catalogMetadata.value("resources"), metadata.value("resources"));
+            QCOMPARE(hydrated->title, QString("Corrected title"));
+            QCOMPARE(hydrated->catalogMetadata.value("artist_refs")
+                         .toArray()
+                         .first()
+                         .toObject()
+                         .value("name")
+                         .toString(),
+                     QString("Corrected"));
+            QSignalSpy closed(&repository, &PlaybackRepository::closed);
+            repository.shutdown();
+            QTRY_COMPARE(closed.size(), 1);
+        }
+        {
+            PlaybackRepository repository(path);
+            QSignalSpy loaded(&repository, &PlaybackRepository::loaded);
+            repository.load(0, 1, true);
+            QTRY_COMPARE(loaded.size(), 1);
+            const auto states = loaded.first()[2].value<PlaybackQueueStates>();
+            QVERIFY(!states.first().tracks.first().payloadLoaded);
+            QVERIFY(!states.first().tracks.first().catalogMetadata.contains("opaque"));
+            std::optional<PlaybackTrack> restored;
+            repository.requestTrack(states.first().tracks.first(), this,
+                                    [&](auto value, auto error) {
+                                        QVERIFY2(error.isEmpty(), qPrintable(error));
+                                        restored = value;
+                                    });
+            QTRY_VERIFY(restored.has_value());
+            QVERIFY(restored->catalogMetadata.value("opaque").isNull());
+            QCOMPARE(restored->catalogMetadata.value("resources"), metadata.value("resources"));
+            QSignalSpy closed(&repository, &PlaybackRepository::closed);
+            repository.shutdown();
+            QTRY_COMPARE(closed.size(), 1);
+        }
+    }
     void preparedAddToQueue_data()
     {
         QTest::addColumn<bool>("cut");
@@ -514,7 +654,8 @@ private slots:
         actions.appendSong("a", true);
         QCOMPARE(ids(*f.playback->queue()), (QStringList{"b", "c", "a", "d", "e"}));
         QCOMPARE(f.playback->queue()->nextKeys(),
-                 (QStringList{list[0].key(), model.track("d")->key(), model.track("e")->key()}));
+                 (QStringList{list[0].key(), model.trackProjection("d")->key(),
+                              model.trackProjection("e")->key()}));
         const auto priorities = f.playback->queue()->nextKeys();
         f.playback->appendTracks({track("last")});
         QCOMPARE(f.playback->queue()->nextKeys(), priorities);
@@ -618,9 +759,9 @@ private slots:
         f.playback->preferences()->setQueueMode("single");
         service.playDiscover("b");
         QCOMPARE(f.playback->queue()->rowCount(), 3);
-        QCOMPARE(service.discoverFlow()->track("b")->artist, QString("Artist"));
-        QCOMPARE(service.discoverFlow()->track("b")->album, QString("Album"));
-        QVERIFY(!service.discoverFlow()->track("b")->cover.isEmpty());
+        QCOMPARE(service.discoverFlow()->trackProjection("b")->artist, QString("Artist"));
+        QCOMPARE(service.discoverFlow()->trackProjection("b")->album, QString("Album"));
+        QVERIFY(!service.discoverFlow()->trackProjection("b")->cover.isEmpty());
         const auto oldRequest =
             DiscoverQueueControllerTestAccess::request(*f.playback->discoverQueue());
         service.loadDiscoverFlow(false);

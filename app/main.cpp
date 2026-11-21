@@ -10,6 +10,7 @@
 #include "SingleInstance.h"
 #include "RelaunchService.h"
 #include "WindowsAppIdentity.h"
+#include "SceneGraphConfiguration.h"
 #include <QCommandLineParser>
 #include <QCommandLineOption>
 #include "UiTypography.h"
@@ -60,6 +61,7 @@ int main(int argc, char *argv[])
     // teardown failures have the same emergency reporting path as runtime faults.
     EchoMusic::CrashDiagnostics crashDiagnostics(crashDirectory);
     EchoMusic::initializeNetworkEnvironment();
+    EchoMusic::configureSceneGraph();
     // Keep every Qt Quick surface alpha-capable from its first native creation.
     // The theme paints an opaque skin when transparency is disabled.
     // ECHO_WINDOW_ALPHA=0 builds the swapchain without alpha (HWND flip +

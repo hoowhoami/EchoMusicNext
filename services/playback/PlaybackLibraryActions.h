@@ -142,7 +142,7 @@ private:
     QQueue<QString> m_pending;
     std::optional<PlaybackTrack> m_favoriteIntent;
     QString m_currentTarget, m_error;
-    quint64 m_revision = 0, m_likedId = 0;
+    quint64 m_revision = 0, m_likedId = 0, m_prepareEpoch = 0;
     bool m_playbackQueues = true;
     bool m_multiple = false, m_busy = false, m_favoriteWrite = false, m_removing = false,
          m_ownedWrite = false;

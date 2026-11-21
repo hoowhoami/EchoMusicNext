@@ -1,5 +1,6 @@
 #include "SearchResultModel.h"
 #include "SearchModel.h"
+#include "SongCatalogModel.h"
 
 namespace EchoMusic
 {
@@ -13,8 +14,8 @@ SearchResultModel::SearchResultModel(SearchModel &source)
         const int category = int(m_search.kind());
         if (m_category != category) {
             m_category = category;
-            apply();
         }
+        apply();
         emit changed();
     });
     connect(this, &QAbstractItemModel::rowsInserted, this, &SearchResultModel::changed);
@@ -38,6 +39,12 @@ void SearchResultModel::setQuery(const QString &query)
     auto &state = m_categories[std::size_t(m_category)];
     if (state.query == query)
         return;
+    if (m_search.catalog()) {
+        state.query = query;
+        apply();
+        emit changed();
+        return;
+    }
     beginFilterChange();
     state.query = query;
     m_needle = query.trimmed().toLower();
@@ -69,8 +76,28 @@ void SearchResultModel::resetPresentation()
     apply();
     emit changed();
 }
+QVariant SearchResultModel::data(const QModelIndex &index, int role) const
+{
+    if (sourceModel() == m_search.catalog())
+        return mapToSource(index).data(SearchModel::catalogRole(role));
+    return QSortFilterProxyModel::data(index, role);
+}
+QHash<int, QByteArray> SearchResultModel::roleNames() const
+{
+    return m_search.roleNames();
+}
 void SearchResultModel::apply()
 {
+    auto *catalog = m_search.catalog();
+    QAbstractItemModel *desired = catalog ? static_cast<QAbstractItemModel *>(catalog) : &m_search;
+    if (sourceModel() != desired)
+        setSourceModel(desired);
+    if (catalog) {
+        catalog->setQuery(query());
+        catalog->setSort(int(sortField()), int(sortDirection()));
+        sort(-1);
+        return;
+    }
     beginFilterChange();
     m_needle = query().trimmed().toLower();
     endFilterChange(Direction::Rows);
@@ -83,7 +110,7 @@ void SearchResultModel::apply()
 }
 bool SearchResultModel::filterAcceptsRow(int row, const QModelIndex &parent) const
 {
-    if (m_needle.isEmpty())
+    if (m_search.catalog() || m_needle.isEmpty())
         return true;
     const auto item = sourceModel()->index(row, 0, parent);
     for (int role : {SearchModel::Title, SearchModel::ArtistText, SearchModel::AlbumText})

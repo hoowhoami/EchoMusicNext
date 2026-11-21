@@ -67,6 +67,23 @@ target_link_libraries(
 )
 add_test(NAME cover-transition COMMAND echo-cover-transition-test)
 set_tests_properties(cover-transition PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 15)
+qt_add_executable(echo-cover-rendering-test CoverRenderingTest.cpp)
+target_link_libraries(
+    echo-cover-rendering-test
+    PRIVATE echo_controls
+            echo_platform
+            echo_controlsplugin
+            echo_theme
+            echo_themeplugin
+            Qt6::Quick
+            Qt6::Test
+            Qt6::GuiPrivate
+)
+add_test(NAME cover-rendering
+         COMMAND echo-cover-rendering-test imageAtlasBudgetAndLargeImageFallback
+                 cropAlphaAndRoundedPixels
+)
+set_tests_properties(cover-rendering PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
 qt_add_qml_module(echo-back-to-top-test URI EchoMusic.BackToTopTests QML_FILES BackToTopHarness.qml)
 target_link_libraries(
     echo-back-to-top-test
@@ -259,7 +276,7 @@ if(APPLE)
     target_link_libraries(echo-playback-button-ui-test PRIVATE echo_native_test_support)
 endif()
 qt_add_executable(echo-search-model-test SearchModelTest.cpp)
-target_link_libraries(echo-search-model-test PRIVATE echo_search echo_storage Qt6::Test)
+target_link_libraries(echo-search-model-test PRIVATE echo_search echo_music echo_storage Qt6::Test)
 add_test(NAME search-model COMMAND echo-search-model-test)
 add_test(NAME qml-smoke COMMAND echomusicnext --smoke-test --log-dir
                                 "${CMAKE_CURRENT_BINARY_DIR}/logs"
@@ -1437,6 +1454,7 @@ target_link_libraries(
             Qt6::Test
 )
 add_test(NAME playback-page COMMAND echo-playback-page-test)
+target_link_libraries(echo-playback-page-test PRIVATE Qt6::QuickPrivate)
 set_tests_properties(playback-page PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 90)
 echo_copy_rust_runtime(echo-playback-page-test)
 qt_add_executable(echo-network-transport-test NetworkTransportTest.cpp)
@@ -2054,6 +2072,28 @@ set_tests_properties(lyric-parser PROPERTIES TIMEOUT 45)
 target_link_libraries(echo-plugin-runtime-test PRIVATE Qt6::WebSockets)
 
 qt_add_executable(echo-unified-song-metadata-test UnifiedSongMetadataTest.cpp)
+qt_add_executable(echo-song-catalog-storage-test SongCatalogStorageTest.cpp)
+target_link_libraries(echo-song-catalog-storage-test PRIVATE echo_music Qt6::Test)
+add_test(NAME song-catalog-storage COMMAND echo-song-catalog-storage-test)
+set_tests_properties(
+    song-catalog-storage PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 45
+)
+echo_copy_rust_runtime(echo-song-catalog-storage-test)
+if(APPLE)
+    qt_add_executable(echo-song-catalog-memory-probe SongCatalogMemoryProbe.cpp)
+    target_link_libraries(echo-song-catalog-memory-probe PRIVATE echo_music)
+    echo_copy_rust_runtime(echo-song-catalog-memory-probe)
+endif()
+qt_add_executable(echo-cache-test CompactSetTest.cpp)
+target_link_libraries(echo-cache-test PRIVATE echo_cache Qt6::Test)
+add_test(NAME cache-core COMMAND echo-cache-test)
+qt_add_executable(echo-cache-memory-probe CacheMemoryProbe.cpp)
+target_sources(
+    echo-cache-memory-probe PRIVATE ../../services/library/SongObservationIndex.cpp
+                                    ../../services/library/SongObservationIndex.h
+)
+target_include_directories(echo-cache-memory-probe PRIVATE ../../services/library)
+target_link_libraries(echo-cache-memory-probe PRIVATE echo_session_cache)
 target_link_libraries(echo-unified-song-metadata-test PRIVATE echo_music echo_search Qt6::Test)
 add_test(NAME unified-song-metadata COMMAND echo-unified-song-metadata-test)
 set_tests_properties(
@@ -2491,3 +2531,17 @@ if(ECHO_BUILD_UI_SOAK_TEST AND APPLE)
     endif()
     echo_copy_rust_runtime(echo-ui-soak-test)
 endif()
+qt_add_executable(echo-session-database-test SessionDatabaseTest.cpp)
+target_link_libraries(echo-session-database-test PRIVATE echo_session_cache Qt6::Test)
+add_test(NAME session-database COMMAND echo-session-database-test)
+qt_add_executable(
+    echo-song-dataset-store-test SongDatasetStoreTest.cpp ../../services/library/SongDatasetStore.h
+    ../../services/library/SongDatasetStore.cpp
+)
+target_include_directories(echo-song-dataset-store-test PRIVATE ../../services/library)
+target_link_libraries(echo-song-dataset-store-test PRIVATE echo_session_cache Qt6::Test)
+add_test(NAME song-dataset-store COMMAND echo-song-dataset-store-test)
+
+qt_add_executable(echo-json-record-store-test JsonRecordStoreTest.cpp)
+target_link_libraries(echo-json-record-store-test PRIVATE echo_session_cache Qt6::Test)
+add_test(NAME json-record-store COMMAND echo-json-record-store-test)

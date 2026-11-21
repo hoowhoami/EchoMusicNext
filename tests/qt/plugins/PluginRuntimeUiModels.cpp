@@ -342,9 +342,10 @@ void PluginRuntimeTest::nativeUiCompositeColumnsVirtualizationAndRecovery()
     Host host;
     QStandardItemModel source;
     QHash<int, QByteArray> roles;
-    const QList<QByteArray> names{"title",        "artistText", "albumText",     "coverUrl",
-                                  "durationText", "extraText",  "resourceId",    "artistLinks",
-                                  "albumId",      "original",   "privilegeTags", "qualityLabel"};
+    const QList<QByteArray> names{
+        "title",         "artistText",   "albumText",        "coverUrl", "durationText",
+        "extraText",     "resourceId",   "artistLinks",      "albumId",  "original",
+        "privilegeTags", "qualityLabel", "presentationReady"};
     for (int i = 0; i < names.size(); ++i)
         roles[Qt::UserRole + 1 + i] = names[i];
     source.setItemRoleNames(roles);
@@ -360,6 +361,8 @@ void PluginRuntimeTest::nativeUiCompositeColumnsVirtualizationAndRecovery()
                 value = QVariantList();
             else if (names[i] == "original")
                 value = false;
+            else if (names[i] == "presentationReady")
+                value = true;
             item->setData(value, Qt::UserRole + 1 + i);
         }
         source.appendRow(item);

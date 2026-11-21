@@ -135,7 +135,7 @@ private slots:
                                .toObject()
                                .value("id")
                                .toString();
-        QVERIFY(s.service.matches()->track(first));
+        QVERIFY(s.service.matches()->trackProjection(first));
         s.service.actions()->playNow(first);
         QCOMPARE(s.playback.sourceKey(), QString("original-queue"));
         QCOMPARE(s.playback.queueCatalog()->activeTitle(), QString("Original queue"));
@@ -204,7 +204,7 @@ private slots:
         QCOMPARE(s.service.matches()->item(0).value("durationMs").toLongLong(), 265430);
         QCOMPARE(s.service.confidence(0).toDouble(), 1.);
         QVERIFY(s.service.matches()
-                    ->track("339415062")
+                    ->trackProjection("339415062")
                     ->catalogMetadata.value("resources")
                     .toArray()
                     .size() >= 8);
@@ -366,7 +366,7 @@ private slots:
         recognition.registerRoutes(router);
         recognition.setAvailable(true);
         RecognitionServiceTestAccess::complete(recognition, domain());
-        const auto track = recognition.matches()->track("339415062");
+        const auto track = recognition.matches()->trackProjection("339415062");
         QVERIFY(track);
         playback.queueCatalog()->activate("recognition-test", "识曲目标", {*track}, 0);
         auto *actions = playback.libraryActions();

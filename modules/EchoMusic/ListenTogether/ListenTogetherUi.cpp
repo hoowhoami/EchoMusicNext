@@ -237,34 +237,38 @@ void ListenSongPicker::accept(quint64 id, const QByteArray &bytes)
 }
 void ListenSongPicker::submit()
 {
-    const auto selected = m_songs.tracks(true);
-    if (selected.isEmpty() || m_room.addingSongs())
+    if (m_room.addingSongs())
         return;
-    m_submitting = true;
-    if (m_room.owner()) {
-        QVariantList values;
-        for (const auto &track : selected)
-            values.append(track.toCatalog().toVariantMap());
-        m_room.addSongs(values);
-    } else if (!selected.isEmpty())
-        m_room.requestSong(selected.first().toCatalog().toVariantMap());
+    m_songs.requestTracks(true, this, [this](PlaybackTracks selected) {
+        if (selected.isEmpty() || m_room.addingSongs())
+            return;
+        m_submitting = true;
+        if (m_room.owner()) {
+            QVariantList values;
+            for (const auto &track : selected)
+                values.append(track.toCatalog().toVariantMap());
+            m_room.addSongs(values);
+        } else
+            m_room.requestSong(selected.first().toCatalog().toVariantMap());
+    });
 }
 void ListenSongPicker::chooseSong(const QString &id)
 {
     if (m_room.addingSongs())
         return;
-    const auto candidate = m_songs.track(id);
+    const auto candidate = m_songs.trackProjection(id);
     if (!candidate || candidate->hash.isEmpty() || !candidate->songId) {
         m_error = tr("歌曲信息不完整，暂时无法点播");
         emit changed();
         return;
     }
     if (!m_room.owner()) {
-        const auto track = m_songs.track(id);
-        if (track) {
+        m_songs.requestTrack(id, this, [this](PlaybackTrack track) {
+            if (m_room.addingSongs())
+                return;
             m_submitting = true;
-            m_room.requestSong(track->toCatalog().toVariantMap());
-        }
+            m_room.requestSong(track.toCatalog().toVariantMap());
+        });
         return;
     }
     if (!m_songs.selectedIds().contains(id) && m_songs.selectedCount() >= 50) {

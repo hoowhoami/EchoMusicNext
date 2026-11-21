@@ -460,6 +460,7 @@ signals:
     void backgroundUnavailable(const QString &message);
 
 private:
+    friend class ThemeStoreTestAccess;
     bool eventFilter(QObject *object, QEvent *event) override;
     QString m_globalFont = QStringLiteral("system-ui");
     int m_globalFontSizeScale = 100;
@@ -498,7 +499,8 @@ private:
     QRectF m_crop;
     QColor m_imageText = Qt::white, m_imageAccent = QColor("#0071e3"), m_imageSample;
     int m_imageShade = 0, m_pendingImports = 0;
-    bool m_importing = false, m_sampleRunning = false;
+    bool m_importing = false, m_sampleRunning = false, m_sampleDirty = true,
+         m_imageWorkClosing = false;
     quint64 m_importRevision = 0, m_sampleRevision = 0;
     QJsonObject m_beforeBackground;
     QThreadPool m_imageWorkers;

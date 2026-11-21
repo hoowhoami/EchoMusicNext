@@ -43,6 +43,14 @@ ProfileService::~ProfileService()
 {
     shutdown();
 }
+void ProfileService::attachRecordStore(JsonRecordStore &store)
+{
+    for (auto &tab : m_social) {
+        tab.model->attachStore(store);
+        connect(tab.model.get(), &SocialUserModel::cacheFailed, this,
+                [this](const QString &error) { emit notice(error, true); });
+    }
+}
 bool ProfileService::current() const
 {
     return !m_closing && m_account.userId() > 0 &&
@@ -54,6 +62,7 @@ void ProfileService::clear()
     closeChat();
     const auto writes = m_followWrites.keys();
     m_followWrites.clear();
+    m_socialReads.clear();
     m_confirmedFollows.clear();
     m_confirmedArtists.clear();
     for (auto id : writes)
@@ -174,15 +183,34 @@ void ProfileService::toggleSocialFollow(const QString &key)
 {
     if (!current() || socialLoading())
         return;
-    const auto user = socialUsers()->entry(key);
-    const auto id = quint64(user["user_id"].toInteger());
-    if (!id || id == m_account.userId() || !user["following"].isBool() || socialPending(id))
+    const auto identity = socialUsers()->entry(key);
+    const auto targetId = quint64(identity.value("user_id").toInteger());
+    if (!targetId || socialPending(targetId))
         return;
-    const bool following = !user["following"].toBool();
-    const auto req = m_api.followUser(id, following);
-    if (req)
-        m_followWrites.insert(req, {id, following, false, user});
-    emit changed();
+    const auto operation = QStringLiteral("follow/") + key;
+    if (m_socialReads.contains(operation))
+        return;
+    m_socialReads.insert(operation);
+    const auto revision = m_revision;
+    socialUsers()->readEntry(key, [this, operation, revision](QJsonObject user) {
+        if (revision != m_revision || !current())
+            return;
+        m_socialReads.remove(operation);
+        const auto id = quint64(user["user_id"].toInteger());
+        if (!id || id == m_account.userId() || !user["following"].isBool() || socialPending(id))
+            return;
+        // A read admitted before a confirmed write must not replay the old
+        // button action while the row/readback is still catching up.
+        const auto confirmed = m_confirmedFollows.constFind(id);
+        if (confirmed != m_confirmedFollows.cend() &&
+            confirmed->following != user["following"].toBool())
+            return;
+        const bool following = !user["following"].toBool();
+        const auto req = m_api.followUser(id, following);
+        if (req)
+            m_followWrites.insert(req, {id, following, false, user});
+        emit changed();
+    });
 }
 QJsonArray ProfileService::reconcileFollows(int tab, QJsonArray rows, bool readback)
 {
@@ -238,6 +266,7 @@ QJsonArray ProfileService::reconcileFollows(int tab, QJsonArray rows, bool readb
 }
 void ProfileService::closeChat()
 {
+    ++m_chatActivation;
     m_chatRefresh.stop();
     const auto read = std::exchange(m_chatRead, 0), write = std::exchange(m_chatWrite, 0);
     m_chatTarget = {};
@@ -256,14 +285,19 @@ void ProfileService::openChat(const QString &key)
 {
     if (!current())
         return;
-    const auto user = socialUsers()->entry(key);
-    const auto id = quint64(user["user_id"].toInteger());
-    if (!id || id == m_account.userId())
-        return;
     closeChat();
-    m_chatTarget = user;
-    refreshChat();
-    emit changed();
+    const auto activation = m_chatActivation;
+    const auto revision = m_revision;
+    socialUsers()->readEntry(key, [this, activation, revision](QJsonObject user) {
+        if (!current() || revision != m_revision || activation != m_chatActivation)
+            return;
+        const auto id = quint64(user["user_id"].toInteger());
+        if (!id || id == m_account.userId())
+            return;
+        m_chatTarget = user;
+        refreshChat();
+        emit changed();
+    });
 }
 void ProfileService::refreshChat()
 {
@@ -604,7 +638,12 @@ void ProfileService::succeeded(quint64 id, const QByteArray &payload)
                 const auto old = std::exchange(tab.request, 0);
                 if (old)
                     m_api.cancel(old);
-                tab.model->replace(reconcileFollows(t, tab.model->rows(), false));
+                const auto revision = m_revision;
+                tab.model->transform([this, t, revision](QJsonArray rows) {
+                    return current() && revision == m_revision
+                               ? reconcileFollows(t, std::move(rows), false)
+                               : QJsonArray{};
+                });
                 loadSocial(SocialTab(t), true);
             }
         }

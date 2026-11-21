@@ -6,6 +6,8 @@ qt_add_qml_module(
     SOURCES
     SearchModel.h
     SearchModel.cpp
+    SearchSongStorage.cpp
+    SearchSongStorage_p.h
     SearchSuggestionModel.h
     SearchSuggestionModel.cpp
     SearchResultModel.h

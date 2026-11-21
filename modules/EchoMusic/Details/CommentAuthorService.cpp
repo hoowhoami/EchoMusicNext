@@ -1,3 +1,4 @@
+#include "CacheCost.h"
 #include "CommentAuthorService.h"
 #include <QJsonDocument>
 namespace EchoMusic
@@ -23,7 +24,6 @@ void CommentAuthorService::reset()
     for (auto id : ids)
         m_api.cancel(id);
     m_cache.clear();
-    m_order.clear();
     m_inflight.clear();
     emit changed();
 }
@@ -37,21 +37,17 @@ void CommentAuthorService::shutdown()
 }
 QJsonArray CommentAuthorService::products(const QString &id) const
 {
-    auto i = m_cache.constFind(id);
-    return i != m_cache.cend() && i->expires > QDateTime::currentMSecsSinceEpoch() ? i->products
-                                                                                   : QJsonArray();
+    return m_cache.peek(id).value_or(QJsonArray{});
 }
 bool CommentAuthorService::readyFor(const QJsonArray &comments) const
 {
     if (!m_network)
         return true;
-    const auto now = QDateTime::currentMSecsSinceEpoch();
     for (const auto &value : comments) {
         const auto id = value.toObject().value("user_id").toString();
         if (!id.toULongLong())
             continue;
-        auto found = m_cache.constFind(id);
-        if (found == m_cache.cend() || found->expires <= now)
+        if (!m_cache.peek(id))
             return false;
     }
     return true;
@@ -61,12 +57,9 @@ void CommentAuthorService::ensure(const QJsonArray &comments)
     if (m_closed || !m_network)
         return;
     QStringList missing;
-    const auto now = QDateTime::currentMSecsSinceEpoch();
     for (const auto &v : comments) {
         const auto id = v.toObject().value("user_id").toString();
-        auto i = m_cache.constFind(id);
-        if (id.toULongLong() > 0 && !m_inflight.contains(id) &&
-            (i == m_cache.cend() || i->expires <= now)) {
+        if (id.toULongLong() > 0 && !m_inflight.contains(id) && !m_cache.peek(id)) {
             m_inflight.insert(id);
             missing.append(id);
         }
@@ -82,7 +75,7 @@ void CommentAuthorService::ensure(const QJsonArray &comments)
         else
             for (const auto &id : chunk) {
                 m_inflight.remove(id);
-                m_cache.insert(id, {{}, now + 30000});
+                m_cache.insert(id, {}, 30000);
             }
     }
 }
@@ -97,16 +90,12 @@ void CommentAuthorService::finish(quint64 request, const QByteArray &bytes, bool
             auto obj = v.toObject();
             products.insert(obj.value("user_id").toString(), obj.value("products").toArray());
         }
-    const auto expires =
-        QDateTime::currentMSecsSinceEpoch() + (success ? 30 * 60 * 1000 : 30 * 1000);
+    const auto ttl = success ? 30 * 60 * 1000 : 30 * 1000;
     for (const auto &id : ids) {
         m_inflight.remove(id);
-        m_order.removeAll(id);
-        m_order.append(id);
-        m_cache.insert(id, {products.value(id), expires});
+        const auto value = products.value(id);
+        m_cache.insert(id, value, ttl, jsonValueCost(value) * 2);
     }
-    while (m_order.size() > 500)
-        m_cache.remove(m_order.takeFirst());
     emit changed();
 }
 } // namespace EchoMusic

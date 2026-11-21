@@ -1,4 +1,5 @@
 #pragma once
+#include "PlaybackPayloadLease.h"
 #include <QString>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -20,7 +21,20 @@ struct PlaybackTrack
     /// Catalog metadata survives queue and storage round trips without QML reparsing.
     QJsonObject catalogMetadata;
     quint32 catalogPrivilege = 0;
-    bool operator==(const PlaybackTrack &) const = default;
+    /// Private persistent payload identity. Public SDK projections stay immediate;
+    /// resources/rights are hydrated before playback and full commands.
+    QString payloadKey;
+    bool payloadLoaded = true;
+    PlaybackPayloadLease payloadLease;
+    static QJsonObject publicMetadata(const QJsonObject &);
+    bool operator==(const PlaybackTrack &other) const
+    {
+        return id == other.id && hash == other.hash && title == other.title &&
+               artist == other.artist && album == other.album && cover == other.cover &&
+               localPath == other.localPath && albumId == other.albumId && songId == other.songId &&
+               durationMs == other.durationMs && catalogMetadata == other.catalogMetadata &&
+               catalogPrivilege == other.catalogPrivilege;
+    }
     bool playable() const
     {
         return (!id.isEmpty() && !catalogMetadata.value("plugin_source").toString().isEmpty()) ||
@@ -50,6 +64,8 @@ struct PlaybackTrack
     /// Merge display fields only; audio identity, rights and source state stay owned here.
     bool applyPresentation(const QJsonObject &song);
     static PlaybackTrack fromDomain(const QJsonObject &song);
+    /// Canonical durable snapshot emitted by toDomain().
+    static PlaybackTrack fromSnapshot(const QJsonObject &);
     QJsonObject toDomain() const;
     /// Typed catalog projection for a view following a live queue. The storage
     /// snapshot above has different presentation field names.

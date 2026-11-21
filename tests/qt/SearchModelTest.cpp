@@ -1,4 +1,7 @@
 #include "SearchModel.h"
+#include "SongCatalogModel.h"
+#include "SongMetadataService.h"
+#include "CatalogRead.h"
 #include "SearchResultModel.h"
 #include "SearchSuggestionModel.h"
 #include "StorageService.h"
@@ -18,6 +21,10 @@ class SearchModelTestAccess
 public:
     // Canonical domain/control-flow seam. No provider fixture or HTTP acceptance
     // is inferred from these synthetic display records; Rust owns wire parsing.
+    static int residentRows(const SearchModel &model)
+    {
+        return model.active().rows.size();
+    }
     static quint64 prepare(SearchModel &model, ApiClient &api, quint32 page,
                            SearchModel::Kind kind = SearchModel::Kind::Song)
     {
@@ -116,6 +123,88 @@ class SearchModelTest : public QObject
             QVERIFY(closed.wait(5000));
     }
 private slots:
+    void cachedSongAndLyricWindowsMatchDenseQueriesAndReadCompleteSources()
+    {
+        QTemporaryDir directory;
+        SessionDatabase database(directory.path());
+        ApiClient api(DeviceIdentity::temporary());
+        SongMetadataService metadata(api);
+        metadata.enableSqlIndex(database);
+        {
+            SearchModel cached(api), dense(api);
+            cached.attachMetadata(metadata, false);
+            QAbstractItemModelTester tester(&cached,
+                                            QAbstractItemModelTester::FailureReportingMode::QtTest);
+            QAbstractItemModelTester resultTester(
+                cached.results(), QAbstractItemModelTester::FailureReportingMode::QtTest);
+            for (auto kind : {SearchModel::Kind::Song, SearchModel::Kind::Lyric}) {
+                QJsonArray items;
+                for (int i = 0; i < 600; ++i) {
+                    QJsonObject song{
+                        {"id", QString::number(i + 1)},
+                        {"hash", QString(32, 'a')},
+                        {"title", i % 2 ? " Éclair " : "eclair"},
+                        {"artists", QJsonArray{QJsonObject{{"name", QString::number(i % 7)}}}},
+                        {"album_title", QString::number(i % 9)},
+                        {"original", i % 2 == 1},
+                        {"metadata", QJsonObject{{"resources", QJsonArray{QJsonObject{
+                                                                   {"opaque", QString(4000, 'x')},
+                                                                   {"unknown", QJsonValue::Null}}}},
+                                                 {"plugin_data", QJsonObject{{"exact", i}}}}}};
+                    items.append(
+                        kind == SearchModel::Kind::Lyric
+                            ? QJsonObject{{"song", song}, {"excerpt", QString::number(600 - i)}}
+                            : song);
+                }
+                const auto payload =
+                    QJsonDocument(
+                        QJsonObject{{"page", QJsonObject{{"total", 600}, {"items", items}}}})
+                        .toJson();
+                SearchModelTestAccess::succeed(
+                    cached, SearchModelTestAccess::prepare(cached, api, 1, kind), payload);
+                SearchModelTestAccess::succeed(
+                    dense, SearchModelTestAccess::prepare(dense, api, 1, kind), payload);
+                QTRY_COMPARE(cached.count(), 600);
+                QCOMPARE(SearchModelTestAccess::residentRows(cached), 0);
+                QVERIFY(cached.catalog());
+                for (const auto field :
+                     {SearchResultModel::Title, SearchResultModel::Artist, SearchResultModel::Album,
+                      SearchResultModel::Duration, SearchResultModel::Index}) {
+                    cached.results()->toggleSort(field);
+                    dense.results()->toggleSort(field);
+                    cached.results()->setQuery(" ÉCL ");
+                    dense.results()->setQuery(" ÉCL ");
+                    QTRY_VERIFY(!cached.catalog()->querying());
+                    QCOMPARE(cached.results()->rowCount(), dense.results()->rowCount());
+                    for (int i = 0; i < dense.results()->rowCount(); ++i)
+                        QCOMPARE(cached.results()->data(cached.results()->index(i, 0),
+                                                        SearchModel::ResourceId),
+                                 dense.results()->data(dense.results()->index(i, 0),
+                                                       SearchModel::ResourceId));
+                }
+                const auto tracks = readCatalogTracks(cached.catalog());
+                QCOMPARE(tracks.size(), 300);
+                const auto resource =
+                    tracks.first().catalogMetadata.value("resources").toArray().first().toObject();
+                QCOMPARE(resource.value("opaque").toString().size(), 4000);
+                QVERIFY(resource.value("unknown").isNull());
+                QVERIFY(tracks.first().catalogMetadata.contains("plugin_data"));
+                QTRY_VERIFY(
+                    cached.results()
+                        ->data(cached.results()->index(0, 0), SearchModel::PresentationReady)
+                        .toBool());
+                QCOMPARE(cached.results()
+                             ->data(cached.results()->index(0, 0), SearchModel::DurationText)
+                             .toString(),
+                         QString("0:00"));
+            }
+        }
+        metadata.shutdown();
+        QSignalSpy closed(&database, &SessionDatabase::closed);
+        database.shutdown();
+        QTRY_COMPARE(closed.size(), 1);
+        drain(api);
+    }
     void recommendationsFollowPopupRatherThanResultsRoute()
     {
         ApiClient api;

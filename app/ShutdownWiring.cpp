@@ -31,6 +31,7 @@
 #include "ShellController.h"
 #include "ShortcutService.h"
 #include "SongMetadataService.h"
+#include "SessionDatabase.h"
 #include "StartupController.h"
 #include "StorageService.h"
 #include "ThemeStore.h"
@@ -147,7 +148,11 @@ void AppContext::wireShutdown()
     bind(&about, &AboutService::readyToQuit, &m_callbacks, beginShutdown);
     bind(&playback, &PlaybackService::listeningReportsDrained, &api, &ApiClient::shutdown);
     using Drain = ApplicationDrain::Service;
-    bind(&songMetadata, &SongMetadataService::closed, &m_callbacks,
+    // Derived identity/list work is retired after metadata consumers stop.
+    // The existing metadata drain completes only once its session SQL is closed.
+    bind(&songMetadata, &SongMetadataService::closed, m_sessionCache.get(),
+         [this] { m_sessionCache->shutdown(); });
+    bind(m_sessionCache.get(), &SessionDatabase::closed, &m_callbacks,
          [this] { m_drain->completed(Drain::Metadata); });
     bind(&plugins, &PluginRuntime::closed, &m_callbacks,
          [this] { m_drain->completed(Drain::Plugins); });

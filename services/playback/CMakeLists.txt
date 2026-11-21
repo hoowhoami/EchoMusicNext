@@ -30,6 +30,7 @@ add_library(
     PlaybackQueueCatalog.cpp
     PlaybackRepository_p.h
     PlaybackRepository.h
+    HistoryPayloadLease.h
     PlaybackRepository.cpp
     AudioEngine.cpp
     PlayerSpectrum.h
@@ -37,8 +38,6 @@ add_library(
     PlaybackArtwork.h
     PlaybackArtwork.cpp
     AudioEngine.h
-    PlaybackTrack.cpp
-    PlaybackTrack.h
     PlaybackQueueModel.cpp
     PlaybackQueueModel.h
     DynamicCoverController.h
@@ -115,6 +114,7 @@ target_include_directories(
 target_link_libraries(
     echo_playback_service
     PUBLIC echo_lyrics
+           echo_cache
            echo_bridge
            echo_network
            echo_account

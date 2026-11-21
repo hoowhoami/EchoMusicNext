@@ -12,6 +12,8 @@ add_library(
     SystemSleepInhibitor.cpp
     ApplicationUrlHandler.h
     ApplicationUrlHandler.cpp
+    SceneGraphConfiguration.h
+    SceneGraphConfiguration.cpp
     WindowBackdrop.h
     WindowBackdrop.cpp
     HyprlandWindowBackdrop.h

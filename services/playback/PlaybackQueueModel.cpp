@@ -1,4 +1,6 @@
 #include "PlaybackQueueModel.h"
+#include "PlaybackRepository.h"
+#include <QUuid>
 #include "ArtistCoverPresentation.h"
 #include "EmbeddedCoverPresentation.h"
 #include "SongMetadataService.h"
@@ -7,6 +9,7 @@ namespace EchoMusic
 {
 PlaybackQueueModel::PlaybackQueueModel(QObject *parent) : QAbstractListModel(parent)
 {
+    connect(this, &PlaybackQueueModel::changed, this, &PlaybackQueueModel::preparePayloads);
     connect(this, &PlaybackQueueModel::changed, this, &PlaybackQueueModel::resumeTitleChanged);
     connect(this, &QAbstractItemModel::dataChanged, this,
             [this](const QModelIndex &first, const QModelIndex &last, const QList<int> &roles) {
@@ -25,6 +28,99 @@ PlaybackQueueModel::PlaybackQueueModel(QObject *parent) : QAbstractListModel(par
     connect(this, &QAbstractItemModel::rowsInserted, this, schedule);
     connect(this, &QAbstractItemModel::rowsRemoved, this, schedule);
     connect(this, &QAbstractItemModel::rowsMoved, this, schedule);
+}
+void PlaybackQueueModel::preparePayloads()
+{
+    if (!m_repository)
+        return;
+    for (auto &track : m_tracks)
+        if (track.payloadLoaded && track.payloadKey.isEmpty())
+            track.payloadKey = QUuid::createUuid().toString(QUuid::WithoutBraces);
+}
+void PlaybackQueueModel::attachRepository(PlaybackRepository *repository)
+{
+    m_repository = repository;
+    preparePayloads();
+}
+void PlaybackQueueModel::retirePayloads(const QStringList &keys, const PlaybackPayloadLease &lease)
+{
+    const QSet<QString> stored(keys.begin(), keys.end());
+    for (auto &track : m_tracks)
+        if (!track.payloadKey.isEmpty() && stored.contains(track.payloadKey)) {
+            if (track.payloadLoaded) {
+                track.catalogMetadata = PlaybackTrack::publicMetadata(track.catalogMetadata);
+                track.payloadLoaded = false;
+            }
+            // Even unchanged cold rows advance to this manifest. A retained
+            // prior manifest may otherwise pin removed siblings indefinitely.
+            track.payloadLease = lease;
+        }
+}
+void PlaybackQueueModel::requestTrack(int row, QObject *consumer,
+                                      std::function<void(PlaybackTrack, QString)> done)
+{
+    const auto *track = at(row);
+    if (!track || !consumer)
+        return;
+    if (track->payloadLoaded)
+        done(*track, {});
+    else if (m_repository)
+        m_repository->requestTrack(*track, consumer, std::move(done));
+    else
+        done({}, tr("播放队列存储不可用"));
+}
+void PlaybackQueueModel::requestTracks(QObject *consumer,
+                                       std::function<void(PlaybackTracks, QString)> done)
+{
+    struct Request
+    {
+        PlaybackTracks source, result;
+        qsizetype cursor = 0;
+        std::function<void(PlaybackTracks, QString)> done;
+    };
+    auto state = std::make_shared<Request>();
+    state->source = m_tracks;
+    state->done = std::move(done);
+    auto *request = new QObject(this);
+    connect(consumer, &QObject::destroyed, request, &QObject::deleteLater);
+    const QPointer<QObject> guard(consumer), lifetime(request);
+    auto step = std::make_shared<std::function<void()>>();
+    std::weak_ptr<std::function<void()>> weak = step;
+    *step = [this, state, guard, lifetime, weak] {
+        if (!lifetime)
+            return;
+        if (!guard) {
+            lifetime->deleteLater();
+            return;
+        }
+        while (state->cursor < state->source.size() && state->source[state->cursor].payloadLoaded)
+            state->result.append(state->source[state->cursor++]);
+        if (state->cursor == state->source.size()) {
+            lifetime->deleteLater();
+            state->done(std::move(state->result), {});
+            return;
+        }
+        if (!m_repository) {
+            lifetime->deleteLater();
+            state->done({}, tr("播放队列存储不可用"));
+            return;
+        }
+        m_repository->requestTrack(
+            state->source[state->cursor], lifetime,
+            [state, guard, lifetime, step = weak.lock()](auto track, auto error) {
+                if (!lifetime || !guard)
+                    return;
+                if (!error.isEmpty()) {
+                    lifetime->deleteLater();
+                    state->done({}, error);
+                    return;
+                }
+                state->result.append(std::move(track));
+                ++state->cursor;
+                (*step)();
+            });
+    };
+    QTimer::singleShot(0, request, [step] { (*step)(); });
 }
 QString PlaybackQueueModel::resumeTitle() const
 {
@@ -291,6 +387,9 @@ void PlaybackQueueModel::adoptIdentity(int row, const PlaybackTrack &track)
         return;
     current.id = track.id;
     current.catalogMetadata = track.catalogMetadata;
+    current.payloadLoaded = track.payloadLoaded;
+    current.payloadKey = track.payloadLoaded ? QString() : track.payloadKey;
+    current.payloadLease = track.payloadLoaded ? PlaybackPayloadLease{} : track.payloadLease;
     if (track.durationMs && current.durationMs != track.durationMs)
         current.durationMs = track.durationMs;
     emit dataChanged(index(row), index(row));

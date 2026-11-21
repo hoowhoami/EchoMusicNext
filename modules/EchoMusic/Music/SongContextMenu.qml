@@ -26,14 +26,35 @@ EchoMenu {
     property var pluginContext: ({})
     modelContext: root.pluginContext
     property var pluginItems: []
+    property string pluginTicket: ""
+    property bool pluginContextLoaded: false
     onAboutToShow: {
-        pluginContext = root.ready && typeof root.commands.pluginMenuContext === "function" ? root.commands.pluginMenuContext(root.songId) : ({});
-        pluginItems = EchoSongMenuRegistry.entries(pluginContext);
+        pluginContextLoaded = false;
+        pluginContext = ({});
+        pluginItems = [];
+        if (root.ready && typeof root.commands.requestPluginMenuContext === "function") {
+            pluginTicket = root.commands.requestPluginMenuContext(root.songId, root);
+        } else {
+            pluginContext = root.ready && typeof root.commands.pluginMenuContext === "function" ? root.commands.pluginMenuContext(root.songId) : ({});
+            pluginContextLoaded = true;
+            pluginItems = EchoSongMenuRegistry.entries(pluginContext);
+        }
+    }
+    Connections {
+        target: root.ready ? root.commands : null
+        ignoreUnknownSignals: true
+        function onPluginMenuContextReady(ticket: string, context: var): void {
+            if (root.visible && ticket === root.pluginTicket) {
+                root.pluginContext = context;
+                root.pluginContextLoaded = true;
+                root.pluginItems = EchoSongMenuRegistry.entries(context);
+            }
+        }
     }
     Connections {
         target: EchoSongMenuRegistry
         function onChanged() {
-            if (root.visible)
+            if (root.visible && root.pluginContextLoaded)
                 root.pluginItems = EchoSongMenuRegistry.entries(root.pluginContext);
         }
     }
@@ -46,9 +67,14 @@ EchoMenu {
             enabled: modelData.enabled
             property bool danger: modelData.danger
             onTriggered: {
-                const current = root.commands.pluginMenuContext(root.songId);
-                if (JSON.stringify(current) === JSON.stringify(root.pluginContext))
-                    EchoSongMenuRegistry.invoke(modelData.key, modelData.token, current);
+                if (typeof root.commands.pluginMenuContextCurrent === "function") {
+                    if (root.commands.pluginMenuContextCurrent(root.pluginTicket))
+                        EchoSongMenuRegistry.invoke(modelData.key, modelData.token, root.pluginContext);
+                } else {
+                    const current = root.commands.pluginMenuContext(root.songId);
+                    if (JSON.stringify(current) === JSON.stringify(root.pluginContext))
+                        EchoSongMenuRegistry.invoke(modelData.key, modelData.token, current);
+                }
             }
         }
         onObjectAdded: (index, object) => root.insertAction(Math.max(0, root.count - 3), object)
