@@ -493,7 +493,7 @@ public:
             api.cancel(b.request);
         b.requestedPage = 1;
         b.error.clear();
-        b.request = std::numeric_limits<quint64>::max() - category;
+        b.request = (std::numeric_limits<quint64>::max)() - category;
         emit service.changed();
         return b.request;
     }

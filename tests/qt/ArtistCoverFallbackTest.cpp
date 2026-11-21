@@ -65,8 +65,8 @@ public:
     }
     static void expire(SongMetadataService &s)
     {
-        for (const auto &key : s.m_coverFacts.keys())
-            s.m_coverFacts.object(key)->expires = -1;
+        // ValueCache owns expiry, so drop the entries instead of ageing them in place.
+        s.m_coverFacts.clear();
     }
     static void reset(SongMetadataService &s)
     {
@@ -78,7 +78,7 @@ public:
     }
     static int avatarCost(const SongMetadataService &s)
     {
-        return s.m_coverFacts.totalCost();
+        return int(s.m_coverFacts.statistics().cost);
     }
     static int listeners(const SongMetadataService &s)
     {

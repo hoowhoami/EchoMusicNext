@@ -15,7 +15,7 @@ template <typename Key, typename Value> class ValueCache
 {
 public:
     using Clock = std::function<qint64()>;
-    static constexpr qint64 NoExpiry = std::numeric_limits<qint64>::max();
+    static constexpr qint64 NoExpiry = (std::numeric_limits<qint64>::max)();
     struct Statistics
     {
         quint64 hits = 0, misses = 0, expired = 0, evicted = 0;
@@ -23,7 +23,7 @@ public:
         qsizetype entries = 0;
     };
     explicit ValueCache(qsizetype maximumEntries,
-                        quint64 maximumCost = std::numeric_limits<quint64>::max(), Clock clock = {})
+                        quint64 maximumCost = (std::numeric_limits<quint64>::max)(), Clock clock = {})
         : m_maximumEntries(maximumEntries), m_maximumCost(maximumCost), m_clock(std::move(clock))
     {
         m_timer.start();
@@ -64,7 +64,7 @@ public:
             ++m_statistics.evicted;
         }
         const auto time = now();
-        const auto limit = std::numeric_limits<qint64>::max();
+        const auto limit = (std::numeric_limits<qint64>::max)();
         const auto expires = ttlMs > limit - time ? limit : time + ttlMs;
         m_order.push_front(key);
         m_values.insert(key, {std::move(value), expires, cost, m_order.begin()});
