@@ -23,7 +23,8 @@ public:
         qsizetype entries = 0;
     };
     explicit ValueCache(qsizetype maximumEntries,
-                        quint64 maximumCost = (std::numeric_limits<quint64>::max)(), Clock clock = {})
+                        quint64 maximumCost = (std::numeric_limits<quint64>::max)(),
+                        Clock clock = {})
         : m_maximumEntries(maximumEntries), m_maximumCost(maximumCost), m_clock(std::move(clock))
     {
         m_timer.start();

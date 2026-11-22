@@ -17,8 +17,8 @@ ApplicationWindow {
     id: mainWindow
     property StartupController startup: null
     Component.onCompleted: {
-        // Freeze the creation-time mode. A later user open keeps its ordinary
-        // entry transition; only rebuilding an already-open page restores it.
+        // Freeze the creation-time mode. Later user opens keep their ordinary
+        // entry transition; window reconstruction and minimize recovery restore.
         restoringPlaybackPresentation = restoringPlaybackPresentation;
         initialStartupPresentation = startup !== null && !startup.entered;
         syncVerificationCover();
@@ -526,6 +526,24 @@ ApplicationWindow {
             onMoveRequested: mainWindow.windowService.startSystemMove()
             onDoubleClickRequested: mainWindow.windowService.toggleMaximized()
         }
+        Connections {
+            target: mainWindow
+            function onVisibilityChanged(): void {
+                const page = playbackPageLoader.item as PlaybackPage;
+                if (mainWindow.visibility === Window.Minimized && mainWindow.windowService.playbackPageOpen) {
+                    // A native minimize can retire the popup's parent while
+                    // keeping this main window. Cover popup replacement too.
+                    mainWindow.restoringPlaybackPresentation = true;
+                    if (page)
+                        page.restoringPresentation = true;
+                } else if (mainWindow.visible && mainWindow.visibility !== Window.Minimized && page?.opened) {
+                    // A retained popup has no new opened signal to consume
+                    // recovery. Subsequent user opens must still animate.
+                    mainWindow.restoringPlaybackPresentation = false;
+                    page.restoringPresentation = false;
+                }
+            }
+        }
         EchoPopupLoader {
             id: playbackPageLoader
             objectName: "playbackPageOwner"
@@ -535,7 +553,8 @@ ApplicationWindow {
             sourceComponent: PlaybackPage {
                 id: nativePlaybackPage
                 Component.onCompleted: restoringPresentation = mainWindow.restoringPlaybackPresentation
-                onOpened: mainWindow.restoringPlaybackPresentation = false
+                onOpened: if (mainWindow.visible && mainWindow.visibility !== Window.Minimized)
+                    mainWindow.restoringPlaybackPresentation = false
                 controlsTopReserve: (nativePlaybackPage.controlsItem as PlayerBar)?.aboveControlsHeight ?? 0
                 onGlobalSettingsRequested: {
                     preferencesOwner.open({

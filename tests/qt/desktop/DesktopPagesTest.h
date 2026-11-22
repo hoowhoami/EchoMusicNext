@@ -28,6 +28,8 @@ private slots:
     void lyricSkinSwitchKeepsCatalogAndPageStable();
     void backgroundRestoresPlaybackPage_data();
     void backgroundRestoresPlaybackPage();
+    void minimizedWindowRestoresPlaybackPage_data();
+    void minimizedWindowRestoresPlaybackPage();
     void menuBarLyricsUseMacOnlyProductionSettingsAndRelease();
     void lyricVariantSettingUsesProductionSelectAndReleasesPopup();
     void productionPopupsFollowRequestOwnership();

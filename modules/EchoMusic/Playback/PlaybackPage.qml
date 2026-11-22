@@ -31,6 +31,8 @@ Popup {
     required property PlaybackService playback
     property real uiScale: 1
     property bool restoringPresentation: false
+    onRestoringPresentationChanged: if (restoringPresentation && visible)
+        settlePresentation()
     property bool coverBodyAllowed: true
     property EchoCover sourceCover: null
     readonly property bool coverMoving: motion.coverFlight
@@ -107,15 +109,19 @@ Popup {
         syncClock(true);
         playback.ensureLyrics();
     }
+    function settlePresentation(): void {
+        openingMotion.stop();
+        closingMotion.stop();
+        motion.finish();
+        motion.hostOpacity = 1;
+        motion.contentOpacity = 1;
+        motion.contentOffset = 0;
+        motion.progress = 1;
+    }
     onAboutToShow: {
         coverBodyAllowed = true;
-        if (restoringPresentation) {
-            motion.finish();
-            motion.hostOpacity = 1;
-            motion.contentOpacity = 1;
-            motion.contentOffset = 0;
-            motion.progress = 1;
-        }
+        if (restoringPresentation)
+            settlePresentation();
         syncClock(true);
         playback.ensureLyrics();
     }

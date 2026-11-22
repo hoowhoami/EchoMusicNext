@@ -289,7 +289,10 @@ void DesktopPagesTest::mainWindowBackgroundKeepsPluginPlaybackAndFloating()
         tracks.append(track);
     }
     QSet<QString> played;
-    connect(&playback, &PlaybackService::changed, &playback, [&] {
+    // Retire observation before its result container. Shutdown closes the
+    // lyric dialog and drains events after these locals have been destroyed.
+    QObject playedObservation;
+    connect(&playback, &PlaybackService::changed, &playedObservation, [&] {
         if (playback.playing())
             played.insert(playback.currentTrack().id);
     });
@@ -427,6 +430,134 @@ void DesktopPagesTest::mainWindowRecoveryRejectsStaleRetirementAndRetriesFailure
     interrupted.show();
     QCOMPARE(forbiddenCreations, 0);
     QCOMPARE(interrupted.state(), MainWindowHost::State::Closed);
+}
+
+void DesktopPagesTest::minimizedWindowRestoresPlaybackPage_data()
+{
+    QTest::addColumn<bool>("motion");
+    QTest::addColumn<QString>("skin");
+    for (const auto &skin : {QString("cover"), QString("portrait"), QString("lyric")})
+        for (bool motion : {true, false})
+            QTest::newRow(qPrintable(skin + (motion ? "-animated" : "-reduced"))) << motion << skin;
+}
+
+void DesktopPagesTest::minimizedWindowRestoresPlaybackPage()
+{
+    QFETCH(bool, motion);
+    QFETCH(QString, skin);
+    Session session(QGuiApplication::platformName() != "offscreen");
+    session.shell.acceptUserAgreement();
+    session.shell.setMotionEnabled(motion);
+    session.theme.setMotionEnabled(motion);
+    session.api.addInterceptor(100, [](const QJsonObject &, ApiInterceptNext, ApiInterceptDone) {
+        return std::function<void()>([] {});
+    });
+    PlaybackService playback(session.api, session.preferences);
+    QVERIFY(session.theme.extensions()->chooseSkin(skin));
+    QVERIFY(session.create(&playback));
+    const auto cleanup = qScopeGuard([&] {
+        session.root.reset();
+        session.window = nullptr;
+    });
+    QVERIFY(Test::prepareNativeInput(session.window));
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    auto *owner = session.root->findChild<QObject *>("playbackPageOwner");
+    QVERIFY(owner);
+    QVERIFY(QMetaObject::invokeMethod(owner, "open", Q_ARG(QVariant, QVariantMap{})));
+    QPointer<QObject> page;
+    QTRY_VERIFY((page = owner->property("item").value<QObject *>()) &&
+                page->property("opened").toBool());
+    auto *route = session.router.current();
+    QSignalSpy activated(&session.router, &RouteController::pageActivated);
+    bool restoring = false;
+    QList<bool> presentedFrames;
+    const auto observation =
+        connect(session.window, &QQuickWindow::afterAnimating, session.window, [&] {
+            if (!restoring || session.window->visibility() == QWindow::Minimized)
+                return;
+            auto *current = owner->property("item").value<QObject *>();
+            auto *pageMotion =
+                current ? current->findChild<QObject *>("playbackPageMotion") : nullptr;
+            const bool complete = session.root->property("playbackCoversShell").toBool() &&
+                                  current && current->property("visible").toBool() && pageMotion &&
+                                  pageMotion->property("hostOpacity").toReal() == 1 &&
+                                  pageMotion->property("contentOpacity").toReal() == 1 &&
+                                  !current->property("coverMoving").toBool();
+            if (!complete && !presentedFrames.contains(false))
+                qInfo() << "Incomplete restored frame"
+                        << session.root->property("restoringPlaybackPresentation")
+                        << session.root->property("playbackCoversShell") << current
+                        << (current ? current->property("visible") : QVariant{})
+                        << (current ? current->property("opened") : QVariant{})
+                        << (current ? current->property("restoringPresentation") : QVariant{})
+                        << (pageMotion ? pageMotion->property("hostOpacity") : QVariant{})
+                        << (pageMotion ? pageMotion->property("contentOpacity") : QVariant{});
+            presentedFrames.append(complete);
+        });
+    const auto stopObservation = qScopeGuard([&] { QObject::disconnect(observation); });
+    for (int cycle = 0; cycle < 3; ++cycle) {
+        restoring = false;
+        session.window->showMinimized();
+        QTRY_COMPARE(session.window->visibility(), QWindow::Minimized);
+        // Also exercise a popup closed by the platform while minimized,
+        // independently of the application retaining the playback-mode intent.
+        if (cycle != 0)
+            QVERIFY(QMetaObject::invokeMethod(page, "close"));
+        if (cycle == 2)
+            QTRY_VERIFY(!owner->property("item").value<QObject *>());
+        else
+            QTest::qWait(30);
+        QVERIFY(session.windows.playbackPageOpen());
+        qInfo() << "Minimized cycle" << cycle
+                << session.root->property("restoringPlaybackPresentation")
+                << owner->property("item");
+        presentedFrames.clear();
+        restoring = true;
+        // A native taskbar restore changes window state without calling the
+        // application's showWindow() path. Cover both restoration entries.
+        if (cycle % 2)
+            session.windows.showWindow();
+        else
+            session.window->showNormal();
+        QTRY_COMPARE(session.window->visibility(), QWindow::Windowed);
+        QVERIFY(Test::prepareNativeInput(session.window));
+        session.window->update();
+        QTRY_VERIFY(!presentedFrames.isEmpty());
+        QTest::qWait(520);
+        restoring = false;
+        QVERIFY2(!presentedFrames.contains(false),
+                 "A restored frame exposed the shell or replayed playback entry");
+        QTRY_VERIFY((page = owner->property("item").value<QObject *>()) &&
+                    page->property("opened").toBool());
+        QCOMPARE(session.router.current(), route);
+        QCOMPARE(activated.size(), 0);
+    }
+    // Minimize recovery must not suppress a later explicit user entry. Also
+    // interrupt that ordinary entry and verify the next restore is settled.
+    QVERIFY(QMetaObject::invokeMethod(page, "close"));
+    QTRY_VERIFY(page.isNull());
+    QVERIFY(!session.windows.playbackPageOpen());
+    QVERIFY(QMetaObject::invokeMethod(owner, "open", Q_ARG(QVariant, QVariantMap{})));
+    QTRY_VERIFY((page = owner->property("item").value<QObject *>()));
+    QVERIFY(!page->property("restoringPresentation").toBool());
+    QTest::qWait(16);
+    auto *pageMotion = page->findChild<QObject *>("playbackPageMotion");
+    QVERIFY(pageMotion);
+    if (motion)
+        QVERIFY(page->property("coverMoving").toBool() ||
+                pageMotion->property("contentOpacity").toReal() < 1);
+    session.window->showMinimized();
+    QTRY_COMPARE(session.window->visibility(), QWindow::Minimized);
+    presentedFrames.clear();
+    restoring = true;
+    session.window->showNormal();
+    QVERIFY(Test::prepareNativeInput(session.window));
+    session.window->update();
+    QTRY_VERIFY(!presentedFrames.isEmpty());
+    QTest::qWait(520);
+    restoring = false;
+    QVERIFY2(!presentedFrames.contains(false), "Minimize resumed an interrupted playback entry");
+    QCOMPARE(warnings.size(), 0);
 }
 
 void DesktopPagesTest::backgroundRestoresPlaybackPage_data()

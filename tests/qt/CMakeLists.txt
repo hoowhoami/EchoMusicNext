@@ -842,6 +842,13 @@ set(ECHO_DESKTOP_TEST_GROUPS
     desktop-pages-popups
     desktop-pages-library
 )
+add_test(NAME playback-minimize-restore COMMAND echo-desktop-pages-test
+                                                minimizedWindowRestoresPlaybackPage
+)
+set_tests_properties(
+    playback-minimize-restore
+    PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Basic" TIMEOUT 60
+)
 add_test(NAME desktop-pages-settings-handoff
          COMMAND echo-desktop-pages-test lyricSkinGlobalSettingsHandoff
                  lyricSkinSwitchKeepsCatalogAndPageStable
