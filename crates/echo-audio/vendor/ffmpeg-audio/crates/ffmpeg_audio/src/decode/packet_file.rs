@@ -213,6 +213,10 @@ unsafe fn read_record(
         if length as u64 > remaining {
             return Err(invalid("packet cache side data exceeds record"));
         }
+        // AVPacketSideDataType maps to c_int under bindgen, not the u32 the
+        // record stores; convert explicitly instead of assuming the width.
+        let kind = sys::AVPacketSideDataType::try_from(kind)
+            .map_err(|_| invalid("packet cache side data type out of range"))?;
         let data = unsafe { sys::av_packet_new_side_data(packet.0, kind, length) };
         if data.is_null() {
             return Err(AudioError::from_ffmpeg(sys::AVERROR_ENOMEM));

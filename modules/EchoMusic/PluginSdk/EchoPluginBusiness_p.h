@@ -52,7 +52,7 @@ public:
             auto n = text.toULongLong(&ok);
             if (!ok || text.isEmpty() || text.size() > 19 ||
                 text.contains(QRegularExpression("[^0-9]")) ||
-                n > quint64(std::numeric_limits<qint64>::max()))
+                n > quint64((std::numeric_limits<qint64>::max)()))
                 valid = false;
             return valid ? n : 0;
         }

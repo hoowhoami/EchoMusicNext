@@ -107,7 +107,7 @@ public:
     bool updatePresentations(Generation, QList<Presentation>, QObject *,
                              std::function<void(Updated)>);
     bool query(Generation, QString text, int field, int direction, QObject *,
-               std::function<void(View)>, qint64 lastOrdinal = std::numeric_limits<qint64>::max(),
+               std::function<void(View)>, qint64 lastOrdinal = (std::numeric_limits<qint64>::max)(),
                QueryStyle style = QueryStyle::Catalog);
     bool query(Snapshot, QString text, int field, int direction, QObject *,
                std::function<void(View)>, QueryStyle style = QueryStyle::Catalog);

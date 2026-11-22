@@ -195,7 +195,6 @@ public:
         sources.clear();
         if (sources.m_cacheTrack != track.key()) {
             sources.m_cache.clear();
-            sources.m_cacheOrder.clear();
             sources.m_cacheTrack = track.key();
         }
         sources.m_track = track;
