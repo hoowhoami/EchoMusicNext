@@ -4,6 +4,10 @@ option(ECHO_TEXT_SEGMENTATION "Enable ICU-backed plugin word segmentation when a
 add_library(echo_text_segmentation INTERFACE)
 if(ECHO_TEXT_SEGMENTATION)
     if(ICU_ROOT)
+        # FindICU disables package-root lookup for libraries, so its ICU_ROOT
+        # hint otherwise comes after Qt's CMAKE_PREFIX_PATH on Linux.
+        set(_echo_icu_saved_prefix_path "${CMAKE_PREFIX_PATH}")
+        list(PREPEND CMAKE_PREFIX_PATH "${ICU_ROOT}")
         # Qt may also have cached its own discovery earlier in this configure.
         # An explicit application prefix must be searched independently.
         foreach(
@@ -21,6 +25,34 @@ if(ECHO_TEXT_SEGMENTATION)
         endforeach()
     endif()
     find_package(ICU 78.2 QUIET COMPONENTS uc i18n data)
+    if(ICU_ROOT)
+        set(CMAKE_PREFIX_PATH "${_echo_icu_saved_prefix_path}")
+        file(REAL_PATH "${ICU_ROOT}" _echo_icu_root)
+        foreach(
+            _echo_icu_entry
+            INCLUDE_DIR
+            UC_LIBRARY_RELEASE
+            UC_LIBRARY_DEBUG
+            I18N_LIBRARY_RELEASE
+            I18N_LIBRARY_DEBUG
+            DATA_LIBRARY_RELEASE
+            DATA_LIBRARY_DEBUG
+        )
+            if(EXISTS "${ICU_${_echo_icu_entry}}")
+                file(REAL_PATH "${ICU_${_echo_icu_entry}}" _echo_icu_selected)
+                cmake_path(
+                    IS_PREFIX _echo_icu_root "${_echo_icu_selected}" NORMALIZE
+                    _echo_icu_inside_root
+                )
+                if(NOT _echo_icu_inside_root)
+                    message(
+                        FATAL_ERROR
+                            "ICU_${_echo_icu_entry} resolved outside ICU_ROOT: ${_echo_icu_selected}. Install a complete ICU prefix at ${_echo_icu_root}."
+                    )
+                endif()
+            endif()
+        endforeach()
+    endif()
 endif()
 if(ECHO_TEXT_SEGMENTATION
    AND ICU_FOUND

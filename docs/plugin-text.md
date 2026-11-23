@@ -8,7 +8,7 @@ Qt 6.12 的 QV4 没有 `Intl.Segmenter`。`QTextBoundaryFinder::Word` 不包含 
 
 六个平台共用 `python3.12 scripts/install-icu.py`，下载固定的官方 ICU4C 78.3 源码并安装到 `build/icu4c-78.3`；归档 SHA-256 为 `3a2e7a47604ba702f345878308e6fefeca612ee895cf4a5f222e7955fabfe0c0`。macOS/Linux 构建静态库，macOS 保留 14.4 最低系统版本，Linux 静态库启用 PIC。Windows 在 x64 或 ARM64 MSVC 开发环境中运行 `python scripts/install-icu.py`，只构建所需库和数据工具，再生成同架构的分词数据 DLL。编译工具和完整数据不进入安装前缀。
 
-随后运行 `python3.12 scripts/build.py --preset release --icu-root build/icu4c-78.3`（Windows 使用 `python`；直接 CMake 可传 `-DICU_ROOT=/绝对路径/build/icu4c-78.3`）。分词使用独立的 ICU 导入目标，指定前缀时重新查找头文件与库，避免复用 Qt SDK 已导入的其它 ICU 版本。正式发布 CI 自动构建、校验并缓存各架构前缀，缺少分词能力会中止配置。打包以 CMake 实际选中的库为准，校验前缀摘要并携带 ICU 许可及数据清单；Windows 同时部署 `icuuc78.dll`、`icuin78.dll`、`icudt78.dll`，检查其 PE 架构和部署后摘要。这是通用文本依赖，不带 Folia 业务逻辑。
+随后运行 `python3.12 scripts/build.py --preset release --icu-root build/icu4c-78.3`（Windows 使用 `python`；直接 CMake 可传 `-DICU_ROOT=/绝对路径/build/icu4c-78.3`）。分词使用独立的 ICU 导入目标；指定前缀优先于 Qt SDK 路径，并重新查找头文件与库，任何组件落到前缀之外都会中止配置。正式发布 CI 自动构建、校验并缓存各架构前缀，缺少分词能力会中止配置。打包以 CMake 实际选中的库为准，校验前缀摘要并携带 ICU 许可及数据清单；Windows 同时部署 `icuuc78.dll`、`icuin78.dll`、`icudt78.dll`，检查其 PE 架构和部署后摘要。这是通用文本依赖，不带 Folia 业务逻辑。
 
 构建脚本使用 `icu_word_data.py` 生成仅供 `UBRK_WORD` 使用的数据，保留所有原有脚本词典、locale 资源、日语扩展、NFKC 与 alias 依赖，移除其它断句与无关功能数据。未修改的资源保持原二进制属性；打包执行正常依赖检查，不忽略缺失项。发布前记录库和数据摘要，`--check` 校验安装产物。安装前缀不包含编译工具或完整数据副本；不能将此数据包用于任意 ICU 功能。
 

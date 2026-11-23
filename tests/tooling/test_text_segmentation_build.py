@@ -17,8 +17,8 @@ class TextSegmentationBuildTest(unittest.TestCase):
             source = Path(directory).resolve()
             producer = source / "producer"
             producer.mkdir()
-            # Different versioned symbols make using the SDK archive a real
-            # link failure, just as with Qt's older ICU and our 78.x headers.
+            # Qt's prefix precedes FindICU's library hints on Linux. Different
+            # versioned symbols make choosing the SDK library a link failure.
             (producer / "CMakeLists.txt").write_text(
                 """cmake_minimum_required(VERSION 3.28)
 project(icu_archives LANGUAGES C)
@@ -85,6 +85,8 @@ int main() {
             (source / "CMakeLists.txt").write_text(
                 """cmake_minimum_required(VERSION 3.28)
 project(icu_consumer LANGUAGES CXX)
+list(PREPEND CMAKE_PREFIX_PATH "${CMAKE_CURRENT_SOURCE_DIR}/sdk")
+set(original_prefix_path "${CMAKE_PREFIX_PATH}")
 foreach(component uc i18n data)
     add_library(ICU::${component} UNKNOWN IMPORTED)
     set(path "${CMAKE_CURRENT_SOURCE_DIR}/sdk/lib/${CMAKE_STATIC_LIBRARY_PREFIX}icu${component}${CMAKE_STATIC_LIBRARY_SUFFIX}")
@@ -98,7 +100,10 @@ endforeach()
 set(ICU_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include" CACHE PATH "SDK headers")
 """
                 + f'include("{(ROOT / "cmake/TextSegmentation.cmake").as_posix()}")\n'
-                + """foreach(component uc i18n data)
+                + """if(NOT CMAKE_PREFIX_PATH STREQUAL original_prefix_path)
+    message(FATAL_ERROR "Application ICU lookup changed other package searches")
+endif()
+foreach(component uc i18n data)
     get_target_property(path ICU::${component} IMPORTED_LOCATION)
     if(NOT path MATCHES "/sdk/lib/")
         message(FATAL_ERROR "SDK ICU target was overwritten")
@@ -137,6 +142,26 @@ file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/probe-$<CONFIG>.txt" CONTENT "$<TARGET
                         self.assertEqual(library.parent, source / "pinned/lib")
                         postfix = "d" if config == "Debug" else ""
                         self.assertIn(f"icu{component}{postfix}.", library.name)
+
+            # A partial explicit prefix must fail at configure time instead
+            # of silently falling through to the SDK for just one component.
+            for library in (source / "pinned/lib").glob("*icudata*.*"):
+                library.unlink()
+            result = subprocess.run(
+                [
+                    "cmake",
+                    "-S",
+                    str(source),
+                    "-B",
+                    str(source / "incomplete"),
+                    f"-DICU_ROOT={(source / 'pinned').as_posix()}",
+                    "-DECHO_DISTRIBUTION_BUILD=ON",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("resolved outside ICU_ROOT", result.stdout + result.stderr)
 
     def run_cmake(self, *args):
         result = subprocess.run(["cmake", *map(str, args)], capture_output=True, text=True)
