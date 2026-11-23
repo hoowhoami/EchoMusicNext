@@ -13,6 +13,8 @@ constexpr quint64 viewBudget = 4 * 1024 * 1024;
 } // namespace
 SongCatalogModel::ViewPtr SongCatalogModel::viewFor(int source) const
 {
+    if (m_cacheStale)
+        return {};
     const auto &entry = m_entries[source];
     if (entry.view) {
         m_viewDemand.insert(source, true, cacheLifetime);
@@ -99,6 +101,9 @@ void SongCatalogModel::loadViews(QList<int> sources, QObject *consumer,
     }
     auto *request = new QObject(this);
     connect(consumer, &QObject::destroyed, request, &QObject::deleteLater);
+    if (m_sessionDatabase)
+        connect(m_sessionDatabase, &SessionDatabase::aboutToInvalidate, request,
+                &QObject::deleteLater);
     const QPointer<QObject> guard(consumer), lifetime(request);
     const auto epoch = m_storageEpoch;
     auto step = std::make_shared<std::function<void()>>();
@@ -180,6 +185,9 @@ void SongCatalogModel::requestCover(QObject *consumer, std::function<void(QStrin
     state->done = std::move(done);
     auto *request = new QObject(this);
     connect(consumer, &QObject::destroyed, request, &QObject::deleteLater);
+    if (m_sessionDatabase)
+        connect(m_sessionDatabase, &SessionDatabase::aboutToInvalidate, request,
+                &QObject::deleteLater);
     const QPointer<QObject> guard(consumer), lifetime(request);
     const auto epoch = m_storageEpoch;
     auto step = std::make_shared<std::function<void()>>();
@@ -219,7 +227,7 @@ void SongCatalogModel::requestCover(QObject *consumer, std::function<void(QStrin
 }
 void SongCatalogModel::flushViewReads()
 {
-    if (!m_store || m_loadingViews || m_storageFailed)
+    if (m_cacheStale || !m_store || m_loadingViews || m_storageFailed)
         return;
     QList<int> sources;
     for (const auto source : m_viewDemand.keys()) {
@@ -255,8 +263,8 @@ void SongCatalogModel::flushViewReads()
 }
 void SongCatalogModel::flushMetadata()
 {
-    if (!m_store || m_metadataLoading || m_pendingMetadata.isEmpty() || m_storageFailed ||
-        m_presentationWriting || !m_dirtyPresentations.isEmpty())
+    if (m_cacheStale || !m_store || m_metadataLoading || m_pendingMetadata.isEmpty() ||
+        m_storageFailed || m_presentationWriting || !m_dirtyPresentations.isEmpty())
         return;
     QList<int> sources;
     for (const auto source : m_pendingMetadata) {

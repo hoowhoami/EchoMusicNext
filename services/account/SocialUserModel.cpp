@@ -168,6 +168,14 @@ void SocialUserModel::attachStore(JsonRecordStore &store)
         return;
     auto values = m_rows;
     m_store = &store;
+    connect(&store, &JsonRecordStore::invalidated, this, [this] {
+        ++m_generation;
+        m_hot.clear();
+        m_demand.clear();
+        m_reading = m_scheduled = false;
+        m_readFailed = true;
+        emit cacheInvalidated();
+    });
     replace(std::move(values));
 }
 void SocialUserModel::readEntry(const QString &key, std::function<void(QJsonObject)> done)

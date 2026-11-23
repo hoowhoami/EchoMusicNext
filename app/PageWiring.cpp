@@ -83,12 +83,14 @@ void AppContext::createPages()
     m_recordStore = std::make_unique<JsonRecordStore>(*m_sessionCache);
     profile.attachRecordStore(*m_recordStore);
     bind(m_recordStore.get(), &JsonRecordStore::cacheFailed, &shellController,
-         [showNotice](const QString &error) { showNotice(error, true); });
+         [](const QString &error) {
+             // Background persistence retains its source on failure. A failed
+             // explicit read/action reports through its own page or command.
+             qWarning().noquote() << "Session record cache:" << error;
+         });
     m_songMetadata = std::make_unique<SongMetadataService>(api);
     auto &songMetadata = *m_songMetadata;
     songMetadata.enableSqlIndex(*m_sessionCache);
-    bind(&songMetadata, &SongMetadataService::cacheFailed, &shellController,
-         [showNotice](const QString &error) { showNotice(error, true); });
     if (!smoke)
         songMetadata.enableCoverCache(
             QStandardPaths::writableLocation(QStandardPaths::CacheLocation) +

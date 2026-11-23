@@ -33,6 +33,7 @@ RoutePage {
         id: pageViewport
         anchors.fill: parent
         pageActive: page.pageActive
+        dataRecovering: page.service.styleSongs.cacheRecovering
         scrollView: homeList
         Flickable {
             id: homeList

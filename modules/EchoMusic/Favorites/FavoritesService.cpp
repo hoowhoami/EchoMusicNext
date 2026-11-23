@@ -280,6 +280,8 @@ void FavoritesService::syncLikedSongs()
     if (m_metadata.sessionDatabase()) {
         if (favorites->cached())
             m_songs.replaceCachedRows(favorites->cachedRows(), true);
+        if (m_likedLoaded || !m_error.isEmpty())
+            m_songs.finishCacheRecovery();
         if (m_likedLoaded)
             publishCover();
         emit changed();
@@ -589,6 +591,7 @@ void FavoritesService::cancelAll()
 }
 void FavoritesService::reset()
 {
+    m_songs.finishCacheRecovery();
     if (m_pending.isEmpty() && !m_likedLoaded && !m_followLoaded && !m_videosLoaded &&
         m_songRows.isEmpty() && !m_songs.totalCount() && m_metadataRequests.isEmpty())
         return;

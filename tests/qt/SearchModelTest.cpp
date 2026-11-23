@@ -1,4 +1,6 @@
 #include "SearchModel.h"
+#include "SessionCacheLoss.h"
+#include <QTcpServer>
 #include "SongCatalogModel.h"
 #include "SongMetadataService.h"
 #include "CatalogRead.h"
@@ -21,6 +23,10 @@ class SearchModelTestAccess
 public:
     // Canonical domain/control-flow seam. No provider fixture or HTTP acceptance
     // is inferred from these synthetic display records; Rust owns wire parsing.
+    static quint64 request(const SearchModel &model)
+    {
+        return model.active().request;
+    }
     static int residentRows(const SearchModel &model)
     {
         return model.active().rows.size();
@@ -123,6 +129,61 @@ class SearchModelTest : public QObject
             QVERIFY(closed.wait(5000));
     }
 private slots:
+    void totalLossRefetchesPreviouslyAcceptedSearchPagesAndKeepsPresentationControls()
+    {
+        QTemporaryDir directory;
+        SessionDatabase database(directory.filePath("session"));
+        ApiClient api(DeviceIdentity::temporary());
+        QTcpServer transport;
+        QVERIFY(transport.listen(QHostAddress::LocalHost));
+        QVERIFY(api.setNetworkTransport(transport.serverPort()));
+        SongMetadataService metadata(api);
+        metadata.enableSqlIndex(database);
+        {
+            SearchModel model(api);
+            model.attachMetadata(metadata, false);
+            model.setPageActive(true);
+            for (int page = 1; page <= 2; ++page) {
+                const auto request = SearchModelTestAccess::prepare(model, api, page);
+                SearchModelTestAccess::succeed(model, request, songs(page, 30, 100));
+                QTRY_COMPARE(model.count(), page * 30);
+            }
+            model.results()->setQuery("歌曲");
+            model.results()->toggleSort(SearchResultModel::Title);
+            QTRY_VERIFY(!model.catalog()->querying());
+            const auto query = model.catalog()->query();
+            const auto sort = model.catalog()->sortField();
+            int finalQueries = 0;
+            QObject recoveryMonitor;
+            connect(model.catalog(), &SongCatalogModel::cacheRecoveryChanged, &recoveryMonitor,
+                    [&] {
+                        if (!model.catalog()->cacheRecovering() && model.catalog()->querying()) {
+                            QVERIFY(model.cacheRecovering());
+                            ++finalQueries;
+                        }
+                    });
+            QVERIFY(loseSessionCache(database));
+            QVERIFY(model.cacheRecovering());
+            QVERIFY(SearchModelTestAccess::request(model));
+            QCOMPARE(model.keyword(), QString("测试"));
+            SearchModelTestAccess::succeed(model, SearchModelTestAccess::request(model),
+                                           songs(1, 30, 100));
+            QTRY_COMPARE(model.count(), 30);
+            QTRY_VERIFY(SearchModelTestAccess::request(model));
+            QVERIFY(model.cacheRecovering());
+            SearchModelTestAccess::succeed(model, SearchModelTestAccess::request(model),
+                                           songs(2, 30, 100));
+            QTRY_COMPARE(model.count(), 60);
+            QTRY_VERIFY(!model.cacheRecovering() && !model.catalog()->querying());
+            QVERIFY(finalQueries > 0);
+            QCOMPARE(model.catalog()->query(), query);
+            QCOMPARE(model.catalog()->sortField(), sort);
+            QVERIFY(!SearchModelTestAccess::request(
+                model)); // No background enumeration of unseen pages.
+            QCOMPARE(model.state(), SearchModel::State::Ready);
+        }
+        drain(api);
+    }
     void cachedSongAndLyricWindowsMatchDenseQueriesAndReadCompleteSources()
     {
         QTemporaryDir directory;

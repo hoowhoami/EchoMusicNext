@@ -1,4 +1,7 @@
 #include "SongDatasetStore.h"
+#include "SessionCacheLoss.h"
+#include "JsonRecordStore.h"
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QSignalSpy>
 #include <QSemaphore>
@@ -33,6 +36,98 @@ class SongDatasetStoreTest : public QObject
         QTRY_COMPARE(closed.size(), 1);
     }
 private slots:
+    void totalLossRejectsOldLeasesEvenWhenRecordNumbersAreReused()
+    {
+        QTemporaryDir directory;
+        SessionDatabase database(directory.path());
+        SongDatasetStore store(database);
+        auto old = store.create();
+        const auto first = wait<SongDatasetStore::Written>([&](auto done) {
+            return store.append(old, {{"old", "Old", {}, {}, 1, 0, {{"id", "old"}}, {}}}, this,
+                                std::move(done));
+        });
+        QVERIFY(first.error.isEmpty());
+        QVERIFY(loseSessionCache(database));
+        auto fresh = store.create();
+        const auto second = wait<SongDatasetStore::Written>([&](auto done) {
+            return store.append(fresh, {{"new", "New", {}, {}, 1, 0, {{"id", "new"}}, {}}}, this,
+                                std::move(done));
+        });
+        QVERIFY(second.error.isEmpty());
+        QCOMPARE(first.rows.first().record, second.rows.first().record);
+        const auto stale = wait<SongDatasetStore::Read>(
+            [&](auto done) { return store.read({old, first.rows}, 0, this, std::move(done)); });
+        QVERIFY(!stale.error.isEmpty());
+        QVERIFY(stale.values.isEmpty());
+        const auto staleWrite = wait<SongDatasetStore::Written>([&](auto done) {
+            return store.append(old, {{"stale", "Stale", {}, {}, 1, 1, {{"id", "stale"}}, {}}},
+                                this, std::move(done));
+        });
+        QVERIFY(!staleWrite.error.isEmpty());
+        const auto rows = wait<SongDatasetStore::View>(
+            [&](auto done) { return store.query(fresh, {}, 0, 0, this, std::move(done)); });
+        QCOMPARE(rows.rows.size(), 1);
+        close(database);
+    }
+    void externalCacheCleanupPreservesSongSnapshotsAndNonSongRecords()
+    {
+#ifdef Q_OS_WIN
+        QSKIP("Windows does not permit this fixture to unlink open handles");
+#else
+        QTemporaryDir directory;
+        const auto root = directory.filePath("session");
+        SessionDatabase database(root);
+        SongDatasetStore store(database);
+        JsonRecordStore records(database);
+        const QJsonObject complete{{"id", "track"},
+                                   {"opaque", QJsonValue::Null},
+                                   {"resources", QJsonArray{QString(32000, 'x')}}};
+        auto generation = store.create();
+        const auto written = wait<SongDatasetStore::Written>([&](auto done) {
+            return store.append(generation,
+                                {{"track",
+                                  "Title",
+                                  "Artist",
+                                  "Album",
+                                  123,
+                                  0,
+                                  complete,
+                                  {{"title", "Presentation"}}}},
+                                this, std::move(done));
+        });
+        QVERIFY2(written.error.isEmpty(), qPrintable(written.error));
+        const SongDatasetStore::Snapshot snapshot{generation, written.rows};
+        const QJsonArray authors{QJsonObject{{"id", "author"}, {"opaque", QJsonValue::Null}}};
+        auto authorSnapshot = records.create(authors);
+        QTRY_VERIFY(records.persisted(authorSnapshot));
+        QVERIFY(QDir(root).removeRecursively());
+        const auto restored = wait<SongDatasetStore::Read>(
+            [&](auto done) { return store.read(snapshot, 0, this, std::move(done), true); });
+        QVERIFY2(restored.error.isEmpty(), qPrintable(restored.error));
+        QCOMPARE(restored.values, QList<QJsonObject>{complete});
+        QCOMPARE(restored.presentations.first().value("title").toString(), "Presentation");
+        std::optional<QJsonArray> readAuthors;
+        QString readError;
+        records.readAll(authorSnapshot, this, [&](QJsonArray values, QString error) {
+            readAuthors = std::move(values);
+            readError = std::move(error);
+        });
+        QTRY_VERIFY(readAuthors.has_value());
+        QVERIFY2(readError.isEmpty(), qPrintable(readError));
+        QCOMPARE(*readAuthors, authors);
+        const auto appended = wait<SongDatasetStore::Written>([&](auto done) {
+            return store.append(generation,
+                                {{"second", "Second", {}, {}, 1, 1, {{"id", "second"}}, {}}}, this,
+                                std::move(done));
+        });
+        QVERIFY2(appended.error.isEmpty(), qPrintable(appended.error));
+        QCOMPARE(appended.rows.size(), 1);
+        QVERIFY(appended.rows.first().record != snapshot.rows.first().record);
+        generation.reset();
+        authorSnapshot.reset();
+        close(database);
+#endif
+    }
     void externalSourcesHydrateOnlyCommandsAndHonorPartialReadProgress()
     {
         QTemporaryDir directory;

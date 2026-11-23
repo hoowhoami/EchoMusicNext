@@ -47,6 +47,15 @@ void ProfileService::attachRecordStore(JsonRecordStore &store)
 {
     for (auto &tab : m_social) {
         tab.model->attachStore(store);
+        const auto index = int(&tab - m_social.data());
+        connect(tab.model.get(), &SocialUserModel::cacheInvalidated, this, [this, index] {
+            m_socialReads.clear();
+            auto &state = m_social[size_t(index)];
+            const bool needed = state.loaded || state.request || state.model->count();
+            state.loaded = false;
+            if (needed)
+                loadSocial(SocialTab(index), true);
+        });
         connect(tab.model.get(), &SocialUserModel::cacheFailed, this,
                 [this](const QString &error) { emit notice(error, true); });
     }

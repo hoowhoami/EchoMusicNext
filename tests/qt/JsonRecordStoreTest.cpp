@@ -1,4 +1,5 @@
 #include "JsonRecordStore.h"
+#include "SessionCacheLoss.h"
 #include <QSignalSpy>
 #include <QSemaphore>
 #include <QSqlQuery>
@@ -10,6 +11,48 @@ class JsonRecordStoreTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void totalLossInvalidatesSnapshotsAndCompletesAnInterruptedReadOnce()
+    {
+        QTemporaryDir directory;
+        SessionDatabase database(directory.filePath("session"));
+        JsonRecordStore store(database);
+        auto original = store.create({QJsonObject{{"id", "old"}}});
+        QTRY_VERIFY(store.persisted(original));
+        auto removed = std::make_shared<std::atomic_bool>(false);
+        QVERIFY(database.submit(
+            this,
+            [removed](QSqlDatabase &db, const QString &) {
+                const auto path = db.databaseName();
+                db.close();
+                const bool ok = QFile::remove(path);
+                removed->store(ok);
+                return ok;
+            },
+            [](bool) {}));
+        int deliveries = 0;
+        QString failure;
+        store.read({original, 0}, this, [&](QJsonArray rows, QString error) {
+            QVERIFY(rows.isEmpty());
+            failure = error;
+            ++deliveries;
+        });
+        QTRY_COMPARE(deliveries, 1);
+        QVERIFY(removed->load());
+        QVERIFY(!failure.isEmpty());
+        QVERIFY(!store.persisted(original));
+        auto replacement =
+            store.create({QJsonObject{{"id", "new"}, {"unknown", QJsonValue::Null}}});
+        QTRY_VERIFY(store.persisted(replacement));
+        bool read = false;
+        store.read({replacement, 0}, this, [&](QJsonArray rows, QString error) {
+            QVERIFY(error.isEmpty());
+            QCOMPARE(rows.first().toObject().value("id").toString(), QString("new"));
+            QVERIFY(rows.first().toObject().value("unknown").isNull());
+            read = true;
+        });
+        QTRY_VERIFY(read);
+        QCOMPARE(deliveries, 1);
+    }
     void capacityWaitResumesAndConsumerDestructionCancelsRead()
     {
         QTemporaryDir dir;

@@ -312,6 +312,17 @@ HistoryService::HistoryService(ApiClient &api, PlaybackService &playback,
     if (auto *database = metadata.sessionDatabase()) {
         m_cache = std::make_unique<SongSourceCache>(*database, this);
         m_songs.enableSessionStorage(*database);
+        connect(&m_songs, &SongCatalogModel::cacheInvalidated, this, [this] {
+            if (m_closed)
+                return;
+            cancelMetadata();
+            m_loading = false;
+            refresh();
+        });
+        connect(this, &HistoryService::changed, this, [this] {
+            if (!m_loading || !m_error.isEmpty())
+                m_songs.finishCacheRecovery();
+        });
         connect(&m_songs, &SongCatalogModel::storageFailed, this, &HistoryService::fail);
         connect(&m_songs, &SongCatalogModel::presentationsApplied, this,
                 &HistoryService::refreshStatsPresentations);
@@ -325,7 +336,10 @@ HistoryService::HistoryService(ApiClient &api, PlaybackService &playback,
     connect(&metadata, &SongMetadataService::completed, this, &HistoryService::acceptMetadata);
     connect(&playback, &PlaybackService::trackFactsApplied, this,
             &HistoryService::applyPlaybackFacts);
-    connect(&api, &ApiClient::sessionChanged, this, &HistoryService::cancelMetadata);
+    connect(&api, &ApiClient::sessionChanged, this, [this] {
+        m_songs.finishCacheRecovery();
+        cancelMetadata();
+    });
     connect(&api, &ApiClient::closed, this, &HistoryService::shutdown);
     connect(&router, &RouteController::pageActivated, this, [this](RouteContext *context) {
         if (m_closed)

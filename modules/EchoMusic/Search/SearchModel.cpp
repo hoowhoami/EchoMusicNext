@@ -700,6 +700,11 @@ void SearchModel::failed(quint64 id, int, const QByteArray &payload)
             continue;
         bucket.request = 0;
         bucket.state = State::Error;
+        if (m_songStorage) {
+            auto *model = m_songStorage->buckets[size_t(&bucket - m_buckets.data())].model;
+            if (model)
+                model->finishCacheRecovery();
+        }
         bucket.error = ApiClient::errorMessage(payload, bucket.loaded ? tr("加载更多失败，请重试")
                                                                       : tr("搜索请求失败，请重试"));
         if (&bucket == &active())

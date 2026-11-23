@@ -1,6 +1,7 @@
 #include "LibraryCollectionService.h"
 #include "ProfileService.h"
 #include "JsonRecordStore.h"
+#include "SessionCacheLoss.h"
 #include <QTemporaryDir>
 #include <QJsonDocument>
 #include <QScopeGuard>
@@ -175,6 +176,37 @@ class CollectionSocialTest : public QObject
     Q_OBJECT
     QTcpServer sink;
 private slots:
+    void lostSocialCacheRefetchesLoadedSnapshotWithoutRelationshipWrites()
+    {
+        QTemporaryDir directory;
+        SessionDatabase database(directory.filePath("records"));
+        JsonRecordStore records(database);
+        QSignalSpy stored(&records, &JsonRecordStore::stored);
+        QTcpServer transport;
+        QVERIFY(transport.listen(QHostAddress::LocalHost));
+        ApiClient api;
+        QVERIFY(api.setNetworkTransport(transport.serverPort()));
+        AccountService account(api);
+        ProfileService profile(api, account);
+        profile.attachRecordStore(records);
+        QVERIFY(AccountServiceTestAccess::adopt(account));
+        const QJsonObject user{{"key", "user:77"},
+                               {"user_id", 77},
+                               {"nickname", "Friend"},
+                               {"following", true},
+                               {"unknown", QJsonValue::Null}};
+        ProfileServiceTestAccess::seed(profile, 1, {user});
+        QTRY_COMPARE(stored.size(), 1);
+        QSignalSpy notices(&profile, &ProfileService::notice);
+        QVERIFY(loseSessionCache(database));
+        QVERIFY(ProfileServiceTestAccess::followRead(profile));
+        QVERIFY(!ProfileServiceTestAccess::write(profile));
+        ProfileServiceTestAccess::seed(profile, 1, {user});
+        QTRY_COMPARE(stored.size(), 2);
+        QCOMPARE(notices.size(), 0);
+        QVERIFY(profile.artistFollowsLoaded());
+        profile.shutdown();
+    }
     void socialColdRowsKeepOnlyRelationshipIndexAndIgnoreStaleHydration()
     {
         QTemporaryDir dir;

@@ -13,11 +13,12 @@ struct JsonRecordStore::State
     QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
     QPointer<SessionDatabase> database;
     QJsonArray staging;
+    quint64 epoch = 0;
     int size = 0, written = 0;
     bool failed = false, complete = false, touched = false;
     ~State()
     {
-        if (database && touched) {
+        if (database && touched && epoch == database->epoch()) {
             Q_ASSERT(QThread::currentThread() == database->thread());
             database->discard([id = id](QSqlDatabase &db) {
                 QSqlQuery q(db);
@@ -32,12 +33,18 @@ struct JsonRecordStore::State
 JsonRecordStore::JsonRecordStore(SessionDatabase &db, QObject *parent)
     : QObject(parent), m_database(db)
 {
+    connect(&db, &SessionDatabase::aboutToInvalidate, this, [this] {
+        m_writing = false;
+        m_pending.clear();
+    });
+    connect(&db, &SessionDatabase::invalidated, this, &JsonRecordStore::invalidated);
     connect(&db, &SessionDatabase::capacityAvailable, this, &JsonRecordStore::flush);
 }
 JsonRecordStore::Snapshot JsonRecordStore::create(QJsonArray rows)
 {
     auto s = std::make_shared<State>();
     s->database = &m_database;
+    s->epoch = m_database.epoch();
     s->size = int(rows.size());
     s->staging = std::move(rows);
     if (!s->size)
@@ -54,7 +61,7 @@ int JsonRecordStore::count(const Snapshot &s) const
 }
 bool JsonRecordStore::persisted(const Snapshot &s) const
 {
-    return s && s->complete;
+    return s && s->epoch == m_database.epoch() && s->complete;
 }
 void JsonRecordStore::flush()
 {
@@ -185,7 +192,7 @@ void JsonRecordStore::readRange(Snapshot s, int start, int limit, QObject *consu
 {
     if (!consumer)
         return;
-    if (!s || start < 0 || start > s->size || limit < 0) {
+    if (!s || s->epoch != m_database.epoch() || start < 0 || start > s->size || limit < 0) {
         done({}, tr("缓存记录不存在"));
         return;
     }
@@ -242,11 +249,22 @@ void JsonRecordStore::readRange(Snapshot s, int start, int limit, QObject *consu
             result.second = tr("缓存记录不完整");
         return result;
     };
-    // A capacity wait owns no SQL work and is cancelled with its consumer.
-    auto finish = [s, done](QPair<QJsonArray, QString> result) mutable {
+    auto *reader = new QObject(this);
+    connect(consumer, &QObject::destroyed, reader, &QObject::deleteLater);
+    auto callback = std::make_shared<Completion>(done);
+    const QPointer<QObject> lifetime(reader), guard(consumer);
+    const auto finish = [s, callback, lifetime, guard](QPair<QJsonArray, QString> result) {
+        if (!lifetime || !guard || !*callback)
+            return;
+        auto done = std::exchange(*callback, {});
+        lifetime->deleteLater();
         done(std::move(result.first), std::move(result.second));
     };
-    if (!m_database.submit(consumer, std::move(work), std::move(finish))) {
+    connect(&m_database, &SessionDatabase::invalidated, reader,
+            [finish]() mutable { finish({{}, tr("本地数据正在恢复，请重试")}); });
+    // A capacity wait owns no SQL work and is cancelled with its consumer.
+    if (!m_database.submit(reader, std::move(work), finish)) {
+        delete reader;
         auto connection = std::make_shared<QMetaObject::Connection>();
         QPointer<QObject> guard(consumer);
         QPointer<JsonRecordStore> owner(this);

@@ -86,6 +86,43 @@ void PluginManager::attachRecordStore(JsonRecordStore &store)
     if (m_recordStore)
         return;
     m_recordStore = &store;
+    connect(&store, &JsonRecordStore::invalidated, this, [this] {
+        ++m_saveRevision;
+        m_manifests.clear();
+        // The existing on-disk marketplace snapshot is another disposable
+        // source. Reattach exact publications before falling back to the network.
+        QFile cache(PluginPaths(m_runtime.directory()).cache() + "/marketplace/catalog.json");
+        QHash<QString, QVariantMap> records;
+        if (cache.open(QIODevice::ReadOnly) && cache.size() <= 8 * 1024 * 1024) {
+            const auto doc = QJsonDocument::fromJson(cache.readAll()).object();
+            if (doc.value("schemaVersion").toInt() == 2)
+                for (const auto &value : doc.value("plugins").toArray()) {
+                    const auto record = value.toObject().toVariantMap();
+                    records.insert(record.value("key").toString(), record);
+                }
+        }
+        m_manifestRecovery = false;
+        for (auto &value : m_entries) {
+            auto row = value.toMap();
+            const auto record = records.value(row.value("key").toString());
+            if (!record.isEmpty() && record.value("version") == row.value("version") &&
+                record.value("sha256") == row.value("sha256") && record.contains("manifest")) {
+                row.insert("manifest", record.value("manifest"));
+                value = row;
+            } else
+                m_manifestRecovery = true;
+        }
+        cacheManifests();
+        emit changed();
+    });
+    connect(this, &PluginManager::changed, this, [this] {
+        if (!m_manifestRecovery || m_closing || m_catalogLoading || m_busy || m_batch ||
+            m_localBatch)
+            return;
+        m_manifestRecovery = false;
+        m_loaded = m_catalogComplete = false;
+        refreshCatalog(true);
+    });
     cacheManifests();
     rebuild();
 }
@@ -163,11 +200,18 @@ void PluginManager::readManifest(const QString &key, std::function<void(QVariant
         done({}, tr("插件发布清单不可用，请刷新后重试"));
         return;
     }
-    m_recordStore->read(ref, this, [done = std::move(done)](QJsonArray rows, QString error) {
-        done(rows.isEmpty() ? QVariantMap{}
-                            : rows.first().toObject().value("manifest").toObject().toVariantMap(),
-             error);
-    });
+    m_recordStore->read(
+        ref, this, [this, key, ref, done = std::move(done)](QJsonArray rows, QString error) {
+            const auto replacement = m_manifests.value(key);
+            if (!error.isEmpty() && replacement.snapshot && replacement.snapshot != ref.snapshot) {
+                readManifest(key, std::move(done));
+                return;
+            }
+            done(rows.isEmpty()
+                     ? QVariantMap{}
+                     : rows.first().toObject().value("manifest").toObject().toVariantMap(),
+                 error);
+        });
 }
 PluginManager::~PluginManager()
 {

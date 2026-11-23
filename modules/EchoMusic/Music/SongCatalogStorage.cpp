@@ -20,6 +20,22 @@ void SongCatalogModel::enableSessionStorage(SessionDatabase &database)
     m_sessionDatabase = &database;
     m_store = std::make_unique<SongDatasetStore>(database);
     resetStorage();
+    connect(&database, &SessionDatabase::aboutToInvalidate, this, [this] {
+        if (m_cards)
+            return;
+        m_cacheRecovering = !m_entries.isEmpty() || !m_query.isEmpty() || m_sortField;
+        m_recoverySelection = m_selected;
+        emit cacheRecoveryChanged(); // Freeze the viewport before any row notification.
+        resetStorage();
+        m_cacheStale = true;
+        if (m_metadata)
+            m_metadata->unwatch(this);
+        m_metadataObservedCount = 0;
+    });
+    connect(&database, &SessionDatabase::invalidated, this, [this] {
+        if (!m_cards)
+            emit cacheInvalidated();
+    });
     connect(&database, &SessionDatabase::capacityAvailable, this, [this] {
         flushPresentations();
         flushStorage();
@@ -67,12 +83,17 @@ void SongCatalogModel::replaceCachedRows(const QList<SongDatasetStore::CachedRow
         }
         entries.append(std::move(entry));
     }
+    const auto previousSelection = m_selected;
+    if (m_cacheRecovering)
+        for (const auto &entry : entries)
+            if (m_recoverySelection.contains(entry.id))
+                m_selected.insert(entry.id);
     bool prefix = m_sharedSource && entries.size() >= m_entries.size();
     for (int i = 0; prefix && i < m_entries.size(); ++i)
         prefix = entries[i].id == m_entries[i].id && entries[i].record == m_entries[i].record &&
                  entries[i].source == m_entries[i].source;
     if (prefix) {
-        const auto oldSelection = m_selected;
+        const auto oldSelection = previousSelection;
         if (!preserveSelection)
             m_selected.clear();
         const int first = m_entries.size();
@@ -154,8 +175,17 @@ void SongCatalogModel::resetStorage(bool preserveCommands)
     m_queryNeeded = m_querying = false;
     m_generation = m_store ? m_store->create() : SongDatasetStore::Generation{};
 }
+void SongCatalogModel::finishCacheRecovery()
+{
+    if (!m_cacheRecovering)
+        return;
+    m_cacheRecovering = false;
+    m_recoverySelection.clear();
+    emit cacheRecoveryChanged();
+}
 void SongCatalogModel::failStorage(const QString &message)
 {
+    finishCacheRecovery();
     m_storageFailed = m_presentationFailed = true;
     m_loadingViews = m_metadataLoading = m_metadataWatching = false;
     ++m_viewRevision;
@@ -204,7 +234,7 @@ void SongCatalogModel::queuePresentations(const QSet<int> &sources)
 }
 void SongCatalogModel::flushPresentations()
 {
-    if (!m_store || m_cards || m_presentationWriting || m_presentationFailed ||
+    if (m_cacheStale || !m_store || m_cards || m_presentationWriting || m_presentationFailed ||
         m_dirtyPresentations.isEmpty())
         return;
     const auto epoch = m_storageEpoch;
@@ -250,7 +280,7 @@ void SongCatalogModel::flushPresentations()
 }
 void SongCatalogModel::flushStorage()
 {
-    if (!m_store || m_cards || m_sharedSource || m_writing || m_storageFailed ||
+    if (m_cacheStale || !m_store || m_cards || m_sharedSource || m_writing || m_storageFailed ||
         m_writeCursor >= m_entries.size())
         return;
     const auto epoch = m_storageEpoch;
@@ -344,9 +374,9 @@ void SongCatalogModel::requestRows(const QStringList &ids, QObject *consumer,
 }
 void SongCatalogModel::flushQuery()
 {
-    if (!m_store || !m_queryNeeded || m_querying || m_storageFailed || m_presentationFailed ||
-        m_writing || m_writeCursor < m_entries.size() || m_presentationWriting ||
-        !m_dirtyPresentations.isEmpty())
+    if (m_cacheStale || !m_store || !m_queryNeeded || m_querying || m_storageFailed ||
+        m_presentationFailed || m_writing || m_writeCursor < m_entries.size() ||
+        m_presentationWriting || !m_dirtyPresentations.isEmpty())
         return;
     if (m_metadataLoading || !m_pendingMetadata.isEmpty())
         return;
@@ -410,6 +440,9 @@ void SongCatalogModel::requestQueryTracks(QObject *consumer,
     state->done = std::move(done);
     auto *request = new QObject(this);
     connect(consumer, &QObject::destroyed, request, &QObject::deleteLater);
+    if (m_sessionDatabase)
+        connect(m_sessionDatabase, &SessionDatabase::aboutToInvalidate, request,
+                &QObject::deleteLater);
     const QPointer<QObject> lifetime(request), guard(consumer);
     const auto epoch = m_commandEpoch;
     auto step = std::make_shared<std::function<void()>>();
@@ -499,6 +532,9 @@ void SongCatalogModel::readEntries(QList<Entry> rows, QObject *consumer,
     state->done = std::move(done);
     auto *request = new QObject(this);
     connect(consumer, &QObject::destroyed, request, &QObject::deleteLater);
+    if (m_sessionDatabase)
+        connect(m_sessionDatabase, &SessionDatabase::aboutToInvalidate, request,
+                &QObject::deleteLater);
     const QPointer<QObject> guard(consumer), lifetime(request);
     const auto epoch = m_commandEpoch;
     auto step = std::make_shared<std::function<void()>>();

@@ -17,7 +17,7 @@ struct SearchSongStorage
         QList<QJsonObject> presentations;
         QPointer<QObject> write;
         quint64 total = 0;
-        quint32 page = 0;
+        quint32 page = 0, recoveryPage = 0;
         qsizetype received = 0;
     };
     struct Menu

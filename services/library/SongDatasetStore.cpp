@@ -16,13 +16,14 @@ struct SongDatasetStore::Lease
 {
     QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
     QPointer<SessionDatabase> database;
+    quint64 epoch = 0;
     bool written = false;
     Loader loader;
     ~Lease()
     {
         // Every worker result carries this lease to its GUI completion, so its
         // last release and cleanup admission happen on the database owner thread.
-        if (database && written) {
+        if (database && written && epoch == database->epoch()) {
             Q_ASSERT(QThread::currentThread() == database->thread());
             database->discard([generation = id](QSqlDatabase &db) {
                 QSqlQuery query(db);
@@ -122,6 +123,7 @@ SongDatasetStore::Generation SongDatasetStore::create(Loader loader)
 {
     auto result = std::make_shared<Lease>();
     result->database = &m_database;
+    result->epoch = m_database.epoch();
     result->loader = std::move(loader);
     return result;
 }
@@ -137,12 +139,12 @@ bool SongDatasetStore::append(Generation generation, QList<Row> rows, QObject *c
         cost += jsonValueCost(row.song) + jsonValueCost(row.presentation);
     return m_database.submit(
         consumer,
-        [generation = std::move(generation), rows = std::move(rows)](QSqlDatabase &db,
-                                                                     const QString &error) {
+        [epoch = m_database.epoch(), generation = std::move(generation),
+         rows = std::move(rows)](QSqlDatabase &db, const QString &error) {
             Written result{generation, {}, error};
             if (!result.error.isEmpty())
                 return result;
-            if (!generation) {
+            if (!generation || generation->epoch != epoch) {
                 result.error = QObject::tr("歌曲缓存已失效");
                 return result;
             }
@@ -288,7 +290,7 @@ bool SongDatasetStore::readValues(Snapshot snapshot, qsizetype cursor, QObject *
     };
     return m_database.submit(
         consumer,
-        [snapshot = std::move(snapshot), cursor, presentationOnly,
+        [epoch = m_database.epoch(), snapshot = std::move(snapshot), cursor, presentationOnly,
          includePresentations](QSqlDatabase &db, const QString &error) {
             Read result{snapshot.generation, {}, cursor, error};
             result.leases = sourceLeases(snapshot);
@@ -315,7 +317,7 @@ bool SongDatasetStore::readValues(Snapshot snapshot, qsizetype cursor, QObject *
             while (result.next < snapshot.rows.size() && result.values.size() < 128) {
                 const auto &row = snapshot.rows[result.next];
                 const auto generation = row.source ? row.source : snapshot.generation;
-                if (!generation) {
+                if (!generation || generation->epoch != epoch) {
                     result.error = QObject::tr("歌曲缓存已失效");
                     break;
                 }
@@ -371,12 +373,12 @@ bool SongDatasetStore::updatePresentations(Generation generation, QList<Presenta
                 quint64(value.title.size() + value.artist.size() + value.album.size()) * 2;
     return m_database.submit(
         consumer,
-        [generation = std::move(generation), values = std::move(values)](QSqlDatabase &db,
-                                                                         const QString &error) {
+        [epoch = m_database.epoch(), generation = std::move(generation),
+         values = std::move(values)](QSqlDatabase &db, const QString &error) {
             Updated result{generation, error};
             if (!result.error.isEmpty())
                 return result;
-            if (!generation) {
+            if (!generation || generation->epoch != epoch) {
                 result.error = QObject::tr("歌曲缓存已失效");
                 return result;
             }
@@ -424,8 +426,8 @@ bool SongDatasetStore::query(Generation generation, QString text, int field, int
 {
     return m_database.submit(
         consumer,
-        [generation = std::move(generation), text = std::move(text), field, direction, lastOrdinal,
-         style](QSqlDatabase &db, const QString &error) {
+        [epoch = m_database.epoch(), generation = std::move(generation), text = std::move(text),
+         field, direction, lastOrdinal, style](QSqlDatabase &db, const QString &error) {
             View result{generation, {}, error};
             if (!result.error.isEmpty())
                 return result;
@@ -436,7 +438,7 @@ bool SongDatasetStore::query(Generation generation, QString text, int field, int
                 result.error = QObject::tr("歌曲缓存排序参数无效");
                 return result;
             }
-            if (!generation) {
+            if (!generation || generation->epoch != epoch) {
                 result.error = QObject::tr("歌曲缓存已失效");
                 return result;
             }
@@ -489,8 +491,8 @@ bool SongDatasetStore::query(Snapshot snapshot, QString text, int field, int dir
     const auto cost = quint64(snapshot.rows.size()) * 128;
     return m_database.submit(
         consumer,
-        [snapshot = std::move(snapshot), text = std::move(text), field, direction,
-         style](QSqlDatabase &db, const QString &error) {
+        [epoch = m_database.epoch(), snapshot = std::move(snapshot), text = std::move(text), field,
+         direction, style](QSqlDatabase &db, const QString &error) {
             View result{snapshot.generation, {}, error};
             result.leases = sourceLeases(snapshot);
             if (!result.error.isEmpty())
@@ -511,7 +513,7 @@ bool SongDatasetStore::query(Snapshot snapshot, QString text, int field, int dir
                 style == QueryStyle::Catalog ? text.trimmed() : text.trimmed().toLower();
             for (const auto &reference : snapshot.rows) {
                 const auto generation = reference.source ? reference.source : snapshot.generation;
-                if (!generation) {
+                if (!generation || generation->epoch != epoch) {
                     result.error = QObject::tr("歌曲缓存已失效");
                     break;
                 }

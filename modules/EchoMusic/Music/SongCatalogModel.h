@@ -31,6 +31,7 @@ class SongCatalogModel final : public QAbstractListModel
     Q_PROPERTY(int sortDirection READ sortDirection NOTIFY changed)
     Q_PROPERTY(int selectedCount READ selectedCount NOTIFY selectionChanged)
     Q_PROPERTY(bool querying READ querying NOTIFY changed)
+    Q_PROPERTY(bool cacheRecovering READ cacheRecovering NOTIFY cacheRecoveryChanged)
 public:
     enum Role
     {
@@ -102,6 +103,12 @@ public:
     /// Explicit local retry keeps accepted rows/selection and never replays a
     /// network write. False means this model has no failed cache work.
     bool retryStorage();
+    bool cacheRecovering() const
+    {
+        return m_cacheRecovering;
+    }
+    /// A producer ends recovery at its original EOF or explicit read failure.
+    void finishCacheRecovery();
     /// Selected catalog row IDs. Batch actions (e.g. cloud deletion) pass
     /// these to page commands; selection stays owned by the model.
     Q_INVOKABLE QStringList selectedIds() const;
@@ -159,6 +166,8 @@ public:
     Q_INVOKABLE void clearSelection();
     bool hasPlayableTracks() const;
 signals:
+    void cacheRecoveryChanged();
+    void cacheInvalidated();
     void changed();
     void selectionChanged();
     void presentationsApplied(const QStringList &rows);
@@ -168,6 +177,8 @@ signals:
     void presentationProgress();
 
 private:
+    bool m_cacheRecovering = false, m_cacheStale = false;
+    QSet<QString> m_recoverySelection;
     struct Presentation : QSharedData
     {
         // Dense sources retain the domain payload. A session-backed source

@@ -5,6 +5,14 @@
 #include <QScopedValueRollback>
 namespace EchoMusic
 {
+bool SearchModel::cacheRecovering() const
+{
+    if (!m_songStorage)
+        return false;
+    const auto &source = m_songStorage->buckets[size_t(m_kind)];
+    auto *model = source.model;
+    return model && (model->cacheRecovering() || (source.recoveryPage && model->querying()));
+}
 int SearchModel::count() const
 {
     if (auto *model = catalog())
@@ -68,11 +76,38 @@ void SearchModel::initializeSongStorage()
         source.model->attachMetadata(m_metadata);
         source.model->enableSessionStorage(*m_metadata->sessionDatabase());
         source.model->setMetadataActive(m_metadataNetwork && m_pageActive);
+        connect(source.model, &SongCatalogModel::cacheRecoveryChanged, this, &SearchModel::changed);
+        connect(source.model, &SongCatalogModel::changed, this, [this, kind] {
+            auto &source = m_songStorage->buckets[size_t(kind)];
+            if (source.recoveryPage && !source.model->cacheRecovering() &&
+                !source.model->querying()) {
+                source.recoveryPage = 0;
+                if (m_kind == kind)
+                    emit changed();
+            }
+        });
+        connect(source.model, &SongCatalogModel::cacheInvalidated, this, [this, kind] {
+            auto &source = m_songStorage->buckets[size_t(kind)];
+            auto &bucket = m_buckets[size_t(kind)];
+            source.recoveryPage = qMax(source.page, quint32(1));
+            if (bucket.request)
+                m_api.cancel(bucket.request);
+            delete source.write.data();
+            source.write = nullptr;
+            source.pending = {};
+            source.presentations.clear();
+            source.records.clear();
+            bucket = {};
+            source.model->replaceCachedRows({});
+            if (!m_closing && m_pageActive && m_kind == kind && !m_keyword.isEmpty())
+                requestPage(1);
+        });
         connect(source.model, &SongCatalogModel::readFailed, this,
                 [this, kind](const QString &error) {
                     auto &bucket = m_buckets[size_t(kind)];
                     bucket.error = error;
                     bucket.state = State::Error;
+                    m_songStorage->buckets[size_t(kind)].model->finishCacheRecovery();
                     if (m_kind == kind)
                         emit changed();
                 });
@@ -175,6 +210,15 @@ void SearchModel::flushSongPage(Kind kind)
                 endResetModel();
             if (visible)
                 emit changed();
+            if (source.recoveryPage) {
+                if (source.page >= source.recoveryPage || !bucket.nextPage ||
+                    quint64(source.records.size()) >= bucket.total) {
+                    source.model->finishCacheRecovery();
+                    if (!source.model->querying())
+                        source.recoveryPage = 0;
+                } else if (visible && m_pageActive)
+                    requestPage(bucket.nextPage);
+            }
         },
         {}, source.presentations);
 }
@@ -213,8 +257,10 @@ void SearchModel::clearSongStorage()
         source.records.clear();
         source.pending = {};
         source.presentations.clear();
-        if (source.model)
+        if (source.model) {
+            source.model->finishCacheRecovery();
             source.model->clear();
+        }
     }
 }
 void SearchModel::requestRow(const QString &id, std::function<void(PlaybackTrack)> done)

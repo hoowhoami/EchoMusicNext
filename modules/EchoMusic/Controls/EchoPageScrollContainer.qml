@@ -69,6 +69,21 @@ EchoWheelForwarder {
     property bool pageActive: true
     // Asynchronous table extents opt out of clamping until their first measured
     // body is available. Extent readiness resumes the existing owned restore.
+    // A data source may regenerate its disposable records while the route
+    // stays mounted. Keep the last value/row anchor through transient extents.
+    property bool dataRecovering: false
+    onDataRecoveringChanged: {
+        if (dataRecovering) {
+            state.pendingAnchor = null;
+            capturedAnchor = ({});
+            captureAnchorRequested();
+            state.pendingAnchor = capturedAnchor;
+            state.recovering = true;
+            state.restoringView = true;
+        } else {
+            scheduleRestore();
+        }
+    }
     property bool extentReady: true
     onExtentReadyChanged: if (extentReady)
         scheduleRestore()
@@ -134,7 +149,7 @@ EchoWheelForwarder {
         return Math.max(firstY(view), view.originY + view.contentHeight - view.height + view.bottomMargin);
     }
     function capturePosition() {
-        if (!state.completed || (state.presentation && !state.presentation.loaded) || state.recovering || !pageActive || !extentReady || state.adjusting || state.restoringView || !scrollView || state.boundView !== scrollView)
+        if (!state.completed || (state.presentation && !state.presentation.loaded) || state.recovering || !pageActive || dataRecovering || !extentReady || state.adjusting || state.restoringView || !scrollView || state.boundView !== scrollView)
             return;
         // Signal handlers can run before the derived scrollTop binding updates.
         // Read the source properties to avoid caching the preceding frame.
@@ -152,7 +167,7 @@ EchoWheelForwarder {
         scrolled();
     }
     function restorePosition() {
-        if (!state.completed || (state.presentation && !state.presentation.loaded) || !pageActive || !extentReady || !scrollView || state.adjusting)
+        if (!state.completed || (state.presentation && !state.presentation.loaded) || !pageActive || dataRecovering || !extentReady || !scrollView || state.adjusting)
             return;
         // Extent changes (e.g. a responsive sidebar animation) can schedule a
         // restore during user movement. Qt owns that movement and its bounds;

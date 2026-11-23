@@ -11,6 +11,22 @@ PurchasedService::PurchasedService(ApiClient &api, PlaybackService &playback,
       m_actions(m_songs, playback, this), m_network(network)
 {
     m_songs.enableSessionStorage();
+    connect(&m_songs, &SongCatalogModel::cacheInvalidated, this, [this] {
+        if (m_closed)
+            return;
+        cancelAll();
+        m_songPage = 0;
+        m_songReceived = m_songTotal = 0;
+        m_songExhausted = false;
+        m_songError.clear();
+        m_songs.replaceSongs({});
+        if (m_active)
+            loadTab();
+    });
+    connect(this, &PurchasedService::changed, this, [this] {
+        if (m_songExhausted || !m_songError.isEmpty())
+            m_songs.finishCacheRecovery();
+    });
     connect(&m_songs, &SongCatalogModel::storageReadyChanged, this,
             &PurchasedService::continueSongs);
     connect(&m_songs, &SongCatalogModel::storageFailed, this, [this](const QString &message) {
@@ -175,6 +191,7 @@ void PurchasedService::cancelAll()
 }
 void PurchasedService::reset()
 {
+    m_songs.finishCacheRecovery();
     cancelAll();
     m_songPage = m_albumPage = 0;
     m_songReceived = m_albumReceived = 0;

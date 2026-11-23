@@ -134,6 +134,8 @@ public:
     {
         return active().total;
     }
+    Q_PROPERTY(bool cacheRecovering READ cacheRecovering NOTIFY changed)
+    bool cacheRecovering() const;
     int count() const;
     SongCatalogModel *catalog() const;
     static int catalogRole(int);

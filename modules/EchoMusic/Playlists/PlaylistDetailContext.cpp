@@ -62,12 +62,25 @@ PlaylistDetailContext::PlaylistDetailContext(ApiClient &api, PlaybackService &pl
     }
     // QML borrows this application-owned object, including explicit invokable
     // returns. GC and engine teardown must never delete a C++ member/context.
+    connect(&m_songs, &SongCatalogModel::cacheInvalidated, this, [this] {
+        if (m_closed)
+            return;
+        m_complete = false;
+        reload();
+    });
+    connect(this, &PlaylistDetailContext::changed, this, [this] {
+        if (m_complete || !m_error.isEmpty())
+            m_songs.finishCacheRecovery();
+    });
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
 
     connect(&api, &ApiClient::succeeded, this, &PlaylistDetailContext::accept);
     connect(&api, &ApiClient::failed, this,
             [this](quint64 id, int, const QByteArray &bytes) { fail(id, bytes); });
-    connect(&api, &ApiClient::sessionChanged, this, &PlaylistDetailContext::reload);
+    connect(&api, &ApiClient::sessionChanged, this, [this] {
+        m_songs.finishCacheRecovery();
+        reload();
+    });
     connect(&api, &ApiClient::closed, this, &PlaylistDetailContext::shutdown);
     connect(&mutations, &PlaylistMutationService::changed, this, [this] {
         if (m_removeSession && m_removeSession != m_api.sessionRevision())

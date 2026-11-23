@@ -219,6 +219,8 @@ void CloudService::syncShared()
                               row.value("catalog_id").toVariant().toULongLong()});
     }
     m_songs.replaceCachedRows(source->cachedRows(), true);
+    if (m_exhausted || !m_error.isEmpty())
+        m_songs.finishCacheRecovery();
     QSet<QString> replayed;
     for (const auto &row : source->rows()) {
         const auto hash = row.value("song").toObject().value("hash").toString();
@@ -598,6 +600,7 @@ void CloudService::cancelAll()
 }
 void CloudService::reset()
 {
+    m_songs.finishCacheRecovery();
     if (!m_shared && !m_listRequest && !m_deleteRequest && m_items.isEmpty() && m_page == 0)
         return;
     cancelAll();

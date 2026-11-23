@@ -64,5 +64,6 @@ private:
 signals:
     void changed();
     void cacheFailed(const QString &);
+    void cacheInvalidated();
 };
 } // namespace EchoMusic

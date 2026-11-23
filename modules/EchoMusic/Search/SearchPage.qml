@@ -10,6 +10,7 @@ EchoPageScrollContainer {
     id: page
     objectName: "searchPage"
     required property SearchModel service
+    dataRecovering: service.cacheRecovering
     property real viewportWidth: width
     // Shell zoom factor for the context menu; the route page forwards it.
     property real uiScale: 1
@@ -66,7 +67,7 @@ EchoPageScrollContainer {
         interval: 0
         property bool settling: false
         onTriggered: {
-            if (!page.pageActive || !page.showResults)
+            if (!page.pageActive || !page.showResults || page.dataRecovering)
                 return;
             // EchoViewPoolGuard reattaches changed models on an owned zero
             // timer. Let that queued projection retire before restoring once.
@@ -99,11 +100,11 @@ EchoPageScrollContainer {
     Connections {
         target: page.service
         function onModelAboutToBeReset() {
-            if (page.pageActive && !modelRestoreTask.running)
+            if (page.pageActive && !page.dataRecovering && !modelRestoreTask.running)
                 page.modelResetOffset = page.scrollTop;
         }
         function onModelReset() {
-            if (page.pageActive) {
+            if (page.pageActive && !page.dataRecovering) {
                 modelRestoreTask.settling = true;
                 modelRestoreTask.restart();
             }

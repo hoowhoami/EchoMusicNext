@@ -34,6 +34,7 @@ void SongSourceCache::cache(QJsonArray songs, QObject *consumer, Completion done
     page->done = std::move(done);
     auto *request = new QObject(this);
     connect(consumer, &QObject::destroyed, request, &QObject::deleteLater);
+    connect(&m_database, &SessionDatabase::aboutToInvalidate, request, &QObject::deleteLater);
     const QPointer<QObject> lifetime(request), guard(consumer);
     auto step = std::make_shared<std::function<void()>>();
     std::weak_ptr<std::function<void()>> weak = step;

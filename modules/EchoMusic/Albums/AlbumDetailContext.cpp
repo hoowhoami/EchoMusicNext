@@ -24,12 +24,23 @@ AlbumDetailContext::AlbumDetailContext(ApiClient &api, PlaybackService &playback
         m_songError = message;
         emit changed();
     });
+    connect(&m_songs, &SongCatalogModel::cacheInvalidated, this, [this] {
+        if (m_closed)
+            return;
+        m_complete = false;
+        reload();
+    });
+    connect(this, &AlbumDetailContext::changed, this, [this] {
+        if (m_complete || !m_songError.isEmpty())
+            m_songs.finishCacheRecovery();
+    });
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
     m_actions.setQueueContext(tr("专辑"), "queue:album:" + route.resourceId());
     connect(&api, &ApiClient::succeeded, this, &AlbumDetailContext::accept);
     connect(&api, &ApiClient::failed, this,
             [this](quint64 id, int, const QByteArray &bytes) { fail(id, bytes); });
     connect(&api, &ApiClient::sessionChanged, this, [this] {
+        m_songs.finishCacheRecovery();
         cancel();
         m_detail = {};
         m_songs.clear();

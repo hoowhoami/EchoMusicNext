@@ -248,7 +248,7 @@ private:
     QSharedPointer<PluginArchiveDownload> m_archiveDownload;
     quint64 m_generation = 0;
     bool m_catalogLoading = false, m_busy = false, m_loaded = false, m_closing = false;
-    bool m_catalogComplete = true;
+    bool m_catalogComplete = true, m_manifestRecovery = false;
     bool m_updateFailed = false, m_statsLoading = false, m_installWasUpdate = false;
     QVariantMap m_stats, m_shareTarget, m_shareRecord;
     QString m_shareState, m_shareError, m_shareInstallError;

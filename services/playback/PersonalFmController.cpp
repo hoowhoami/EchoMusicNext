@@ -20,8 +20,12 @@ PersonalFmController::PersonalFmController(PlaybackService &playback, ApiClient 
                                            EchoMusic::SettingsStore &settings)
     : QObject(&playback), m_playback(playback), m_api(api), m_settings(settings)
 {
-    connect(&playback, &PlaybackService::metadataServiceChanged, this,
-            &PersonalFmController::watchMetadata);
+    connect(&playback, &PlaybackService::metadataServiceChanged, this, [this] {
+        if (auto *metadata = m_playback.metadata())
+            connect(metadata, &SongMetadataService::cacheCleared, this,
+                    &PersonalFmController::watchMetadata, Qt::UniqueConnection);
+        watchMetadata();
+    });
     m_mode = qBound(0, settings.value(EchoMusic::SettingsKeys::PersonalFm::Mode, 0).toInt(), 3);
     m_pool = qBound(0, settings.value(EchoMusic::SettingsKeys::PersonalFm::SongPool, 0).toInt(), 2);
     connect(&api, &ApiClient::succeeded, this, &PersonalFmController::succeeded);

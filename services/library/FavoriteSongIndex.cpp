@@ -50,6 +50,31 @@ void FavoriteSongIndex::enableSessionStorage(SessionDatabase &database)
     if (!m_cache) {
         Q_ASSERT(m_base.isEmpty());
         m_cache = std::make_unique<SongSourceCache>(database, this);
+        connect(&database, &SessionDatabase::invalidated, this, [this] {
+            if (m_closed || (!m_hasSnapshot && !m_reading))
+                return;
+            const auto request = std::exchange(m_request, 0);
+            if (request)
+                m_api.cancel(request);
+            ++m_generation;
+            m_records.clear();
+            // Keep the thin relationship rows with their position indices until
+            // replacement pages arrive. Their retired payload leases are never read.
+            m_readRows = {};
+            m_complete = m_hadComplete = m_hasSnapshot = m_reading = false;
+            // Keep confirmed relationship guards; stale payload references must
+            // not override freshly fetched rows with recycled SQLite keys.
+            for (auto &change : m_changes) {
+                QJsonArray adds;
+                for (const auto &value : change.adds) {
+                    auto row = value.toObject();
+                    row.remove("cache_record");
+                    adds.append(row);
+                }
+                change.adds = adds;
+            }
+            ensureLoaded(true);
+        });
     }
 }
 bool FavoriteSongIndex::cached() const
@@ -164,6 +189,8 @@ void FavoriteSongIndex::requestCover(QObject *consumer, std::function<void(QStri
     }
     auto *request = new QObject(this);
     connect(consumer, &QObject::destroyed, request, &QObject::deleteLater);
+    connect(&m_cache->database(), &SessionDatabase::aboutToInvalidate, request,
+            &QObject::deleteLater);
     const QPointer<QObject> guard(consumer), lifetime(request);
     auto step = std::make_shared<std::function<void()>>();
     std::weak_ptr<std::function<void()>> weak = step;

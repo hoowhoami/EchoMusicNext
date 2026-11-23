@@ -11,7 +11,10 @@ namespace EchoMusic
 {
 /// One disposable database/worker per application. Domain stores own schemas,
 /// query semantics and generations; this owner provides bounded work admission,
-/// typed GUI delivery and shutdown. No business credentials or durable facts.
+/// typed GUI delivery and shutdown. Missing on-disk files are copied from the
+/// still-readable connection before accepting more work, preserving domain keys.
+/// An unusable source starts a new epoch; owners regenerate disposable records.
+/// No business credentials or durable facts.
 class SessionDatabase final : public QObject
 {
     Q_OBJECT
@@ -26,7 +29,8 @@ public:
     ~SessionDatabase() override;
     /// work(db, initializationError) executes on the database thread; done(result)
     /// executes on this owner thread only while consumer is alive. A false return
-    /// leaves the input with its producer; resume on capacityAvailable.
+    /// leaves the input with its producer; resume on capacityAvailable. Epoch
+    /// retirement cancels admitted work/delivery; domain owners handle invalidated.
     template <typename Work, typename Done>
     bool submit(QObject *consumer, Work work, Done done, quint64 cost = 0)
     {
@@ -51,7 +55,15 @@ public:
     {
         return m_pendingJobs;
     }
+    quint64 epoch() const
+    {
+        return m_epoch;
+    }
 signals:
+    void aboutToInvalidate();
+    /// All previous cache leases and admitted jobs are retired before delivery.
+    /// Owners reload read-only sources; durable state and business writes are untouched.
+    void invalidated();
     void capacityAvailable();
     void closed();
 
@@ -65,6 +77,7 @@ private:
     QObject *m_worker;
     Limits m_limits;
     quint64 m_pendingBytes = 0;
+    quint64 m_epoch = 0;
     int m_pendingJobs = 0;
     QList<std::function<void(QSqlDatabase &)>> m_retired;
     bool m_closing = false;

@@ -29,6 +29,7 @@ public:
     void readAll(Snapshot, QObject *consumer, Completion);
     bool persisted(const Snapshot &) const;
 signals:
+    void invalidated();
     void cacheFailed(const QString &);
     void stored();
 

@@ -18,6 +18,24 @@ DiscoveryService::DiscoveryService(ApiClient &api, PlaybackService &playback,
 {
     for (auto *catalog : {&m_styleSongs, &m_dailySongs, &m_rankSongs, &m_freeListen})
         catalog->enableSessionStorage();
+    const QList<QPair<SongCatalogModel *, Part>> recoverable{{&m_styleSongs, Style},
+                                                             {&m_dailySongs, Daily},
+                                                             {&m_rankSongs, RankSongs},
+                                                             {&m_freeListen, FreeListen}};
+    for (const auto &[catalog, part] : recoverable) {
+        connect(catalog, &SongCatalogModel::cacheInvalidated, this, [this, catalog, part] {
+            if (m_closed)
+                return;
+            cancel(part);
+            m_states[part] = Idle;
+            catalog->replaceSongs({});
+            request(part);
+        });
+        connect(this, &DiscoveryService::changed, catalog, [this, catalog, part] {
+            if (m_states[part] == Ready || m_states[part] == Error)
+                catalog->finishCacheRecovery();
+        });
+    }
     // QML borrows this application-owned object, including explicit invokable
     // returns. GC and engine teardown must never delete a C++ member/context.
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
@@ -166,6 +184,8 @@ void DiscoveryService::shutdown()
 }
 void DiscoveryService::reset()
 {
+    for (auto *catalog : {&m_styleSongs, &m_dailySongs, &m_rankSongs, &m_freeListen})
+        catalog->finishCacheRecovery();
     if (m_closed)
         return;
     const auto instance = m_instances.value(m_activePage);

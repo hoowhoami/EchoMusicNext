@@ -33,6 +33,12 @@ QString failure(const QSqlQuery &query)
 SongObservationIndex::SongObservationIndex(SessionDatabase &db, QObject *parent)
     : QObject(parent), m_database(db), m_scope(QUuid::createUuid().toString(QUuid::WithoutBraces))
 {
+    connect(&db, &SessionDatabase::aboutToInvalidate, this, [this] {
+        m_queue.clear();
+        m_extensions.clear();
+        m_flush.stop();
+        m_busy = false;
+    });
     connect(&db, &SessionDatabase::capacityAvailable, this, &SongObservationIndex::drain);
     m_flush.setSingleShot(true);
     m_flush.setInterval(0);

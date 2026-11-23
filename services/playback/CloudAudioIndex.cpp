@@ -41,6 +41,12 @@ void CloudAudioIndex::enableSessionStorage(SessionDatabase &database)
     if (!m_cache) {
         Q_ASSERT(m_index.isEmpty());
         m_cache = std::make_unique<SongSourceCache>(database, this);
+        connect(&database, &SessionDatabase::invalidated, this, [this] {
+            const bool needed = m_ready || m_request || m_writing || !m_rows.isEmpty();
+            invalidate();
+            if (needed)
+                ensure();
+        });
     }
 }
 QList<SongDatasetStore::CachedRow> CloudAudioIndex::cachedRows() const
@@ -72,6 +78,8 @@ QJsonObject CloudAudioIndex::readSource(qint64 record) const
     const auto cached = m_records.value(record);
     const auto epoch = m_epoch;
     auto *request = new QObject(owner);
+    connect(&m_cache->database(), &SessionDatabase::aboutToInvalidate, request,
+            &QObject::deleteLater);
     auto step = std::make_shared<std::function<void()>>();
     std::weak_ptr<std::function<void()>> weak = step;
     m_reads.insert(record);

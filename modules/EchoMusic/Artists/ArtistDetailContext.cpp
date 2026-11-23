@@ -21,12 +21,23 @@ ArtistDetailContext::ArtistDetailContext(ApiClient &api, PlaybackService &playba
     });
     m_sort = settings.artistSongSort();
     m_albumSort = settings.artistAlbumSort();
+    connect(&m_songs, &SongCatalogModel::cacheInvalidated, this, [this] {
+        if (m_closed)
+            return;
+        m_complete = false;
+        reload();
+    });
+    connect(this, &ArtistDetailContext::changed, this, [this] {
+        if (m_complete || !m_songError.isEmpty())
+            m_songs.finishCacheRecovery();
+    });
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
     m_actions.setQueueContext(tr("歌手"), "queue:artist:" + route.resourceId());
     connect(&api, &ApiClient::succeeded, this, &ArtistDetailContext::accept);
     connect(&api, &ApiClient::failed, this,
             [this](quint64 id, int, const QByteArray &bytes) { fail(id, bytes); });
     connect(&api, &ApiClient::sessionChanged, this, [this] {
+        m_songs.finishCacheRecovery();
         cancel();
         cancelAlbumRequests();
         m_detail = {};

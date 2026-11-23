@@ -231,6 +231,7 @@ private slots:
     void managementFirstOpenAfterRestart();
     void statisticsUseSampledWireAndRejectInvalidNumbers();
     void marketplaceInstallsActualPackageAndRejectsTampering();
+    void lostManifestCacheReloadsExactPublicationFromDisk();
     void spectrumCapabilityAndOwnerLifetime();
     void spectrumTypedFrames();
     void builtAuthorPackageCommands();

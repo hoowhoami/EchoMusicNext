@@ -35,6 +35,8 @@ void ListenTogetherController::attachAccount(AccountService &account)
 void ListenTogetherController::attachMetadata(SongMetadataService &metadata)
 {
     m_metadata = &metadata;
+    connect(&metadata, &SongMetadataService::cacheCleared, this,
+            &ListenTogetherController::completeSongs, Qt::UniqueConnection);
     connect(&metadata, &SongMetadataService::completed, this,
             [this](quint64 ticket, const QJsonArray &values) {
                 if (!m_metadataRequests.contains(ticket))

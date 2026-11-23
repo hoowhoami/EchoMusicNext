@@ -1,4 +1,5 @@
 #include "PluginRuntimeTest.h"
+#include "../SessionCacheLoss.h"
 #include "PluginRuntimeTestFixture.h"
 
 void PluginRuntimeTest::marketplaceInstallsActualPackageAndRejectsTampering()
@@ -405,5 +406,46 @@ ApplicationWindow {
     QVERIFY(notice.last()[0].toString().contains("插件包内清单与作者发布清单不一致"));
     QCOMPARE(host.runtime.record(installation).value("version").toString(), "1.0.0");
     QCOMPARE(host.runtime.state(installation), PluginRuntime::Active);
+    manager.shutdown();
+}
+
+void PluginRuntimeTest::lostManifestCacheReloadsExactPublicationFromDisk()
+{
+    Host host;
+    QTemporaryDir directory;
+    SessionDatabase database(directory.filePath("records"));
+    JsonRecordStore store(database);
+    PluginManager manager(host.runtime, host.settings);
+    const QJsonObject manifest{{"id", "org.test.cache"},
+                               {"unknown", QJsonValue::Null},
+                               {"resources", QJsonArray{QString(16000, 'x')}}};
+    manager.m_entries = {QVariantMap{{"key", "cache-publication"},
+                                     {"id", "org.test.cache"},
+                                     {"name", "Cache"},
+                                     {"version", "1.0.0"},
+                                     {"sha256", QString(64, 'a')},
+                                     {"manifest", manifest.toVariantMap()}}};
+    manager.attachRecordStore(store);
+    QTRY_VERIFY(store.persisted(manager.m_manifests.value("cache-publication").snapshot));
+    manager.save();
+    const auto path = PluginPaths(host.runtime.directory()).cache() + "/marketplace/catalog.json";
+    QTRY_VERIFY(QFileInfo::exists(path));
+    manager.setSearch("Cache");
+    const auto search = manager.search();
+    QSignalSpy notices(&manager, &PluginManager::notice);
+    QSignalSpy resets(manager.catalog(), &QAbstractItemModel::modelReset);
+    QVERIFY(loseSessionCache(database));
+    QTRY_VERIFY(store.persisted(manager.m_manifests.value("cache-publication").snapshot));
+    bool read = false;
+    manager.readManifest("cache-publication", [&](QVariantMap value, QString error) {
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+        QCOMPARE(QJsonObject::fromVariantMap(value), manifest);
+        read = true;
+    });
+    QTRY_VERIFY(read);
+    QCOMPARE(manager.search(), search);
+    QCOMPARE(notices.size(), 0);
+    QCOMPARE(resets.size(), 0);
+    QVERIFY(!manager.catalogLoading());
     manager.shutdown();
 }

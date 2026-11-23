@@ -101,7 +101,7 @@ void SongCatalogModel::setMetadataActive(bool active)
 }
 void SongCatalogModel::watchMetadata()
 {
-    if (!m_metadata)
+    if (!m_metadata || m_cacheStale)
         return;
     if (m_metadataObservedCount && m_metadataObservedCount == m_entries.size())
         return;
@@ -515,6 +515,8 @@ void SongCatalogModel::appendSongs(const QJsonArray &songs)
         beginInsertRows({}, count(), count() + added.size() - 1);
     for (auto &entry : added) {
         const int source = m_entries.size();
+        if (m_cacheRecovering && m_recoverySelection.contains(entry.id))
+            m_selected.insert(entry.id);
         m_indices.insert(entry.id, source);
         m_domainIndices.insert(entry.domainId, source);
         m_entries.append(std::move(entry));
@@ -591,6 +593,11 @@ void SongCatalogModel::replaceCards(const QJsonArray &cards)
 void SongCatalogModel::replaceEntries(QList<Entry> entries, bool cards, bool preserveSelection,
                                       bool shared, bool preserveCommands)
 {
+    m_cacheStale = false;
+    if (m_cacheRecovering) {
+        preserveSelection = true;
+        m_selected.unite(m_recoverySelection);
+    }
     const auto oldSelection = m_selected;
     QHash<QString, int> incoming, existing;
     bool unique = true;
@@ -725,8 +732,10 @@ void SongCatalogModel::clear()
 {
     const bool controlsChanged = !m_query.isEmpty() || m_sortField || m_sortDirection;
     const bool empty = m_entries.isEmpty();
-    m_query.clear();
-    m_sortField = m_sortDirection = 0;
+    if (!m_cacheRecovering) {
+        m_query.clear();
+        m_sortField = m_sortDirection = 0;
+    }
     replaceSongs({});
     if (empty && controlsChanged)
         emit changed();

@@ -14,6 +14,23 @@ Item {
     required property SongCatalogModel collection
     required property SongCatalogActions actions
     required property EchoPageScrollContainer pageContainer
+    Binding {
+        target: root.pageContainer
+        property: "dataRecovering"
+        value: root.collection.cacheRecovering || (root.collection.querying && root.recoveryPending)
+    }
+    property bool recoveryPending: false
+    Connections {
+        target: root.collection
+        function onCacheRecoveryChanged(): void {
+            if (root.collection.cacheRecovering)
+                root.recoveryPending = true;
+        }
+        function onChanged(): void {
+            if (!root.collection.cacheRecovering && !root.collection.querying)
+                root.recoveryPending = false;
+        }
+    }
     property real contentInset: 24
     property real topMargin: 0
     property real bottomMargin: 48

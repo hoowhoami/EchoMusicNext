@@ -1,4 +1,5 @@
 #include "ApiClient.h"
+#include "SessionCacheLoss.h"
 #include "CatalogRead.h"
 #include "FavoriteSongIndex.h"
 #include "CloudService.h"
@@ -647,6 +648,123 @@ class LibraryPagesTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void totalLossRefetchesFavoritePagesPreservingFilterSortAndSelection()
+    {
+        QTemporaryDir directory;
+        SessionDatabase database(directory.filePath("session"));
+        {
+            SettingsStore preferences(directory.filePath("prefs.ini"));
+            ThemeStore theme(preferences);
+            theme.setMotionEnabled(false);
+            ApiClient api(DeviceIdentity::temporary());
+            QTcpServer transport;
+            QVERIFY(transport.listen(QHostAddress::LocalHost));
+            QVERIFY(api.setNetworkTransport(transport.serverPort()));
+            QVERIFY(api.setAccount(100, "offline-domain-fixture"));
+            UserPlaylistModel library(api);
+            UserPlaylistModelTestAccess::seed(library, api, "我喜欢", 1, 0, 7);
+            auto *source = library.favoriteSongs();
+            source->enableSessionStorage(database);
+            SongCatalogModel model;
+            model.enableSessionStorage(database);
+            QObject callbacks;
+            connect(source, &FavoriteSongIndex::snapshotChanged, &callbacks, [&] {
+                if (source->cached())
+                    model.replaceCachedRows(source->cachedRows(), true);
+                if (source->complete() || !source->errorMessage().isEmpty())
+                    model.finishCacheRecovery();
+            });
+            const auto row = [](int id) {
+                return QJsonObject{
+                    {"file_id", id + 100},
+                    {"sort_index", id},
+                    {"song", QJsonObject{{"id", QString::number(id)},
+                                         {"hash", QString::number(id).rightJustified(32, '0')},
+                                         {"title", QString("Keep %1").arg(id)}}},
+                    {"metadata", QJsonObject{{"opaque", QJsonValue::Null}}}};
+            };
+            QJsonArray all;
+            for (int i = 1; i <= 160; ++i)
+                all.append(row(i));
+            FavoriteSongIndexTestAccess::page(*source, all, all.size());
+            QTRY_COMPARE(model.totalCount(), all.size());
+            model.setQuery("Keep");
+            model.setSort(2, 2);
+            QTRY_VERIFY(!model.querying());
+            model.selectAll(true);
+            const auto selected = model.selectedIds();
+            PlaybackService playback(api, preferences, nullptr,
+                                     directory.filePath("playback.sqlite"));
+            SongCatalogActions actions(model, playback);
+            QQmlEngine engine;
+            theme.attachToEngine(engine);
+            QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+            QQmlComponent component(&engine);
+            component.setData(R"(
+import QtQuick
+import EchoMusic.Music
+Window {
+    required property SongCatalogModel songs
+    required property SongCatalogActions commands
+    visible: true; width: 900; height: 600
+    SongCatalogView {
+        objectName: "recoveryCatalog"; anchors.fill: parent
+        collection: songs; actions: commands
+        headerComponent: Component { Item { implicitHeight: 176 } }
+    }
+})",
+                              QUrl("qrc:/cache-recovery-window.qml"));
+            QScopedPointer<QObject> root(component.createWithInitialProperties(
+                {{"songs", QVariant::fromValue(&model)},
+                 {"commands", QVariant::fromValue(&actions)}}));
+            QVERIFY2(root, qPrintable(component.errorString()));
+            auto *window = qobject_cast<QQuickWindow *>(root.data());
+            QVERIFY(window);
+            QVERIFY(QTest::qWaitForWindowExposed(window));
+            auto *catalog = root->findChild<QObject *>("recoveryCatalog");
+            QVERIFY(catalog);
+            auto *viewport = catalog->property("pageContainer").value<QObject *>();
+            QVERIFY(viewport);
+            QVERIFY(QMetaObject::invokeMethod(viewport, "scrollTo", Q_ARG(double, 1800.0)));
+            QTRY_VERIFY(viewport->property("scrollTop").toDouble() > 1700);
+            const auto position = viewport->property("scrollTop").toDouble();
+            QSignalSpy failures(&model, &SongCatalogModel::readFailed);
+            QVERIFY(loseSessionCache(database));
+            QVERIFY(model.cacheRecovering());
+            QVERIFY(source->loading());
+            QCOMPARE(source->fileId({"1", {}, 1}), quint64(101));
+            QVERIFY(FavoriteSongIndexTestAccess::request(*source));
+            QCOMPARE(model.query(), QString("Keep"));
+            QCOMPARE(model.sortField(), 2);
+            FavoriteSongIndexTestAccess::page(*source, {row(1)}, all.size());
+            QTRY_COMPARE(source->received(), quint64(1));
+            QVERIFY(source->loading());
+            QVERIFY(model.cacheRecovering());
+            QJsonArray remaining;
+            for (int i = 1; i < all.size(); ++i)
+                remaining.append(all[i]);
+            FavoriteSongIndexTestAccess::page(*source, remaining, all.size());
+            QTRY_VERIFY(source->complete());
+            QTRY_VERIFY(!model.cacheRecovering() && !model.querying());
+            QCOMPARE(model.count(), all.size());
+            QCOMPARE(model.query(), QString("Keep"));
+            QCOMPARE(model.sortField(), 2);
+            QCOMPARE(model.sortDirection(), 2);
+            const auto restoredSelection = model.selectedIds();
+            QCOMPARE(QSet<QString>(restoredSelection.begin(), restoredSelection.end()),
+                     QSet<QString>(selected.begin(), selected.end()));
+            const auto tracks = readCatalogTracks(&model);
+            QCOMPARE(tracks.size(), all.size());
+            QVERIFY(tracks.first().catalogMetadata.value("opaque").isNull());
+            QCOMPARE(failures.size(), 0);
+            QTRY_VERIFY(qAbs(viewport->property("scrollTop").toDouble() - position) < 1.0);
+            QCOMPARE(warnings.size(), 0);
+            api.shutdown();
+        }
+        QSignalSpy closed(&database, &SessionDatabase::closed);
+        database.shutdown();
+        QTRY_COMPARE(closed.size(), 1);
+    }
     void favoriteSharedRecordsKeepJournalAndOpaqueDataWithoutPageCopies()
     {
         QTemporaryDir dir;

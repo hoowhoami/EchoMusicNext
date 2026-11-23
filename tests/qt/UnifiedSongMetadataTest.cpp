@@ -1,4 +1,7 @@
 #include "SongMetadataService.h"
+#include "SessionCacheLoss.h"
+#include "PersonalFmController.h"
+#include "ListenTogetherController.h"
 #include "SongObservationIndex.h"
 #include "SessionDatabase.h"
 #include <QImage>
@@ -35,6 +38,24 @@ public:
             if (model.m_entries[i].view)
                 rows.insert(i);
         return rows.size();
+    }
+};
+class PersonalFmControllerTestAccess
+{
+public:
+    static void observe(PersonalFmController &owner, const QJsonObject &song)
+    {
+        owner.m_buffer = {PlaybackTrack::fromDomain(song)};
+        owner.watchMetadata();
+    }
+};
+class ListenTogetherControllerTestAccess
+{
+public:
+    static void observe(ListenTogetherController &owner, const QJsonObject &song)
+    {
+        owner.m_songPages = {QJsonObject{{"song", song}}};
+        owner.completeSongs();
     }
 };
 class PlaybackServiceTestAccess
@@ -257,6 +278,53 @@ class UnifiedSongMetadataTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void cacheLossRebindsFmAndRoomObservationOwnersWithoutReplayingPlayback()
+    {
+        QTemporaryDir directory;
+        SessionDatabase database(directory.filePath("session"));
+        ApiClient api(DeviceIdentity::temporary());
+        SongMetadataService metadata(api);
+        metadata.enableSqlIndex(database);
+        SettingsStore preferences(directory.filePath("settings.ini"));
+        {
+            PlaybackService playback(api, preferences, nullptr,
+                                     directory.filePath("playback.sqlite"));
+            playback.attachMetadata(metadata);
+            auto *fm = playback.personalFm();
+            auto *room = playback.listenTogether();
+            room->attachMetadata(metadata);
+            PersonalFmControllerTestAccess::observe(*fm, presentation());
+            ListenTogetherControllerTestAccess::observe(*room, presentation());
+            auto *index = SongMetadataServiceTestAccess::sqlIndex(metadata);
+            const auto settled = [&] {
+                return !SongMetadataServiceTestAccess::sqlRegistrationPending(metadata) &&
+                       index->pendingJobs() == 0;
+            };
+            const auto lookup = [&] {
+                auto result = std::make_shared<std::optional<SongObservationIndex::Result>>();
+                index->lookup({"id:1"}, [result](auto value) { *result = std::move(value); });
+                if (!QTest::qWaitFor([&] { return result->has_value(); }, 5000))
+                    return SongObservationIndex::Result{};
+                return **result;
+            };
+            QTRY_VERIFY(settled());
+            auto original = lookup();
+            QVERIFY(original.rows.contains(SongMetadataServiceTestAccess::sqlOwner(metadata, fm)));
+            QVERIFY(
+                original.rows.contains(SongMetadataServiceTestAccess::sqlOwner(metadata, room)));
+            QVERIFY(loseSessionCache(database));
+            QTRY_VERIFY(settled());
+            auto restored = lookup();
+            QVERIFY(restored.error.isEmpty());
+            QVERIFY(restored.rows.contains(SongMetadataServiceTestAccess::sqlOwner(metadata, fm)));
+            QVERIFY(
+                restored.rows.contains(SongMetadataServiceTestAccess::sqlOwner(metadata, room)));
+            QVERIFY(!playback.playing());
+            QVERIFY(!room->joined());
+            playback.shutdown();
+        }
+        metadata.shutdown();
+    }
     void coldArtistFanoutPersistsAllViewsWithinTheWindowBudget()
     {
         QTemporaryDir directory;

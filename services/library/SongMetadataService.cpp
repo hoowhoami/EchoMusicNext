@@ -89,6 +89,20 @@ void SongMetadataService::enableSqlIndex(SessionDatabase &database)
         return;
     m_sessionDatabase = &database;
     m_sqlIndex = std::make_unique<SongObservationIndex>(database);
+    connect(&database, &SessionDatabase::aboutToInvalidate, this, [this] {
+        ++m_sqlEpoch;
+        m_sqlLookup = false;
+        for (auto &observer : m_observers) {
+            observer.sqlId = ++m_sqlOwner;
+            observer.sqlPending.clear();
+            observer.sqlCursor = 0;
+            observer.sqlWriting = false;
+        }
+    });
+    connect(&database, &SessionDatabase::invalidated, this, [this] {
+        if (!m_closed)
+            emit cacheCleared();
+    });
     connect(m_sqlIndex.get(), &SongObservationIndex::failed, this, [this](const QString &error) {
         qWarning().noquote() << "Song observation cache:" << error;
         emit cacheFailed(error);
