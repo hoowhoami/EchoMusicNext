@@ -617,6 +617,7 @@ Window {
     visible: true; width: 560; height: 380; color: "white"
     property real zoom: 1
     property real phase: 0
+    property bool borderless: false
     EchoBackdropRoot {
         anchors.fill: parent
         Rectangle { anchors.fill: parent; color: "white" }
@@ -627,7 +628,7 @@ Window {
         EchoFloatingSurface {
             objectName: "floatingResolutionProbe"
             width: 200; height: 100; radius: 20
-            color: "white"; border.width: 1; border.color: "black"
+            color: "white"; border.width: host.borderless ? 0 : 1; border.color: "black"
             shadowEnabled: false; frostedEnabled: true
         }
     }
@@ -644,6 +645,8 @@ Window {
     auto *body = findVisual(surface, "floatingSurfaceBody");
     QVERIFY(body);
     QTRY_VERIFY(surface->property("hasBackdrop").toBool());
+    auto *mask = findVisual(surface, "floatingBackdropMask");
+    QVERIFY(mask);
     // Read the actual render-thread layer texture, rather than asserting the
     // QML textureSize binding: a full-density frame can still be downsampled
     // into an intermediate layer before it reaches the screen.
@@ -660,16 +663,23 @@ Window {
         QVERIFY(QDir().mkpath(captures));
     for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
         session.theme.setMode(mode);
-        for (const qreal zoom : {.75, 1., 1.25, 1.5}) {
-            session.root->setProperty("zoom", zoom);
-            for (const qreal phase : {0., .2, .6}) {
-                session.root->setProperty("phase", phase);
-                QTRY_COMPARE(renderedTextureSize(session.window, body), deviceSize());
-                const auto image = session.window->grabWindow();
-                QVERIFY(!image.isNull());
-                if (!captures.isEmpty())
-                    QVERIFY(image.save(
-                        captures + QString("/%1-%2-%3.png").arg(int(mode)).arg(zoom).arg(phase)));
+        for (const bool borderless : {false, true}) {
+            session.root->setProperty("borderless", borderless);
+            for (const qreal zoom : {.75, 1., 1.25, 1.5}) {
+                session.root->setProperty("zoom", zoom);
+                for (const qreal phase : {0., .2, .6}) {
+                    session.root->setProperty("phase", phase);
+                    QTRY_COMPARE(renderedTextureSize(session.window, body), deviceSize());
+                    QTRY_COMPARE(renderedTextureSize(session.window, mask), deviceSize());
+                    const auto image = session.window->grabWindow();
+                    QVERIFY(!image.isNull());
+                    if (!captures.isEmpty())
+                        QVERIFY(image.save(captures + QString("/%1-%2-%3-%4.png")
+                                                          .arg(int(mode))
+                                                          .arg(borderless)
+                                                          .arg(zoom)
+                                                          .arg(phase)));
+                }
             }
         }
     }
@@ -1159,9 +1169,15 @@ void ControlsUiTest::floatingEffectsAreOwnedByVisibleSurfaces()
     session.window->showMinimized();
     QTRY_COMPARE(session.window->visibility(), QWindow::Minimized);
     QTRY_COMPARE(samplerCount(), 0);
+    // Cocoa can finish its native miniaturize animation after Qt publishes
+    // the requested state. Restore only once the native window is hidden.
+    if (QGuiApplication::platformName() == QStringLiteral("cocoa"))
+        QTRY_VERIFY(!session.window->isExposed());
     // Windows can retain exposure while minimized. Visibility is the public
     // lifecycle input; actual sampler destruction is the resource contract.
     session.window->showNormal();
+    if (QGuiApplication::platformName() == QStringLiteral("cocoa"))
+        session.window->raise();
     QVERIFY(Test::prepareNativeInput(session.window));
     QTRY_COMPARE(surface->property("hasBackdrop").toBool(), supported);
     // The window contentItem's visibility is owned by QQuickWindow's

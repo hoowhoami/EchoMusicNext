@@ -49,6 +49,9 @@ Item {
     // dedicated settings/queue backgrounds. Other popovers retain their recipe.
     readonly property bool smoothCorners: dialogShadow && shaderEffectsSupported
     readonly property bool frosted: frostedEnabled && resourceActive && shaderEffectsSupported
+    // Borderless frost already has an aligned composite layer. Draw its fill
+    // with Qt geometry instead of uploading another panel-sized RGBA image.
+    readonly property bool geometryFill: smoothCorners || (frosted && outline.border.width <= 0)
     readonly property bool hasBackdrop: frostLoader.body !== null && frostLoader.body.hasBackdrop
     antialiasing: true
     // Capture the local area plus the blur kernel, at quarter resolution.
@@ -148,7 +151,7 @@ Item {
         Loader {
             anchors.fill: parent
             z: -0.5
-            active: floatingSurface.smoothCorners && floatingSurface.resourceActive
+            active: floatingSurface.geometryFill && floatingSurface.resourceActive
             sourceComponent: EchoRoundedRect {
                 objectName: "floatingSurfaceRoundedFill"
                 antialiasing: floatingSurface.antialiasing
@@ -176,11 +179,16 @@ Item {
             strokeColor: outline.border.color
             strokeInside: false
             pixelAligned: !floatingSurface.smoothCorners && !floatingSurface.frosted
-            fillColor: floatingSurface.smoothCorners ? "transparent" : (floatingSurface.hasBackdrop ? Theme.withAlpha(floatingSurface.paintedColor, floatingSurface.paintedColor.a * floatingSurface.backdropFillOpacity) : floatingSurface.paintedColor)
+            fillColor: floatingSurface.geometryFill ? "transparent" : (floatingSurface.hasBackdrop ? Theme.withAlpha(floatingSurface.paintedColor, floatingSurface.paintedColor.a * floatingSurface.backdropFillOpacity) : floatingSurface.paintedColor)
         }
     }
     component FrostedBody: Item {
+        id: frostedBody
         readonly property bool hasBackdrop: sampler.source !== null
+        // Blur needs the surrounding kernel samples; its final mask and
+        // composite only need the panel. Do not keep full-density padding.
+        readonly property rect compositeRect: rasterLoader.raster ? rasterLoader.raster.capture : Qt.rect(0, 0, surfaceBody.width, surfaceBody.height)
+        readonly property size compositePixels: rasterLoader.raster ? rasterLoader.raster.pixels : floatingSurface.layerSnapped ? surfaceBody.layer.textureSize : Qt.size(0, 0)
         EchoBackdropSampler {
             id: sampler
             surface: floatingSurface
@@ -228,12 +236,13 @@ Item {
         }
         ShaderEffectSource {
             id: maskTexture
+            objectName: "floatingBackdropMask"
             visible: false
             width: clipMask.width
             height: clipMask.height
             sourceItem: floatingSurface.hasBackdrop ? clipMask : null
-            sourceRect: rasterLoader.raster ? Qt.rect(floatingSurface.blurPadding + rasterLoader.raster.capture.x, floatingSurface.blurPadding + rasterLoader.raster.capture.y, rasterLoader.raster.capture.width, rasterLoader.raster.capture.height) : Qt.rect(0, 0, 0, 0)
-            textureSize: rasterLoader.raster ? rasterLoader.raster.pixels : Qt.size(0, 0)
+            sourceRect: Qt.rect(floatingSurface.blurPadding + frostedBody.compositeRect.x, floatingSurface.blurPadding + frostedBody.compositeRect.y, frostedBody.compositeRect.width, frostedBody.compositeRect.height)
+            textureSize: frostedBody.compositePixels
             smooth: true
         }
         MultiEffect {
@@ -254,16 +263,16 @@ Item {
             visible: false
             width: backdrop.width
             height: backdrop.height
-            textureSize: rasterLoader.raster ? Qt.size(Math.ceil(rasterLoader.raster.capture.width / 4), Math.ceil(rasterLoader.raster.capture.height / 4)) : backdrop.textureSize
-            sourceRect: rasterLoader.raster ? Qt.rect((floatingSurface.blurPadding + rasterLoader.raster.capture.x) / 4, (floatingSurface.blurPadding + rasterLoader.raster.capture.y) / 4, rasterLoader.raster.capture.width / 4, rasterLoader.raster.capture.height / 4) : Qt.rect(0, 0, 0, 0)
+            textureSize: Qt.size(Math.ceil(frostedBody.compositeRect.width / 4), Math.ceil(frostedBody.compositeRect.height / 4))
+            sourceRect: Qt.rect((floatingSurface.blurPadding + frostedBody.compositeRect.x) / 4, (floatingSurface.blurPadding + frostedBody.compositeRect.y) / 4, frostedBody.compositeRect.width / 4, frostedBody.compositeRect.height / 4)
             sourceItem: floatingSurface.hasBackdrop ? blurred : null
             smooth: true
         }
         MultiEffect {
-            x: rasterLoader.raster ? rasterLoader.raster.capture.x : -floatingSurface.blurPadding
-            y: rasterLoader.raster ? rasterLoader.raster.capture.y : -floatingSurface.blurPadding
-            width: rasterLoader.raster ? rasterLoader.raster.capture.width : surfaceBody.width + floatingSurface.blurPadding * 2
-            height: rasterLoader.raster ? rasterLoader.raster.capture.height : surfaceBody.height + floatingSurface.blurPadding * 2
+            x: frostedBody.compositeRect.x
+            y: frostedBody.compositeRect.y
+            width: frostedBody.compositeRect.width
+            height: frostedBody.compositeRect.height
             visible: floatingSurface.hasBackdrop
             source: floatingSurface.hasBackdrop ? blurredTexture : null
             blurEnabled: false

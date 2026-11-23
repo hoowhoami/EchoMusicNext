@@ -941,6 +941,9 @@ private slots:
         QQuickItem *search = nullptr, *list = nullptr;
         QTRY_VERIFY((search = visual(window->contentItem(), "effectPlazaSearch")));
         QTRY_VERIFY((list = visual(window->contentItem(), "effectPlazaResults")));
+        QVERIFY(!visual(window->contentItem(), "songEffect-none"));
+        QVERIFY(!visual(window->contentItem(), "equalizerBand-0"));
+        QVERIFY(!visual(window->contentItem(), "impulseMixMode"));
         catalog.setBrowsingActive(false);
         QTRY_VERIFY(list->property("contentHeight").toReal() > list->height());
         int delegates = 0;
@@ -1053,6 +1056,7 @@ private slots:
         QCOMPARE(row(catalog).value("name").toString(), QString("Effect 999"));
         if (!captures.isEmpty()) {
             QDir().mkpath(captures);
+            Test::moveNativePointer(window, QPoint(10, 10));
             window->update();
             QTest::qWait(60);
             QVERIFY(window->grabWindow().save(captures + '/' + QTest::currentDataTag() + ".png"));
@@ -1098,11 +1102,19 @@ private slots:
         QCOMPARE(catalog.rowCount(), 1);
         auto *popup = root->findChild<QObject *>("effectSearchPopup");
         QVERIFY(popup);
+        QPointer<QQuickItem> retiredPlaza = visual(window->contentItem(), "effectPlaza");
         QVERIFY(popup->setProperty("tab", 2));
+        QTRY_VERIFY(retiredPlaza.isNull());
+        QVERIFY(!catalog.browsingActive());
         QQuickItem *mixMode = nullptr;
         QTRY_VERIFY((mixMode = visual(window->contentItem(), "impulseMixMode")));
         QTRY_VERIFY(mixMode->isVisible());
         QVERIFY(mixMode->width() > 0 && mixMode->height() >= 32);
+        auto *pageHost = visual(window->contentItem(), "effectPaneHost");
+        auto *editor = visual(window->contentItem(), "dspPresetControlsPanel");
+        QVERIFY(pageHost && editor);
+        QCOMPARE(editor->mapToScene(QPointF()), pageHost->mapToScene(QPointF()));
+        QCOMPARE(editor->size(), pageHost->size());
         QCOMPARE(s.playback.audioControls()->impulseMix(), 1.0);
         QCOMPARE(mixMode->property("value").toString(), QString("blend"));
         QVERIFY(
@@ -1110,10 +1122,45 @@ private slots:
         QCOMPARE(s.playback.audioControls()->impulseMixMode(), QString("reverb"));
         QCOMPARE(mixMode->property("value").toString(), QString("reverb"));
         if (!captures.isEmpty()) {
+            Test::moveNativePointer(window, QPoint(10, 10));
             window->update();
             QTest::qWait(80);
             QVERIFY(
                 window->grabWindow().save(captures + "/mix-" + QTest::currentDataTag() + ".png"));
+        }
+        // Changing views must release the entire old page, including hidden
+        // controls, while business values and directory position survive.
+        const QStringList pages{"effectSongPane", "effectEqualizerPane", "effectLibraryPane",
+                                "effectPlaza"};
+        for (int cycle = 0; cycle < 3; ++cycle) {
+            QVERIFY(popup->setProperty("tab", 2));
+            auto *library = visual(window->contentItem(), pages[2]);
+            QVERIFY(library);
+            QVERIFY(QMetaObject::invokeMethod(library, "sourcePicked", Q_ARG(int, 2)));
+            QCOMPARE(library->property("sourceTab").toInt(), 2);
+            for (int tab : {0, 1, 3, 2}) {
+                QPointer<QQuickItem> retired;
+                for (const auto &name : pages)
+                    if (auto *item = visual(window->contentItem(), name))
+                        retired = item;
+                QVERIFY(popup->setProperty("tab", tab));
+                QTRY_VERIFY(retired.isNull());
+                for (int page = 0; page < pages.size(); ++page)
+                    QCOMPARE(visual(window->contentItem(), pages[page]) != nullptr, page == tab);
+                if (tab != 2)
+                    QVERIFY(!visual(window->contentItem(), "dspPresetControlsPanel"));
+                QCOMPARE(catalog.browsingActive(), tab == 3);
+                if (tab == 3) {
+                    QTRY_COMPARE(catalog.query(), QString("Effect 999"));
+                    QTRY_VERIFY((search = visual(window->contentItem(), "effectPlazaSearch")));
+                    QCOMPARE(search->property("text").toString(), QString("Effect 999"));
+                    QCOMPARE(catalog.rowCount(), 1);
+                }
+            }
+            library = visual(window->contentItem(), pages[2]);
+            QVERIFY(library);
+            QCOMPARE(library->property("sourceTab").toInt(), 2);
+            QCOMPARE(s.playback.audioControls()->impulseMixMode(), QString("reverb"));
         }
     }
 };

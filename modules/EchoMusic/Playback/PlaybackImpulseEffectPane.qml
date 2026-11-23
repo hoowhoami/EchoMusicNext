@@ -10,10 +10,12 @@ ColumnLayout {
     id: pane
     required property PlaybackAudioControls audio
     required property Popup surface
+    property Item editorHost: pane.parent
     property real uiScale: 1
     property int libraryTab: 0
     property int sourceTab: Math.max(0, sources.indexOf(selectedFile ? selectedFile.source : "local"))
     signal libraryPicked(int index)
+    signal sourcePicked(int index)
     signal plazaRequested(string source)
     readonly property var sources: ["local", "artist", "headphone", "market"]
     readonly property var sourceLabels: [qsTr("本地导入"), qsTr("歌手音效"), qsTr("耳机音效"), qsTr("音效市场")]
@@ -60,6 +62,7 @@ ColumnLayout {
                     onClicked: {
                         if (pane.audio.impulseEnabled && pane.selectedFile) {
                             pane.sourceTab = pane.sources.indexOf(pane.selectedFile.source);
+                            pane.sourcePicked(pane.sourceTab);
                             pane.libraryPicked(1);
                         } else {
                             pane.libraryPicked(0);
@@ -264,7 +267,10 @@ ColumnLayout {
                             color: pane.sourceTab === sourceButton.index ? Theme.floating.accent : "transparent"
                         }
                     }
-                    onClicked: pane.sourceTab = index
+                    onClicked: {
+                        pane.sourceTab = index;
+                        pane.sourcePicked(index);
+                    }
                 }
             }
         }
@@ -322,7 +328,7 @@ ColumnLayout {
         DspProviderPanel {
             anchors.fill: parent
             audio: pane.audio
-            editorHost: pane.parent
+            editorHost: pane.editorHost
             visible: pane.libraryTab === 0 && pane.audio.providerId.length > 0
             uiScale: pane.uiScale
         }

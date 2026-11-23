@@ -14,6 +14,7 @@ EchoAnchoredPopup {
     readonly property AudioEffectCatalog catalog: playback.effectCatalog
     property int tab: 0
     property int libraryTab: 0
+    property int librarySourceTab: Math.max(0, ["local", "artist", "headphone", "market"].indexOf((audio.impulseResponses.find(file => file.path === audio.impulseResponse) || {}).source || "local"))
     readonly property bool spatialEffectActive: audio.impulseEnabled ? audio.impulseResponses.some(file => file.path === audio.impulseResponse) : audio.providerEffectActive
     preferredWidth: 540
     maximumHeight: 460
@@ -113,6 +114,8 @@ EchoAnchoredPopup {
             }
         }
         Item {
+            id: pageHost
+            objectName: "effectPaneHost"
             x: 88
             width: parent.width - 88
             height: parent.height
@@ -138,49 +141,62 @@ EchoAnchoredPopup {
                     anchors.rightMargin: 16
                     anchors.verticalCenter: parent.verticalCenter
                     implicitHeight: 32
-                    enabled: !equalizer.locked
+                    enabled: popup.audio.providerId.length === 0
                     visible: popup.tab === 1
                     text: qsTr("重置")
                     onClicked: popup.audio.resetEqualizer()
                 }
             }
-            PlaybackSongEffectPane {
+            Loader {
                 y: 48
                 width: parent.width
                 height: parent.height - y
-                visible: popup.tab === 0
-                playback: popup.playback
-                surface: popup
-            }
-            PlaybackEqualizerPane {
-                id: equalizer
-                y: 48
-                width: parent.width
-                height: parent.height - y
-                visible: popup.tab === 1
-                audio: popup.audio
-            }
-            PlaybackImpulseEffectPane {
-                y: 48
-                width: parent.width
-                height: parent.height - y
-                visible: popup.tab === 2
-                audio: popup.audio
-                surface: popup
-                libraryTab: popup.libraryTab
-                onLibraryPicked: index => popup.libraryTab = index
-                onPlazaRequested: source => {
-                    popup.tab = 3;
-                    popup.catalog.selectCategory(source);
+                active: popup.tab === 0
+                sourceComponent: PlaybackSongEffectPane {
+                    objectName: "effectSongPane"
+                    playback: popup.playback
+                    surface: popup
                 }
-                uiScale: popup.uiScale
             }
-            PlaybackEffectPlaza {
+            Loader {
+                y: 48
+                width: parent.width
+                height: parent.height - y
+                active: popup.tab === 1
+                sourceComponent: PlaybackEqualizerPane {
+                    objectName: "effectEqualizerPane"
+                    audio: popup.audio
+                }
+            }
+            Loader {
+                y: 48
+                width: parent.width
+                height: parent.height - y
+                active: popup.tab === 2
+                sourceComponent: PlaybackImpulseEffectPane {
+                    objectName: "effectLibraryPane"
+                    audio: popup.audio
+                    surface: popup
+                    editorHost: pageHost
+                    libraryTab: popup.libraryTab
+                    sourceTab: popup.librarySourceTab
+                    onLibraryPicked: index => popup.libraryTab = index
+                    onSourcePicked: index => popup.librarySourceTab = index
+                    onPlazaRequested: source => {
+                        popup.catalog.selectCategory(source);
+                        popup.tab = 3;
+                    }
+                    uiScale: popup.uiScale
+                }
+            }
+            Loader {
                 anchors.fill: parent
-                visible: popup.tab === 3
-                resourceActive: popup.visible && visible
-                catalog: popup.catalog
-                surface: popup
+                active: popup.tab === 3
+                sourceComponent: PlaybackEffectPlaza {
+                    resourceActive: popup.visible
+                    catalog: popup.catalog
+                    surface: popup
+                }
             }
             Label {
                 anchors.bottom: parent.bottom
