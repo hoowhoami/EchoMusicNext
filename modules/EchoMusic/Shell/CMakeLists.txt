@@ -82,6 +82,7 @@ qt_add_qml_module(
     DesktopLyricTextToggles.qml
     DesktopLyricWindow.qml
     TaskbarLyricWindow.qml
+    TaskbarLyricViewport.qml
     TaskbarLyricLine.qml
     TaskbarLyricControls.qml
     TaskbarLyricSeekBar.qml

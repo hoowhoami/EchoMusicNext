@@ -44,6 +44,8 @@ private slots:
     void preferencesValidateAndPersistWithoutResettingGlobalBackground();
     void lyricColorLayersResolvePerSlotInQml();
     void secondaryColorsResolveAcrossPageSkins();
+    void taskbarLyricsPromotePreviewAndKeepSubtitlesTogether_data();
+    void taskbarLyricsPromotePreviewAndKeepSubtitlesTogether();
     void playbackHoverTracksSourceBackgroundPalette();
     void optionalArtworkCancelsStaleTrackAndRestoresBoundedMemoryCache();
     void interludeMotionMatchesObservedReference();

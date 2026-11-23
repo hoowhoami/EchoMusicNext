@@ -106,6 +106,7 @@ QtObject {
     readonly property int rollingNumberDuration: store.motionEnabled ? 900 : 0
     readonly property int exitDuration: store.motionEnabled ? 140 : 0
     readonly property int contentSwapDuration: store.motionEnabled ? 150 : 0
+    readonly property int taskbarLyricRollDuration: store.motionEnabled ? 420 : 0
     readonly property int mediaFadeDuration: store.motionEnabled ? 400 : 0
     readonly property int songInsertDuration: store.motionEnabled ? 280 : 0
     readonly property int songRemoveDuration: store.motionEnabled ? 250 : 0

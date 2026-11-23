@@ -2039,6 +2039,188 @@ void PlaybackPageTest::secondaryColorsResolveAcrossPageSkins()
                  strip->property("muted").value<QColor>());
     QCOMPARE(warnings.size(), 0);
 }
+void PlaybackPageTest::taskbarLyricsPromotePreviewAndKeepSubtitlesTogether_data()
+{
+    QTest::addColumn<bool>("dark");
+    QTest::addColumn<bool>("right");
+    QTest::addColumn<double>("scale");
+    QTest::newRow("light-left") << false << false << 1.;
+    QTest::newRow("dark-right") << true << true << 1.;
+    QTest::newRow("light-right-125") << false << true << 1.25;
+    QTest::newRow("dark-left-125") << true << false << 1.25;
+}
+void PlaybackPageTest::taskbarLyricsPromotePreviewAndKeepSubtitlesTogether()
+{
+    QFETCH(bool, dark);
+    QFETCH(bool, right);
+    QFETCH(double, scale);
+    QTemporaryDir directory;
+    SettingsStore settings(directory.filePath("settings.ini"));
+    ThemeStore theme(settings);
+    theme.setMotionEnabled(true);
+    theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
+    QQmlEngine engine;
+    theme.attachToEngine(engine);
+    QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+    QQuickWindow window;
+    window.setColor(dark ? QColor("#202020") : QColor("#fafafa"));
+    window.resize(qRound(300 * scale), qRound(44 * scale));
+    QQmlComponent component(&engine, QUrl("qrc:/qt/qml/EchoMusic/Shell/TaskbarLyricViewport.qml"));
+    QScopedPointer<QObject> object(component.createWithInitialProperties(
+        {{"width", 300.},
+         {"height", 44.},
+         {"anchorRight", right},
+         {"foreground", QColor(dark ? "#ffffff" : "#000000")},
+         {"secondaryColor", QColor(dark ? "#bcbcbc" : "#666666")}}));
+    QVERIFY2(object, qPrintable(component.errorString()));
+    auto *viewport = qobject_cast<QQuickItem *>(object.data());
+    QVERIFY(viewport);
+    viewport->setParentItem(window.contentItem());
+    viewport->setTransformOrigin(QQuickItem::TopLeft);
+    viewport->setScale(scale);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    auto source = [](int index, const QString &primary, const QString &secondary,
+                     bool preview = true, const QString &track = "track-a") {
+        return QVariantMap{{"trackId", track},
+                           {"index", index},
+                           {"nextIndex", index + 1},
+                           {"startMs", index * 4000},
+                           {"nextStartMs", (index + 1) * 4000},
+                           {"endTimeMs", (index + 1) * 4000},
+                           {"offsetMs", 0},
+                           {"hasLine", true},
+                           {"primary", primary},
+                           {"secondary", secondary},
+                           {"preview", preview},
+                           {"wordByWord", false},
+                           {"units", QVariantList{}}};
+    };
+    auto row = [&](const char *name) { return viewport->property(name).value<QQuickItem *>(); };
+    auto present = [&](const QVariantMap &value) { return viewport->setProperty("source", value); };
+    const QString captures = qEnvironmentVariable("ECHO_TASKBAR_CAPTURE_DIR");
+    auto capture = [&](const QString &name) {
+        const auto image = window.grabWindow();
+        if (!captures.isEmpty()) {
+            QDir().mkpath(captures);
+            image.save(captures + "/" + QString::fromLatin1(QTest::currentDataTag()) + "-" + name +
+                       ".png");
+        }
+        return image;
+    };
+    QVERIFY(present(source(0, "第一句 Line one", "第二句 Line two")));
+    QTRY_COMPARE(row("primaryRow")->property("text").toString(), QString("第一句 Line one"));
+    QVERIFY(!viewport->property("rolling").toBool());
+    auto *preview = row("secondaryRow");
+    auto *leaving = row("primaryRow");
+    const auto previewY = preview->y();
+    QCOMPARE(preview->scale(), .82);
+    const auto shapedSize = preview->property("fontPixelSize").toInt();
+    const auto before = capture("before");
+    QVERIFY(!before.isNull());
+    QVERIFY(present(source(1, "第二句 Line two", "第三句 Line three")));
+    QTRY_VERIFY(viewport->property("rolling").toBool());
+    QCOMPARE(row("primaryRow"), preview);
+    QCOMPARE(preview->property("text").toString(), QString("第二句 Line two"));
+    // The shared sentence is rendered once, stays fully visible, and moves up
+    // from its old preview seat while the new bottom sentence enters.
+    QCOMPARE(preview->opacity(), 1.);
+    QTest::qWait(120);
+    const auto firstScale = preview->scale();
+    QVERIFY(firstScale > .82 && firstScale < 1.);
+    QCOMPARE(preview->property("fontPixelSize").toInt(), shapedSize);
+    auto refreshed = source(1, "第二句 Line two", "第三句 Line three");
+    refreshed.insert("wordByWord", true);
+    QVERIFY(present(refreshed));
+    QTRY_VERIFY(preview->property("wordByWord").toBool());
+    QVERIFY(viewport->property("rolling").toBool());
+    QVERIFY(preview->scale() >= firstScale && preview->scale() < 1.);
+    const auto firstRight = preview->x() + preview->width();
+    if (right)
+        QVERIFY(qAbs(firstRight - viewport->width()) < .001);
+    QTest::qWait(80);
+    QVERIFY(preview->scale() > firstScale && preview->scale() < 1.);
+    QCOMPARE(preview->property("fontPixelSize").toInt(), shapedSize);
+    QVERIFY(preview->y() < previewY);
+    QVERIFY(preview->y() > viewport->property("primaryY").toReal());
+    QVERIFY(leaving->y() < viewport->property("primaryY").toReal());
+    const auto middle = capture("promoting");
+    QVERIFY(!middle.isNull());
+    QVERIFY(middle != before);
+    int copies = 0;
+    for (auto *item : viewport->childItems())
+        if (item->isVisible() && item->property("text").toString() == "第二句 Line two")
+            ++copies;
+    QCOMPARE(copies, 1);
+    QTRY_VERIFY(!viewport->property("rolling").toBool());
+    QCOMPARE(preview->y(), viewport->property("primaryY").toReal());
+    QCOMPARE(preview->scale(), 1.);
+    QCOMPARE(row("secondaryRow")->property("text").toString(), QString("第三句 Line three"));
+    QVERIFY(!leaving->isVisible());
+    QVERIFY(capture("settled") != middle);
+
+    // A translated (or romanized) subtitle belongs to the current sentence;
+    // even identical text in the following primary must not promote it.
+    QVERIFY(present(source(2, "第三句 Line three", "译文 Translation", false)));
+    QTRY_VERIFY(viewport->property("rolling").toBool());
+    QTRY_VERIFY(!viewport->property("rolling").toBool());
+    auto *translation = row("secondaryRow");
+    auto *translatedPrimary = row("primaryRow");
+    QVERIFY(present(source(3, "译文 Translation", "新译文 New translation", false)));
+    QTRY_VERIFY(viewport->property("rolling").toBool());
+    QVERIFY(row("primaryRow") != translation);
+    QTest::qWait(100);
+    QCOMPARE(translation->y() - translatedPrimary->y(),
+             viewport->property("secondaryY").toReal() - viewport->property("primaryY").toReal());
+    QVERIFY(!capture("translation-group").isNull());
+
+    // An interrupt adopts the latest state with bounded rows; seeks and
+    // reduced motion settle synchronously without replaying stale animation.
+    QVERIFY(present(source(8, "跳播 Seek", "下一句 Next")));
+    QTRY_COMPARE(row("primaryRow")->property("text").toString(), QString("跳播 Seek"));
+    QVERIFY(QMetaObject::invokeMethod(viewport, "resetTimeline"));
+    QVERIFY(present(source(9, "下一句 Next", "最后一句 Final")));
+    QTRY_COMPARE(row("primaryRow")->property("text").toString(), QString("下一句 Next"));
+    QVERIFY(!viewport->property("rolling").toBool());
+    QVERIFY(present(source(0, "同名歌词 Repeated", "同名歌词 Repeated", true, "track-b")));
+    QTRY_VERIFY(viewport->property("rolling").toBool());
+    viewport->setVisible(false);
+    QVERIFY(!viewport->property("rolling").toBool());
+    viewport->setVisible(true);
+    QVERIFY(!viewport->property("rolling").toBool());
+    theme.setMotionEnabled(false);
+    QVERIFY(present(source(1, "同名歌词 Repeated", "最后一句 Final", true, "track-b")));
+    QTRY_COMPARE(row("secondaryRow")->property("text").toString(), QString("最后一句 Final"));
+    QVERIFY(!viewport->property("rolling").toBool());
+    viewport->setHeight(20);
+    QVERIFY(!row("secondaryRow")->isVisible());
+    viewport->setHeight(44);
+    QVERIFY(row("secondaryRow")->isVisible());
+    // Repeated text still has distinct line identity; a long preview stays
+    // at its head and becomes a horizontally scrollable active line.
+    theme.setMotionEnabled(true);
+    viewport->setProperty("animate", false);
+    const QString longLine = QString("Long lyric 歌词 ").repeated(12);
+    QVERIFY(present(source(0, "开头 Start", longLine)));
+    QTRY_COMPARE(row("secondaryRow")->property("text").toString(), longLine);
+    viewport->setProperty("timeMs", 3900.);
+    QCOMPARE(row("secondaryRow")->property("scrollDistance").toReal(), 0.);
+    auto *longPreview = row("secondaryRow");
+    viewport->setProperty("animate", true);
+    QVERIFY(present(source(1, longLine, longLine)));
+    QTRY_VERIFY(viewport->property("rolling").toBool());
+    QCOMPARE(row("primaryRow"), longPreview);
+    viewport->setProperty("timeMs", 4500.);
+    QVERIFY(longPreview->property("scrollDistance").toReal() > 0);
+    auto *repeatedPreview = row("secondaryRow");
+    QVERIFY(present(source(2, longLine, longLine)));
+    QTRY_COMPARE(row("primaryRow"), repeatedPreview);
+    viewport->setProperty("animate", false);
+    QVERIFY(!viewport->property("rolling").toBool());
+    QCOMPARE(row("primaryRow")->scale(), 1.);
+    QCOMPARE(viewport->childItems().size(), 4);
+    QCOMPARE(warnings.size(), 0);
+}
 void PlaybackPageTest::playbackHoverTracksSourceBackgroundPalette()
 {
     Session session;

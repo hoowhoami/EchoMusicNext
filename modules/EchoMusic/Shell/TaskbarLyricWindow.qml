@@ -76,7 +76,7 @@ Window {
     property real lastStamp: 0
     Timer {
         interval: window.playback.playing ? 16 : 150
-        running: true
+        running: window.visible && window.visibility !== Window.Minimized
         repeat: true
         onTriggered: {
             const now = Date.now();
@@ -109,98 +109,33 @@ Window {
         return hasNextLine ? nextMap.lineText : artist;
     }
 
+    Connections {
+        target: window.playback
+        function onTimelineReset(): void {
+            copy.resetTimeline();
+        }
+    }
+
     // ---- 内容宽度（对应 lyricWidth.ts：自然宽度受 maxWidth 约束） ----
-    property real primaryWidth: 0
-    property real secondaryWidth: 0
-    readonly property real naturalWidth: Math.max(primaryWidth, secondaryWidth)
-    // The strip chrome (cover, spacing and the four paddings) has to be part
-    // of the width, otherwise the text is wider than its own area and the
-    // karaoke scroll cuts it on both sides.
+    readonly property real naturalWidth: copy.naturalWidth
     readonly property real chromeWidth: coverWidth + 4 + 8 + 8 + 4
-    // The reference sizes the four buttons to the cover height and caps them
-    // on narrow strips (.controls --control-size: min(vh - 16, (vw-112)/5)).
     readonly property real controlSize: Math.max(22, Math.min(window.stripHeight - 16, (Math.max(112, controller.currentWidth) - 112) / 5))
     readonly property real contentWidth: Math.min(maxWidth, Math.max(160, naturalWidth + chromeWidth))
     readonly property real coverWidth: Math.max(24, window.stripHeight - 16)
-    // 参考实现 useTaskbarLyrics：行键就是「主行 \0 副行」文本，键变化整块滚动。
-    // 分隔符走运行期 fromCharCode：字面 NUL 会被 qmlcachegen 内联进生成的
-    // C++ 字符串常量，直接编译失败（C2001）。
-    // 键变化先排队再滚：positionMs 一帧推进里文本/时间片/行尾是分几步落定
-    // 的，同步取快照会抓到中间态（副行还是旧行、行尾等于行头），整行会先
-    // 被画成已唱完的强调色。Qt.callLater 在绑定刷新结束后才执行，两次键变化
-    // 合并成一次落定快照。
-    readonly property string lineKey: primaryText + String.fromCharCode(0) + secondaryText
-    onLineKeyChanged: copy.requestRoll()
+    readonly property bool secondaryIsPreview: hasLine && hasNextLine && !(showTranslation && lineMap.translation) && !(playback.lyricText.wantRomanization && lineMap.romanization)
     // lyricWidth.resolveContentWidth：换行滚动期间窗口宽度只增不减——变宽立即
     // 放行（新行升入途中不被裁），收窄等旧行滑出结束；否则当前行长于下一行
     // 时，换行处会先被截掉一截旧行的尾巴。
+    property real appliedWidth: 0
     function syncWidth(): void {
         const target = expanded ? maxWidth : contentWidth;
-        const resolved = copy.rolling ? Math.max(copy.appliedWidth, target) : target;
-        copy.appliedWidth = resolved;
+        const resolved = copy.rolling ? Math.max(window.appliedWidth, target) : target;
+        window.appliedWidth = resolved;
         controller.setContentWidth(Math.round(resolved));
     }
     onContentWidthChanged: syncWidth()
     onExpandedChanged: syncWidth()
     onMaxWidthChanged: syncWidth()
-
-    // 行组：两行歌词的快照。payload 只在换行时整对象赋值，离开中的旧块保持
-    // 最后一帧（对应 Vue 离开元素停止重渲染）；走带时间只跟未冻结的块。
-    component LyricPair: Item {
-        id: group
-        width: parent ? parent.width : 0
-        height: parent ? parent.height : 0
-        property var payload: null
-        property bool frozen: false
-        property real frozenTimeMs: 0
-        signal pairWidth(bool primary, real width)
-        Column {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 1
-            TaskbarLyricLine {
-                width: parent.width
-                height: implicitHeight
-                text: group.payload ? group.payload.primary : ""
-                units: group.payload ? group.payload.units : []
-                wordByWord: group.payload ? group.payload.wordByWord : false
-                timeMs: group.frozen ? group.frozenTimeMs : window.renderTime
-                startMs: group.payload ? group.payload.startMs : 0
-                endTimeMs: group.payload ? group.payload.endTimeMs : 0
-                timeOffset: group.payload ? group.payload.offsetMs : 0
-                anchorRight: window.anchorRight
-                accentColor: window.accentText
-                baseColor: window.fg
-                fontSize: window.lyricFontSize
-                onNaturalWidth: function (value) {
-                    group.pairWidth(true, value);
-                }
-            }
-            TaskbarLyricLine {
-                width: parent.width
-                height: implicitHeight
-                // Two lines need the height of the lyric area; the area height
-                // must not depend on this item being visible, or the condition
-                // can never become true.
-                visible: (group.payload ? group.payload.secondary.length > 0 : false) && group.height >= 26
-                text: group.payload ? group.payload.secondary : ""
-                units: []
-                wordByWord: false
-                timeMs: group.frozen ? group.frozenTimeMs : window.renderTime
-                startMs: group.payload ? group.payload.startMs : 0
-                endTimeMs: group.payload ? group.payload.endTimeMs : 0
-                timeOffset: group.payload ? group.payload.offsetMs : 0
-                anchorRight: window.anchorRight
-                accentColor: group.payload && group.payload.secondaryIsLyric ? window.secondaryInk : window.muted
-                baseColor: group.payload && group.payload.secondaryIsLyric ? window.secondaryInk : window.muted
-                fontSize: window.lyricFontSize * 0.82
-                onNaturalWidth: function (value) {
-                    group.pairWidth(false, value);
-                }
-            }
-        }
-    }
 
     // The native side owns the window geometry: binding width/height from QML
     // recreates the platform window and unmounts the strip. The layout reads
@@ -217,7 +152,7 @@ Window {
     flags: Qt.Tool | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus
     Component.onCompleted: {
         controller.attach(this);
-        copy.currentGroup.payload = copy.snapshot();
+        syncWidth();
     }
     Component.onDestruction: controller.detach()
 
@@ -234,7 +169,7 @@ Window {
         // contentWidth would shrink the moment the next line measures short,
         // clipping the still-visible long line half way through the roll
         // (lyricWidth.ts feeds the *resolved* width into the DOM box too).
-        width: window.expanded ? window.controller.currentWidth : copy.appliedWidth
+        width: window.expanded ? window.controller.currentWidth : window.appliedWidth
         // The reference keeps the strip 8px shorter than the taskbar row; the
         // window's own height is stale for an externally sized window.
         height: Math.max(0, window.stripHeight - 8)
@@ -344,172 +279,38 @@ Window {
                     Layout.leftMargin: 4
                     Layout.rightMargin: 4
 
-                    // 歌词两行（未展开时）。换行动画作用于整块歌词：每组各自
-                    // 持一份两行快照，在同一个裁剪容器里整组平移，而不是每行
-                    // 各自动画（对应 TaskbarPlayerView <Transition
-                    // name="taskbar-lines">：旧行向上滑出、新行自下而上滑入）。
-                    Item {
+                    TaskbarLyricViewport {
                         id: copy
+                        objectName: "taskbarLyricViewport"
                         anchors.fill: parent
-                        clip: true
                         opacity: window.expanded ? 0 : 1
                         visible: opacity > 0.01
-                        Behavior on opacity {
-                            NumberAnimation {
-                                duration: Theme.store.motionEnabled ? 180 : 0
-                            }
-                        }
-
-                        property bool rolling: false
-                        property real appliedWidth: 0
-                        property LyricPair currentGroup: groupA
-                        property LyricPair standbyGroup: groupB
-                        property Item rollOutGroup: null
-                        property Item rollInGroup: null
-
-                        // One immutable description of the line pair: the key
-                        // names match the LyricLine properties they feed.
-                        function snapshot(): var {
-                            return {
+                        animate: window.playback.playing && !window.expanded && window.visible && window.visibility !== Window.Minimized
+                        timeMs: window.renderTime
+                        fontSize: window.lyricFontSize
+                        anchorRight: window.anchorRight
+                        foreground: window.fg
+                        secondaryColor: window.secondaryIsLyric ? window.secondaryInk : window.muted
+                        accent: window.accentText
+                        source: ({
+                                trackId: window.playback.trackId,
+                                index: window.lineIndex,
+                                nextIndex: window.playback.lyrics.nextVisible(window.lineIndex),
+                                nextStartMs: window.hasNextLine ? window.nextMap.startMs + window.lyricOffset : 0,
+                                hasLine: window.hasLine,
                                 primary: window.primaryText,
                                 secondary: window.secondaryText,
-                                secondaryIsLyric: window.secondaryIsLyric,
+                                preview: window.secondaryIsPreview,
                                 wordByWord: window.wordByWord,
                                 units: window.units,
                                 startMs: window.lineStartMs,
                                 endTimeMs: window.lineEndTimeMs,
                                 offsetMs: window.lyricOffset
-                            };
-                        }
-
-                        // Only the current group's measurements count: stale
-                        // re-measures from the leaving pair are dropped.
-                        function applyPairWidth(group, primary, width): void {
-                            if (group !== currentGroup)
-                                return;
-                            if (primary)
-                                window.primaryWidth = width;
-                            else
-                                window.secondaryWidth = width;
-                        }
-
-                        function finishRoll(): void {
-                            if (!rolling)
-                                return;
-                            rolling = false;
-                            window.syncWidth();
-                        }
-
-                        // 行键在一个绑定刷新里可能变化多次（文本先落、行尾/
-                        // 副行后落）。这里只排队一次，最后一次和真正的执行都
-                        // 发生在刷新完成之后，快照总是落定态。
-                        property bool rollQueued: false
-                        function requestRoll(): void {
-                            if (rollQueued)
-                                return;
-                            rollQueued = true;
-                            Qt.callLater(function () {
-                                rollQueued = false;
-                                rollLines();
-                            });
-                        }
-
-                        // 换行：先把两组归位到 resting 态（支持 stop 打断重推），
-                        // 新组拿最新快照、旧组在离开瞬间冻结走带时间。
-                        function rollLines(): void {
-                            const wasRolling = rolling;
-                            if (rolling) {
-                                rollAnim.stop();
-                                finishRoll();
-                            }
-                            const leaving = currentGroup;
-                            const entering = standbyGroup;
-                            const fresh = snapshot();
-                            if (leaving.payload && leaving.payload.primary === fresh.primary && leaving.payload.secondary === fresh.secondary) {
-                                // 恢复风暴（会话刷新在恢复落地前后各翻一次
-                                // lineKey）会让后一次 roll 打断前一组的动画：
-                                // stop() 把两组停在半途位姿，而旧文本与新文本
-                                // 相等又直接 bail——不归位，组永远停在撕裂态
-                                // （旧行大半可见、新行停在半途下方），整条冻结
-                                // 在旧文本上。打断后的同文本 bail 先回到 resting。
-                                if (wasRolling) {
-                                    leaving.y = 0;
-                                    leaving.opacity = 1;
-                                    entering.y = copy.height;
-                                    entering.opacity = 0;
-                                    leaving.frozen = false;
-                                    entering.frozen = false;
-                                    window.syncWidth();
-                                }
-                                return;
-                            }
-                            rolling = true;
-                            leaving.y = 0;
-                            leaving.opacity = 1;
-                            entering.y = height;
-                            entering.opacity = 0;
-                            // Flip first: the fresh payload's synchronous width
-                            // reports must count as current; assigned while the
-                            // leaving pair still owns the slot they would be
-                            // dropped and the content width would freeze at the
-                            // startup line forever.
-                            currentGroup = entering;
-                            standbyGroup = leaving;
-                            entering.payload = fresh;
-                            leaving.frozenTimeMs = window.renderTime;
-                            leaving.frozen = true;
-                            entering.frozen = false;
-                            rollOutGroup = leaving;
-                            rollInGroup = entering;
-                            rollAnim.start();
-                        }
-
-                        ParallelAnimation {
-                            id: rollAnim
-                            // transform 0.5s cubic-bezier(0.4, 0, 0.2, 1) +
-                            // opacity 0.5s ease；两块相邻平移、互不交叠。
+                            })
+                        onRollingChanged: window.syncWidth()
+                        Behavior on opacity {
                             NumberAnimation {
-                                target: copy.rollOutGroup
-                                property: "y"
-                                to: -copy.height
-                                duration: 500
-                                easing.type: Easing.BezierSpline
-                                easing.bezierCurve: [0.4, 0, 0.2, 1, 1, 1]
-                            }
-                            NumberAnimation {
-                                target: copy.rollOutGroup
-                                property: "opacity"
-                                to: 0
-                                duration: 500
-                            }
-                            NumberAnimation {
-                                target: copy.rollInGroup
-                                property: "y"
-                                from: copy.height
-                                to: 0
-                                duration: 500
-                                easing.type: Easing.BezierSpline
-                                easing.bezierCurve: [0.4, 0, 0.2, 1, 1, 1]
-                            }
-                            NumberAnimation {
-                                target: copy.rollInGroup
-                                property: "opacity"
-                                to: 1
-                                duration: 500
-                            }
-                            onFinished: copy.finishRoll()
-                        }
-
-                        LyricPair {
-                            id: groupA
-                            onPairWidth: function (primary, width) {
-                                copy.applyPairWidth(groupA, primary, width);
-                            }
-                        }
-                        LyricPair {
-                            id: groupB
-                            onPairWidth: function (primary, width) {
-                                copy.applyPairWidth(groupB, primary, width);
+                                duration: Theme.store.motionEnabled ? 180 : 0
                             }
                         }
                     }
