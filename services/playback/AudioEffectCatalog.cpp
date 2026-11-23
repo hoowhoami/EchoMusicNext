@@ -6,8 +6,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QUuid>
-#include <QFutureWatcher>
-#include <QtConcurrentRun>
+#include "CacheCost.h"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -45,7 +44,6 @@ AudioEffectCatalog::AudioEffectCatalog(ApiClient &api, PlaybackAudioControls &co
     : QAbstractListModel(parent), m_cache(std::make_unique<AudioEffectCatalogCache>(cachePath)),
       m_api(api), m_controls(controls)
 {
-    m_searchPool.setMaxThreadCount(1);
     m_next.setSingleShot(true);
     m_next.setInterval(250);
     m_filter.setSingleShot(true);
@@ -62,31 +60,27 @@ AudioEffectCatalog::AudioEffectCatalog(ApiClient &api, PlaybackAudioControls &co
         m_cacheError = error;
         emit changed();
     });
+    connect(m_cache.get(), &AudioEffectCatalogCache::invalidated, this, [this] {
+        if (m_closing)
+            return;
+        emit projectionAboutToChange();
+        m_recovering = true;
+        if (m_request)
+            m_api.cancel(m_request);
+        m_request = 0;
+        m_cacheReady = false;
+        m_verified.clear();
+        for (auto it = m_buckets.begin(); it != m_buckets.end(); ++it) {
+            it->count = 0;
+            resetScope(it.key());
+        }
+    });
     connect(m_cache.get(), &AudioEffectCatalogCache::loaded, this,
             [this](const QJsonObject &scopes) {
                 if (m_closing)
                     return;
-                for (auto it = scopes.begin(); it != scopes.end(); ++it) {
-                    auto &bucket = m_buckets[it.key()];
-                    if (!bucket.rows.isEmpty())
-                        continue;
-                    const auto object = it.value().toObject();
-                    bucket.generation = object.value("generation").toString();
-                    bucket.nextPage = qMax(1, object.value("nextPage").toInt(1));
-                    bucket.total = object.value("total").toInt(-1);
-                    bucket.updated = object.value("updated").toInteger();
-                    bucket.used = object.value("used").toInteger();
-                    bucket.complete = object.value("complete").toBool();
-                    bucket.limited = object.value("limited").toBool();
-                    for (const auto &value : object.value("rows").toArray()) {
-                        auto row = value.toObject().toVariantMap();
-                        row["key"] = entryKey(it.key(), row);
-                        AudioEffectSearch::prepare(row);
-                        if (row.value("_generation").toString() == bucket.generation)
-                            bucket.seen.insert(identity(row));
-                        bucket.rows.append(row);
-                    }
-                }
+                for (auto it = scopes.begin(); it != scopes.end(); ++it)
+                    applyMetadata(it.key(), it.value().toObject());
                 m_cacheReady = true;
                 trim();
                 if (m_buckets[scope()].complete &&
@@ -131,15 +125,9 @@ AudioEffectCatalog::AudioEffectCatalog(ApiClient &api, PlaybackAudioControls &co
     connect(&api, &ApiClient::sessionChanged, this, [this] {
         cancel();
         m_revision = m_api.sessionRevision();
-        for (auto it = m_buckets.begin(); it != m_buckets.end(); ++it) {
+        m_verified.clear();
+        for (auto it = m_buckets.begin(); it != m_buckets.end(); ++it)
             resetScope(it.key());
-            for (auto &row : it->rows) {
-                row.remove("sound_urls");
-                row.remove("vpf_urls");
-                row.remove("unavailable_reason");
-                row.remove("_verified");
-            }
-        }
         m_commonEffect.clear();
         if (m_active && brands())
             m_common = m_api.commonHeadphoneEffect();
@@ -150,7 +138,6 @@ AudioEffectCatalog::AudioEffectCatalog(ApiClient &api, PlaybackAudioControls &co
 AudioEffectCatalog::~AudioEffectCatalog()
 {
     shutdown();
-    m_searchPool.waitForDone();
 }
 QString AudioEffectCatalog::scope() const
 {
@@ -172,7 +159,7 @@ bool AudioEffectCatalog::relevance() const
 }
 int AudioEffectCatalog::cachedCount() const
 {
-    return int(m_buckets.value(scope()).rows.size());
+    return m_buckets.value(scope()).count;
 }
 bool AudioEffectCatalog::complete() const
 {
@@ -242,6 +229,7 @@ void AudioEffectCatalog::setBrowsingActive(bool value)
     if (m_closing || m_active == value)
         return;
     m_active = value;
+    m_suspended = !value;
     if (value) {
         m_cache->load();
         project();
@@ -256,7 +244,11 @@ void AudioEffectCatalog::setBrowsingActive(bool value)
         m_next.stop();
         m_filter.stop();
         ++m_projectionGeneration;
-        m_searchPool.clear();
+        if (m_projectionCanceled)
+            m_projectionCanceled->store(true);
+        // Pausing directory enumeration must not replace a still-presented
+        // card with a cold placeholder. The shared LRU remains bounded even
+        // when the popup is destroyed and allows a warm reopen.
         m_searching = false;
         m_firstRequest = false;
         if (!validating() && m_request) {
@@ -272,15 +264,64 @@ void AudioEffectCatalog::setBrowsingActive(bool value)
 }
 QVariant AudioEffectCatalog::data(const QModelIndex &index, int role) const
 {
-    if (!index.isValid() || index.row() < 0 || index.row() >= m_rows.size() ||
-        role != Qt::UserRole + 1)
+    if (!index.isValid() || index.row() < 0 || index.row() >= m_count || role != Qt::UserRole + 1)
         return {};
-    return decorate(m_rows[index.row()]);
+    if (const auto row = m_window.lookup(index.row()))
+        return decorate(*row);
+    if (m_oversized.first == index.row())
+        return decorate(m_oversized.second);
+    const_cast<AudioEffectCatalog *>(this)->requestWindow(index.row());
+    return QVariantMap{{"_loading", true}};
+}
+void AudioEffectCatalog::requestWindow(int row)
+{
+    if (m_closing || m_searching || m_recovering || row < 0 || row >= m_count)
+        return;
+    const int first = row;
+    for (int pending : m_pendingWindows)
+        if (row >= pending && row < pending + 32)
+            return;
+    if (m_pendingWindows.size() >= 4) {
+        m_wantedWindows.removeAll(first);
+        if (m_wantedWindows.size() >= 4)
+            m_wantedWindows.removeFirst();
+        m_wantedWindows.append(first);
+        return;
+    }
+    m_pendingWindows.insert(first);
+    const auto generation = m_appliedProjection;
+    m_cache->read(
+        m_appliedProjection, first, [this, generation, first](QJsonArray rows, QString error) {
+            if (m_closing || generation != m_appliedProjection)
+                return;
+            m_pendingWindows.remove(first);
+            if (!error.isEmpty()) {
+                m_cacheError = error;
+                emit changed();
+                return;
+            }
+            for (int i = 0; i < rows.size() && first + i < m_count; ++i) {
+                auto row = rows[i].toObject().toVariantMap();
+                if (auto verified = m_verified.lookup(row.value("key").toString());
+                    verified && verified->value("_generation") == row.value("_generation"))
+                    row = *verified;
+                const auto cost = jsonValueCost(QJsonObject::fromVariantMap(row));
+                if (!m_window.insert(first + i, row, ValueCache<int, QVariantMap>::NoExpiry, cost))
+                    m_oversized = {first + i, row};
+            }
+            if (!rows.isEmpty())
+                emit dataChanged(index(first), index(qMin(m_count - 1, first + 31)));
+            if (!m_wantedWindows.isEmpty())
+                requestWindow(m_wantedWindows.takeFirst());
+        });
 }
 QVariantMap AudioEffectCatalog::decorate(QVariantMap effect) const
 {
     if (effect.isEmpty())
         return effect;
+    if (auto verified = m_verified.peek(effect.value("key").toString());
+        verified && verified->value("_generation") == effect.value("_generation"))
+        effect = *verified;
     const auto path = m_controls.downloadedImpulseResponse(identity(effect));
     const bool verified =
         effect.value("_verified").toULongLong() == m_revision &&
@@ -321,6 +362,8 @@ void AudioEffectCatalog::cancel(bool download)
             m_api.cancel(*id);
         *id = 0;
     }
+    m_selecting = false;
+    ++m_selectionGeneration;
     if (!download)
         return;
     m_pendingActivation.clear();
@@ -343,7 +386,8 @@ void AudioEffectCatalog::shutdown()
     cancel();
     m_filter.stop();
     ++m_projectionGeneration;
-    m_searchPool.clear();
+    if (m_projectionCanceled)
+        m_projectionCanceled->store(true);
     m_installer.shutdown();
     m_cache->shutdown();
 }
@@ -351,7 +395,6 @@ void AudioEffectCatalog::resetScope(const QString &key)
 {
     auto &bucket = m_buckets[key];
     bucket.generation = QUuid::createUuid().toString();
-    bucket.seen.clear();
     bucket.nextPage = 1;
     bucket.complete = false;
     bucket.limited = false;
@@ -370,7 +413,7 @@ void AudioEffectCatalog::switchScope()
         resetScope(scope());
     if (bucket.complete && bucket.used - bucket.updated > lifetime)
         resetScope(scope());
-    m_firstRequest = bucket.rows.isEmpty();
+    m_firstRequest = bucket.count == 0;
     trim();
     project();
     schedule();
@@ -381,7 +424,7 @@ void AudioEffectCatalog::selectCategory(const QString &category)
 {
     if (!QStringList{"artist", "headphone", "market"}.contains(category) || m_closing)
         return;
-    if (m_category == category && !m_buckets.value(scope()).rows.isEmpty())
+    if (m_category == category && m_buckets.value(scope()).count > 0)
         return;
     m_category = category;
     m_brand = 0;
@@ -400,9 +443,8 @@ void AudioEffectCatalog::setSort(int sort)
 }
 void AudioEffectCatalog::selectBrand(int row)
 {
-    if (!brands() || row < 0 || row >= m_rows.size())
-        return;
-    activateKey(m_rows[row].value("key").toString());
+    if (brands())
+        activate(row);
 }
 void AudioEffectCatalog::allBrands()
 {
@@ -444,8 +486,8 @@ void AudioEffectCatalog::schedule()
 }
 void AudioEffectCatalog::step()
 {
-    if (m_closing || !m_cacheReady || m_request || !m_downloading.isEmpty() ||
-        m_pendingActivation == "common")
+    if (m_closing || !m_cacheReady || m_writing || m_selecting || m_request ||
+        !m_downloading.isEmpty() || m_pendingActivation == "common")
         return;
     const auto key = validating() ? m_pendingActivation.section('|', 0, 0) : scope();
     const auto bucket = m_buckets.value(key);
@@ -514,124 +556,100 @@ void AudioEffectCatalog::succeeded(quint64 id, const QByteArray &bytes)
     m_request = 0;
     acceptPage(m_requestScope.isEmpty() ? scope() : m_requestScope, document.object());
 }
+void AudioEffectCatalog::applyMetadata(const QString &key, const QJsonObject &object)
+{
+    auto &bucket = m_buckets[key];
+    bucket.generation = object.value("generation").toString();
+    bucket.nextPage = qMax(1, object.value("nextPage").toInt(1));
+    bucket.total = object.value("total").toInt(-1);
+    bucket.count = object.value("count").toInt();
+    bucket.updated = object.value("updated").toInteger();
+    bucket.used = object.value("used").toInteger();
+    bucket.complete = object.value("complete").toBool();
+    bucket.limited = object.value("limited").toBool();
+    bucket.error = object.value("error").toString();
+}
 void AudioEffectCatalog::acceptPage(const QString &key, const QJsonObject &page)
 {
     auto &bucket = m_buckets[key];
     if (bucket.generation.isEmpty())
         resetScope(key);
-    const auto items = page.value("items").toArray();
-    int novel = 0;
-    QHash<QString, int> indices;
-    for (int i = 0; i < bucket.rows.size(); ++i)
-        indices.insert(identity(bucket.rows[i]), i);
-    QList<QVariantMap> changedRows;
-    for (const auto &value : items) {
-        auto row = value.toObject().toVariantMap();
-        if (key == "headphone/0")
-            row.insert("source", "brand");
-        const auto id = identity(row);
-        const auto old = indices.value(id, -1);
-        const bool sameGeneration =
-            old >= 0 && bucket.rows[old].value("_generation").toString() == bucket.generation;
-        if (bucket.seen.contains(id) && sameGeneration && key.startsWith("headphone/") &&
-            key != "headphone/0" && bucket.rows[old].value("name") != row.value("name") &&
-            !bucket.rows[old].value("aliases").toStringList().contains(
-                row.value("name").toString()))
-            ++novel;
-        if (!bucket.seen.contains(id)) {
-            bucket.seen.insert(id);
-            ++novel;
-        }
-        QStringList aliases = row.value("aliases").toStringList();
-        if (sameGeneration) {
-            aliases.append(bucket.rows[old].value("aliases").toStringList());
-            if (key.startsWith("headphone/") && key != "headphone/0")
-                aliases.append(bucket.rows[old].value("name").toString());
-        }
-        aliases.removeAll(row.value("name").toString());
-        aliases.removeDuplicates();
-        row["aliases"] = aliases;
-        row["key"] = entryKey(key, row);
-        row["_generation"] = bucket.generation;
-        row["_ordinal"] =
-            old >= 0 && bucket.rows[old].value("_generation").toString() == bucket.generation
-                ? bucket.rows[old].value("_ordinal").toInt()
-                : bucket.seen.size() - 1;
-        row["_verified"] = m_revision;
-        row["_verifiedAt"] = QDateTime::currentMSecsSinceEpoch();
-        AudioEffectSearch::prepare(row);
-        if (old >= 0)
-            bucket.rows[old] = row;
-        else {
-            indices.insert(id, bucket.rows.size());
-            bucket.rows.append(row);
-        }
-        changedRows.append(row);
-    }
-    bucket.total = page.value("total").isDouble() ? page.value("total").toInt(-1) : -1;
-    bucket.error.clear();
-    m_error.clear();
-    ++bucket.nextPage;
-    if (items.isEmpty()) {
-        bucket.complete = true;
-        bucket.updated = QDateTime::currentMSecsSinceEpoch();
-        bucket.rows.removeIf(
-            [&](const QVariantMap &row) { return !bucket.seen.contains(identity(row)); });
-    } else if (!novel) {
-        --bucket.nextPage;
-        bucket.error = tr("服务重复返回相同目录，已暂停；可刷新重试");
-    } else if (bucket.rows.size() >= 10000 || bucket.nextPage > 1000)
-        bucket.limited = true;
-    std::stable_sort(bucket.rows.begin(), bucket.rows.end(), [](const auto &a, const auto &b) {
-        return a.value("_ordinal").toInt() < b.value("_ordinal").toInt();
-    });
-    persist(key, changedRows);
-    if (key == scope())
-        project();
-    if (validating() && m_pendingActivation.startsWith(key + '|')) {
-        const auto selected = findEntry(m_pendingActivation);
-        if (selected && selected->value("_verified").toULongLong() == m_revision &&
-            selected->value("_generation").toString() == bucket.generation) {
-            const auto effect = *selected;
-            m_pendingActivation.clear();
-            beginDownload(effect);
-        } else if (bucket.complete || bucket.limited || !bucket.error.isEmpty()) {
-            m_pendingActivation.clear();
-            emit notice(bucket.complete ? tr("此音效已下架或当前账号不可见")
-                                        : tr("目录尚未完整加载，无法确认此音效，请重试"),
-                        true);
-        }
-    }
-    trim();
-    schedule();
-    emit changed();
-}
-void AudioEffectCatalog::persist(const QString &key, const QList<QVariantMap> &rows)
-{
-    const auto &bucket = m_buckets[key];
-    QJsonObject metadata{{"generation", bucket.generation}, {"count", bucket.rows.size()},
-                         {"nextPage", bucket.nextPage},     {"total", bucket.total},
-                         {"updated", bucket.updated},       {"used", bucket.used},
-                         {"complete", bucket.complete},     {"limited", bucket.limited}};
-    QJsonArray publicRows;
-    for (const auto &row : rows) {
-        QJsonObject value;
-        for (const auto &field :
-             {"id", "source", "name", "author", "intro", "labels", "icon_url", "model_count",
-              "user_count", "aliases", "_generation", "_ordinal"})
-            if (row.contains(field))
-                value[field] = QJsonValue::fromVariant(row.value(field));
-        value["_identity"] = identity(row);
-        publicRows.append(value);
-    }
-    m_cache->save(key, metadata, publicRows, bucket.complete);
+    const auto generation = bucket.generation;
+    const auto revision = m_revision;
+    QJsonObject metadata{
+        {"generation", generation},
+        {"count", bucket.count},
+        {"nextPage", bucket.nextPage},
+        {"total", page.value("total").isDouble() ? page.value("total").toInt(-1) : -1},
+        {"updated", bucket.updated},
+        {"used", bucket.used},
+        {"complete", false},
+        {"limited", false}};
+    m_writing = true;
+    m_cache->ingest(
+        key, metadata, page.value("items").toArray(),
+        [this, key, generation, revision](QJsonObject metadata, QJsonArray rows, QString error) {
+            if (m_closing)
+                return;
+            m_writing = false;
+            if (revision != m_revision || m_buckets[key].generation != generation) {
+                schedule();
+                return;
+            }
+            if (!error.isEmpty()) {
+                m_requestScope = key;
+                failRead(tr("音效目录缓存写入失败：%1").arg(error));
+                return;
+            }
+            applyMetadata(key, metadata);
+            m_error.clear();
+            m_cacheError.clear();
+            QVariantMap selected;
+            for (const auto &value : rows) {
+                auto row = value.toObject().toVariantMap();
+                row["_verified"] = revision;
+                row["_verifiedAt"] = QDateTime::currentMSecsSinceEpoch();
+                const auto rowKey = row.value("key").toString();
+                if (m_pendingActivation == rowKey)
+                    selected = row;
+                const auto cost = jsonValueCost(QJsonObject::fromVariantMap(row));
+                for (int position : m_window.keys()) {
+                    const auto existing = m_window.peek(position);
+                    if (!existing || existing->value("key") != rowKey)
+                        continue;
+                    if (!m_window.insert(position, row, ValueCache<int, QVariantMap>::NoExpiry,
+                                         cost))
+                        m_oversized = {position, row};
+                    emit dataChanged(index(position), index(position));
+                }
+                m_verified.insert(rowKey, row, 60000, cost);
+            }
+            if (key == scope())
+                project();
+            if (validating() && m_pendingActivation.startsWith(key + '|')) {
+                if (!selected.isEmpty()) {
+                    m_pendingActivation.clear();
+                    beginDownload(selected);
+                } else if (m_buckets[key].complete || m_buckets[key].limited ||
+                           !m_buckets[key].error.isEmpty()) {
+                    m_pendingActivation.clear();
+                    emit notice(m_buckets[key].complete
+                                    ? tr("此音效已下架或当前账号不可见")
+                                    : tr("目录尚未完整加载，无法确认此音效，请重试"),
+                                true);
+                }
+            }
+            trim();
+            schedule();
+            emit changed();
+        });
 }
 void AudioEffectCatalog::trim()
 {
     const auto total = [this] {
         int count = 0;
         for (const auto &bucket : std::as_const(m_buckets))
-            count += bucket.rows.size();
+            count += bucket.count;
         return count;
     };
     while (m_buckets.size() > scopeLimit || total() > recordLimit) {
@@ -655,198 +673,252 @@ void AudioEffectCatalog::project(bool debounce)
 {
     ++m_projectionGeneration;
     m_filter.stop();
-    m_searchPool.clear();
+    if (m_projectionCanceled)
+        m_projectionCanceled->store(true);
+    m_projectionDirty = true;
+    m_searching = true;
+    emit changed();
     if (debounce) {
-        m_searching = true;
         m_filter.start();
         return;
     }
-    const auto bucket = m_buckets.value(scope());
-    m_page = bucket.nextPage;
-    m_total = bucket.total;
-    m_more = !bucket.complete && !bucket.limited;
+    if (!m_cacheReady || m_closing || m_projectionRunning)
+        return;
+    m_projectionRunning = true;
+    m_projectionDirty = false;
     const auto generation = m_projectionGeneration;
-    if (bucket.query.trimmed().isEmpty()) {
-        applyProjection(bucket.rows, generation);
-        return;
-    }
-    m_searching = true;
-    emit changed();
-    auto *watcher = new QFutureWatcher<QList<QVariantMap>>(this);
-    connect(
-        watcher, &QFutureWatcher<QList<QVariantMap>>::finished, this, [this, watcher, generation] {
-            watcher->deleteLater();
-            if (m_closing || generation != m_projectionGeneration || watcher->future().isCanceled())
+    const auto view = viewId();
+    const auto anchor = position().value("key").toString();
+    m_projectionCanceled = std::make_shared<std::atomic_bool>(false);
+    m_cache->project(
+        scope(), view, terms(query()), relevance(), generation, m_appliedProjection, anchor,
+        m_projectionCanceled,
+        [this, generation, view, anchor](AudioEffectCatalogCache::Projection result) {
+            m_projectionRunning = false;
+            if (m_closing)
                 return;
-            applyProjection(watcher->result(), generation);
-        });
-    watcher->setFuture(
-        QtConcurrent::run(&m_searchPool, [rows = bucket.rows, words = terms(bucket.query),
-                                          relevance = bucket.relevance] {
-            QList<QPair<int, QVariantMap>> ranked;
-            for (const auto &row : rows) {
-                const auto rank = AudioEffectSearch::rank(row, words);
-                if (rank >= 0)
-                    ranked.append({rank, row});
+            if (generation != m_projectionGeneration || m_projectionDirty) {
+                if (m_projectionDirty)
+                    project();
+                return;
             }
-            if (relevance)
-                std::stable_sort(ranked.begin(), ranked.end(),
-                                 [](const auto &a, const auto &b) { return a.first < b.first; });
-            QList<QVariantMap> result;
-            for (const auto &entry : ranked)
-                result.append(entry.second);
-            return result;
-        }));
-}
-void AudioEffectCatalog::applyProjection(const QList<QVariantMap> &rows, quint64 generation)
-{
-    if (m_closing || generation != m_projectionGeneration)
-        return;
-    // Appending another directory page does not invalidate the visible pool or
-    // touch its scroll position. A different query/order uses the anchor handoff.
-    if (m_projectionView == viewId() && rows.size() >= m_rows.size() &&
-        std::equal(m_rows.cbegin(), m_rows.cend(), rows.cbegin(),
-                   [](const auto &a, const auto &b) { return a.value("key") == b.value("key"); })) {
-        // Revalidation changes authorization and timestamps, not delegate identity.
-        // Retain loaded covers while replacing the affected row values in place.
-        for (int i = 0; i < m_rows.size(); ++i) {
-            if (m_rows[i] != rows[i]) {
-                m_rows[i] = rows[i];
-                emit dataChanged(index(i), index(i), {Qt::UserRole + 1});
+            m_searching = false;
+            m_pendingWindows.clear();
+            m_wantedWindows.clear();
+            m_keyPositions.clear();
+            m_pendingPositions.clear();
+            if (!result.error.isEmpty()) {
+                m_cacheError = result.error;
+                emit changed();
+                return;
             }
-        }
-        if (rows.size() > m_rows.size()) {
-            const auto first = m_rows.size();
-            beginInsertRows({}, first, rows.size() - 1);
-            m_rows.append(rows.sliced(first));
-            endInsertRows();
-        }
-        m_searching = false;
-        emit changed();
-        return;
-    }
-    if (m_projectionView == viewId()) {
-        // Real refreshes can also insert or move an item within a cached page.
-        // Preserve surviving delegates through Qt row operations, with the same
-        // scroll-anchor handoff used for a new projection.
-        emit projectionAboutToChange();
-        QSet<QString> wanted;
-        for (const auto &row : rows)
-            wanted.insert(row.value("key").toString());
-        for (int last = m_rows.size() - 1; last >= 0;) {
-            if (wanted.contains(m_rows[last].value("key").toString())) {
-                --last;
-                continue;
+            m_cacheError.clear();
+            m_page = m_buckets[scope()].nextPage;
+            m_total = m_buckets[scope()].total;
+            m_more = !m_buckets[scope()].complete && !m_buckets[scope()].limited;
+            m_anchorKey = anchor;
+            const int savedRow = position().value("row", -1).toInt();
+            m_anchorPosition = anchor.isEmpty() && savedRow >= 0
+                                   ? (savedRow < result.count ? savedRow : -1)
+                                   : result.anchor;
+            if (m_recovering && m_projectionView == view && m_count &&
+                (!anchor.isEmpty() || savedRow >= 0) && m_anchorPosition < 0 && m_more &&
+                m_buckets[scope()].error.isEmpty()) {
+                // Keep the presented viewport until the original stable anchor
+                // has been refetched. Partial cold data must not collapse it.
+                emit changed();
+                return;
             }
-            int first = last;
-            while (first > 0 && !wanted.contains(m_rows[first - 1].value("key").toString()))
-                --first;
-            beginRemoveRows({}, first, last);
-            m_rows.remove(first, last - first + 1);
-            endRemoveRows();
-            last = first - 1;
-        }
-        QHash<QString, int> positions;
-        for (int i = 0; i < m_rows.size(); ++i)
-            positions.insert(m_rows[i].value("key").toString(), i);
-        for (int i = 0; i < rows.size(); ++i) {
-            const auto key = rows[i].value("key").toString();
-            const int old = positions.value(key, -1);
-            if (old == i)
-                continue;
-            if (old >= 0) {
-                beginMoveRows({}, old, old, {}, i);
-                m_rows.move(old, i);
-                endMoveRows();
-                for (int j = i; j <= old; ++j)
-                    positions[m_rows[j].value("key").toString()] = j;
+            m_recovering = false;
+            const bool retain = result.incremental && m_projectionView == view;
+            m_appliedProjection = generation;
+            if (retain) {
+                if (result.append && result.count > m_count) {
+                    beginInsertRows({}, m_count, result.count - 1);
+                    m_count = result.count;
+                    endInsertRows();
+                }
+                for (const auto &change : result.changes) {
+                    using Change = AudioEffectCatalogCache::Projection::Change;
+                    const auto remap = [&](int row) {
+                        if (change.kind == Change::Insert)
+                            return row >= change.first ? row + change.last - change.first + 1 : row;
+                        if (change.kind == Change::Remove)
+                            return row < change.first   ? row
+                                   : row <= change.last ? -1
+                                                        : row - change.last + change.first - 1;
+                        return row == change.first ? change.destination
+                               : row >= change.destination && row < change.first ? row + 1
+                                                                                 : row;
+                    };
+                    if (change.kind == Change::Insert)
+                        beginInsertRows({}, change.first, change.last);
+                    else if (change.kind == Change::Remove)
+                        beginRemoveRows({}, change.first, change.last);
+                    else
+                        beginMoveRows({}, change.first, change.last, {}, change.destination);
+                    QList<QPair<int, QVariantMap>> hot;
+                    for (int position : m_window.keys()) {
+                        const int target = remap(position);
+                        if (target >= 0)
+                            hot.append({target, *m_window.peek(position)});
+                    }
+                    m_window.clear();
+                    for (const auto &[position, row] : hot)
+                        m_window.insert(position, row, ValueCache<int, QVariantMap>::NoExpiry,
+                                        jsonValueCost(QJsonObject::fromVariantMap(row)));
+                    m_oversized.first = remap(m_oversized.first);
+                    if (m_oversized.first < 0)
+                        m_oversized = {-1, {}};
+                    if (change.kind == Change::Insert) {
+                        m_count += change.last - change.first + 1;
+                        endInsertRows();
+                    } else if (change.kind == Change::Remove) {
+                        m_count -= change.last - change.first + 1;
+                        endRemoveRows();
+                    } else
+                        endMoveRows();
+                }
             } else {
-                int last = i;
-                while (last + 1 < rows.size() &&
-                       !positions.contains(rows[last + 1].value("key").toString()))
-                    ++last;
-                beginInsertRows({}, i, last);
-                for (int j = i; j <= last; ++j)
-                    m_rows.insert(j, rows[j]);
-                endInsertRows();
-                for (int j = i; j < m_rows.size(); ++j)
-                    positions[m_rows[j].value("key").toString()] = j;
-                i = last;
+                emit projectionAboutToChange();
+                beginResetModel();
+                m_window.clear();
+                m_oversized = {-1, {}};
+                m_count = result.count;
+                m_projectionView = view;
+                endResetModel();
+                emit projectionChanged();
             }
-        }
-        for (int i = 0; i < rows.size(); ++i) {
-            if (m_rows[i] != rows[i]) {
-                m_rows[i] = rows[i];
-                emit dataChanged(index(i), index(i), {Qt::UserRole + 1});
-            }
-        }
-        m_searching = false;
-        emit changed();
-        emit projectionChanged();
-        return;
-    }
-    emit projectionAboutToChange();
-    beginResetModel();
-    m_rows = rows;
-    m_projectionView = viewId();
-    for (auto &row : m_rows)
-        if (!row.contains("key"))
-            row["key"] = entryKey(scope(), row);
-    endResetModel();
-    m_searching = false;
-    emit changed();
-    emit projectionChanged();
+            QSet<int> pages;
+            for (int row : m_window.keys())
+                pages.insert(row / 32 * 32);
+            if (pages.isEmpty() && m_count)
+                pages.insert(qMax(0, result.anchor) / 32 * 32);
+            if (!m_suspended)
+                for (int first : pages)
+                    requestWindow(first);
+            if (retain && (positionPending() || (!anchor.isEmpty() && result.anchor >= 0)))
+                emit projectionChanged();
+            if (retain && m_count)
+                emit dataChanged(index(0), index(m_count - 1));
+            emit changed();
+        });
 }
 void AudioEffectCatalog::savePosition(const QString &view, const QString &key, qreal offset,
-                                      qreal y)
+                                      qreal y, int row)
 {
     if (m_closing || !std::isfinite(offset) || !std::isfinite(y))
         return;
     if (!m_positions.contains(view) && m_positions.size() >= 128)
         m_positions.erase(m_positions.begin());
-    m_positions.insert(view, {{"key", key}, {"offset", offset}, {"y", y}});
+    QVariantMap value{{"key", key}, {"offset", offset}, {"y", y}};
+    if (row < 0 && !key.isEmpty())
+        row = indexOfKey(key);
+    if (row >= 0)
+        value["row"] = row;
+    m_positions.insert(view, value);
+    if (view == viewId() && !m_recovering && row >= 0 && row < m_count) {
+        m_anchorKey = key;
+        m_anchorPosition = row;
+    }
 }
 QVariantMap AudioEffectCatalog::position() const
 {
     return m_positions.value(viewId());
 }
+bool AudioEffectCatalog::positionPending() const
+{
+    const auto bucket = m_buckets.value(scope());
+    return (!position().value("key").toString().isEmpty() ||
+            position().value("row", -1).toInt() >= 0) &&
+           m_anchorPosition < 0 && !bucket.complete && !bucket.limited && bucket.error.isEmpty();
+}
 int AudioEffectCatalog::indexOfKey(const QString &key) const
 {
-    for (int i = 0; i < m_rows.size(); ++i)
-        if (m_rows[i].value("key") == key)
-            return i;
+    if (key.isEmpty())
+        return -1;
+    if (key == m_anchorKey && m_anchorPosition >= 0)
+        return m_anchorPosition;
+    for (int row : m_window.keys())
+        if (m_window.peek(row)->value("key") == key)
+            return row;
+    if (auto position = m_keyPositions.lookup(key))
+        return *position;
+    if (!m_closing && !m_searching && key.startsWith(scope() + '|') &&
+        !m_pendingPositions.contains(key) && m_pendingPositions.size() < 4) {
+        m_pendingPositions.insert(key);
+        auto *self = const_cast<AudioEffectCatalog *>(this);
+        const auto generation = m_appliedProjection;
+        self->m_cache->locate(
+            self->m_appliedProjection, key, [self, generation, key](int position) {
+                if (self->m_closing || generation != self->m_appliedProjection)
+                    return;
+                self->m_pendingPositions.remove(key);
+                self->m_keyPositions.insert(key, position, ValueCache<QString, int>::NoExpiry);
+                emit self->changed();
+                if (key == self->position().value("key").toString())
+                    emit self->projectionChanged();
+            });
+    }
     return -1;
 }
 QString AudioEffectCatalog::keyAt(int row) const
 {
-    return row >= 0 && row < m_rows.size() ? m_rows[row].value("key").toString() : QString();
-}
-QVariantMap *AudioEffectCatalog::findEntry(const QString &key)
-{
-    const auto bucketKey = key.section('|', 0, 0);
-    auto it = m_buckets.find(bucketKey);
-    if (it == m_buckets.end())
-        return nullptr;
-    for (auto &row : it->rows)
-        if (entryKey(bucketKey, row) == key)
-            return &row;
-    return nullptr;
+    if (auto entry = m_window.peek(row))
+        return entry->value("key").toString();
+    const_cast<AudioEffectCatalog *>(this)->requestWindow(row);
+    return {};
 }
 void AudioEffectCatalog::activate(int row)
 {
-    if (row == -1)
-        activateKey("common");
-    else if (row >= 0 && row < m_rows.size())
-        activateKey(m_rows[row].value("key").toString());
+    activateKey(row == -1 ? QString("common") : keyAt(row));
 }
 void AudioEffectCatalog::activateKey(const QString &key)
 {
-    if (m_closing || downloading())
+    if (m_closing || downloading() || key.isEmpty())
         return;
-    const auto entry = key == "common" ? &m_commonEffect : findEntry(key);
-    if (!entry || entry->isEmpty())
+    if (key == "common") {
+        activateEffect(key, m_commonEffect);
         return;
-    const auto effect = *entry;
+    }
+    if (auto row = m_verified.lookup(key)) {
+        activateEffect(key, *row);
+        return;
+    }
+    for (int position : m_window.keys()) {
+        const auto row = m_window.peek(position);
+        if (row && row->value("key") == key) {
+            activateEffect(key, *row);
+            return;
+        }
+    }
+    cancel(false);
+    m_selecting = true;
+    const auto generation = ++m_selectionGeneration;
+    emit changed();
+    m_cache->find(key, [this, key, generation](QJsonArray rows, QString error) {
+        if (m_closing || generation != m_selectionGeneration)
+            return;
+        m_selecting = false;
+        if (!error.isEmpty()) {
+            m_cacheError = error;
+            emit changed();
+            return;
+        }
+        if (rows.isEmpty() && m_buckets.contains(key.section('|', 0, 0))) {
+            cancel(false);
+            m_pendingActivation = key;
+            resetScope(key.section('|', 0, 0));
+            schedule();
+        } else if (!rows.isEmpty())
+            activateEffect(key, rows.first().toObject().toVariantMap());
+        emit changed();
+    });
+}
+void AudioEffectCatalog::activateEffect(const QString &key, const QVariantMap &effect)
+{
+    if (effect.isEmpty())
+        return;
     if (effect.value("source") == "brand") {
         m_brand = effect.value("id").toULongLong();
         m_brandName = effect.value("name").toString();
@@ -861,20 +933,16 @@ void AudioEffectCatalog::activateKey(const QString &key)
         beginDownload(effect);
         return;
     }
+    cancel(false);
+    m_pendingActivation = key;
     if (key == "common") {
-        cancel(false);
-        m_pendingActivation = "common";
         m_common = m_api.commonHeadphoneEffect();
         if (!m_common) {
             m_pendingActivation.clear();
             emit notice(tr("无法确认通用耳机音效"), true);
         }
-        emit changed();
-        return;
-    }
-    cancel(false);
-    m_pendingActivation = key;
-    resetScope(key.section('|', 0, 0));
+    } else
+        resetScope(key.section('|', 0, 0));
     schedule();
     emit changed();
 }

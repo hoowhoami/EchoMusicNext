@@ -114,7 +114,7 @@ Rectangle {
             rightPadding: 8
             font: Theme.font(10, 650)
             accent: !!card.effect.active
-            enabled: card.unavailable.length === 0 && !card.effect.active && !card.catalog.downloading
+            enabled: !card.effect._loading && card.unavailable.length === 0 && !card.effect.active && !card.catalog.downloading
             glyph: card.effect.active ? "check" : card.effect.downloaded || card.unavailable.length > 0 ? "" : "cloud-download"
             text: card.effect.active ? qsTr("使用中") : card.unavailable.length > 0 ? qsTr("不可用") : card.effect.downloaded ? qsTr("使用") : card.effect.needs_validation ? qsTr("验证并下载") : qsTr("下载")
             onClicked: card.catalog.activateKey(card.effect.key || "")

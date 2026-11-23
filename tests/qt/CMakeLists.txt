@@ -1027,6 +1027,10 @@ add_test(
         validationFindsLaterPagesAndRetiresRemovedEntries cacheFailuresAndTruncatedCoverage
         largeDirectorySearchAndCoverageLimit cachedRevalidationKeepsStableRowsAndCovers
         combinedEffectsExposeIrWithoutClaimingVpfSupport
+        windowedReadsStayBoundedAndRestoreColdAnchors
+        completelyLostCacheRefetchesWithoutLosingSearchOrPosition
+        unlinkedCachePreservesReadableRecords legacyCacheUpgradeAndOversizedRecordsStayReadable
+        unobservedProjectionKeepsMetadataUpdatesIncremental
 )
 set_tests_properties(effect-catalog PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 add_test(NAME effect-catalog-ui COMMAND echo-effect-catalog-test productionPopupSearchAndReopen)

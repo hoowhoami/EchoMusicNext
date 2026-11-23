@@ -49,6 +49,7 @@ public:
             domain["total"] = total;
         catalog.succeeded(request, QJsonDocument(domain).toJson());
         api.cancel(request);
+        QVERIFY(QTest::qWaitFor([&] { return !catalog.m_writing && !catalog.m_searching; }, 15000));
     }
     static int nextPage(const AudioEffectCatalog &catalog)
     {
@@ -69,6 +70,60 @@ public:
     static void pauseAutomaticRequests(AudioEffectCatalog &catalog)
     {
         catalog.m_next.stop();
+    }
+    static void blockAutomaticRequests(AudioEffectCatalog &catalog)
+    {
+        QObject::disconnect(&catalog.m_next, &QTimer::timeout, &catalog, nullptr);
+    }
+    static void evictWindow(AudioEffectCatalog &catalog)
+    {
+        catalog.m_window.clear();
+        catalog.m_oversized = {-1, {}};
+    }
+    static void unobservedProjection(AudioEffectCatalog &catalog)
+    {
+        auto completed = std::make_shared<bool>(false);
+        catalog.m_cache->project(catalog.scope(), catalog.viewId(), {}, true,
+                                 catalog.m_projectionGeneration + 1000, catalog.m_appliedProjection,
+                                 {}, std::make_shared<std::atomic_bool>(false),
+                                 [completed](auto) { *completed = true; });
+        QVERIFY(QTest::qWaitFor([completed] { return *completed; }, 5000));
+    }
+    static void loseColdSource(AudioEffectCatalog &catalog, const QString &path)
+    {
+        auto &cache = *catalog.m_cache;
+        QMetaObject::invokeMethod(
+            cache.m_worker,
+            [path] {
+                for (const auto &name : QSqlDatabase::connectionNames()) {
+                    if (!name.startsWith("effect-catalog-"))
+                        continue;
+                    auto db = QSqlDatabase::database(name, false);
+                    if (db.databaseName() == path)
+                        db.close();
+                }
+                QFile::remove(path);
+                QFile::remove(path + "-wal");
+                QFile::remove(path + "-shm");
+            },
+            Qt::BlockingQueuedConnection);
+        catalog.m_window.clear();
+    }
+    static quint64 windowCost(const AudioEffectCatalog &catalog)
+    {
+        return catalog.m_window.statistics().cost;
+    }
+    static int windowRows(const AudioEffectCatalog &catalog)
+    {
+        return catalog.m_window.size();
+    }
+    static int verifiedRows(const AudioEffectCatalog &catalog)
+    {
+        return catalog.m_verified.size();
+    }
+    static int pendingReads(const AudioEffectCatalog &catalog)
+    {
+        return catalog.m_pendingWindows.size();
     }
 };
 class ApiClientTestAccess
@@ -119,6 +174,12 @@ QJsonObject effect(int id, QString name, QString author = {}, QString source = "
 }
 QVariantMap row(AudioEffectCatalog &catalog, int index = 0)
 {
+    (void)QTest::qWaitFor(
+        [&] {
+            const auto value = catalog.data(catalog.index(index), Qt::UserRole + 1).toMap();
+            return !value.isEmpty() && !value.value("_loading").toBool();
+        },
+        5000);
     return catalog.data(catalog.index(index), Qt::UserRole + 1).toMap();
 }
 QQuickItem *visual(QQuickItem *root, const QString &name)
@@ -135,6 +196,203 @@ class AudioEffectCatalogTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void windowedReadsStayBoundedAndRestoreColdAnchors()
+    {
+        Session s;
+        auto &catalog = s.catalog();
+        QTRY_VERIFY(AudioEffectCatalogTestAccess::ready(catalog));
+        QJsonArray entries;
+        for (int i = 0; i < 10000; ++i)
+            entries.append(effect(i + 1, QString("Directory %1").arg(i)));
+        AudioEffectCatalogTestAccess::page(catalog, s.api, entries);
+        AudioEffectCatalogTestAccess::page(catalog, s.api, {});
+        QCOMPARE(catalog.rowCount(), 10000);
+        for (int cycle = 0; cycle < 3; ++cycle) {
+            for (int i = 0; i < 10000; i += 997) {
+                QCOMPARE(row(catalog, i).value("id").toInt(), i + 1);
+                QVERIFY(AudioEffectCatalogTestAccess::windowRows(catalog) <= 128);
+                QVERIFY(AudioEffectCatalogTestAccess::windowCost(catalog) <= 1024 * 1024);
+                QVERIFY(AudioEffectCatalogTestAccess::pendingReads(catalog) <= 4);
+            }
+            QVERIFY(AudioEffectCatalogTestAccess::verifiedRows(catalog) <= 100);
+        }
+        const auto key = row(catalog, 7000).value("key").toString();
+        catalog.savePosition(catalog.viewId(), key, -9, 420000);
+        const auto position = catalog.position();
+        catalog.setQuery("Directory 9999");
+        QTRY_VERIFY(!catalog.searching());
+        QCOMPARE(catalog.rowCount(), 1);
+        QCOMPARE(row(catalog).value("id").toInt(), 10000);
+        catalog.setQuery({});
+        QTRY_VERIFY(!catalog.searching());
+        QCOMPARE(catalog.indexOfKey(key), 7000);
+        QTRY_COMPARE(catalog.indexOfKey("artist|artist-5001"), 5000);
+        QCOMPARE(catalog.position(), position);
+        catalog.setBrowsingActive(true);
+        QTRY_VERIFY(!catalog.searching());
+        catalog.setBrowsingActive(false);
+        AudioEffectCatalogTestAccess::evictWindow(catalog);
+        QCOMPARE(row(catalog, 4321).value("id").toInt(), 4322);
+        qInfo() << "Directory count/window rows/window cost/verified rows:" << catalog.cachedCount()
+                << AudioEffectCatalogTestAccess::windowRows(catalog)
+                << AudioEffectCatalogTestAccess::windowCost(catalog)
+                << AudioEffectCatalogTestAccess::verifiedRows(catalog);
+    }
+    void completelyLostCacheRefetchesWithoutLosingSearchOrPosition()
+    {
+        Session s;
+        auto &catalog = s.catalog();
+        QTRY_VERIFY(AudioEffectCatalogTestAccess::ready(catalog));
+        QJsonArray entries;
+        for (int i = 0; i < 200; ++i)
+            entries.append(effect(i + 1, QString("Recovery %1").arg(i)));
+        AudioEffectCatalogTestAccess::page(catalog, s.api, entries);
+        AudioEffectCatalogTestAccess::page(catalog, s.api, {});
+        catalog.setQuery("Recovery");
+        QTRY_VERIFY(!catalog.searching());
+        const auto key = row(catalog, 150).value("key").toString();
+        catalog.savePosition(catalog.viewId(), key, -7, 9600);
+        const auto position = catalog.position();
+        catalog.setBrowsingActive(true);
+        QTRY_VERIFY(!catalog.searching());
+        QSignalSpy notices(&catalog, &AudioEffectCatalog::notice);
+        const auto path =
+            s.settings.files("audio-effect-catalog", SettingsDomain::Device) + "/catalog.sqlite";
+        AudioEffectCatalogTestAccess::loseColdSource(catalog, path);
+        catalog.data(catalog.index(150), Qt::UserRole + 1);
+        QTRY_VERIFY(AudioEffectCatalogTestAccess::request(catalog));
+        QCOMPARE(catalog.query(), QString("Recovery"));
+        QCOMPARE(catalog.position(), position);
+        QVERIFY(catalog.positionPending());
+        QCOMPARE(catalog.rowCount(), 200);
+        AudioEffectCatalogTestAccess::page(catalog, s.api, entries);
+        AudioEffectCatalogTestAccess::page(catalog, s.api, {});
+        QTRY_VERIFY(!catalog.searching());
+        QCOMPARE(catalog.rowCount(), 200);
+        QCOMPARE(catalog.indexOfKey(key), 150);
+        QVERIFY(!catalog.positionPending());
+        QCOMPARE(row(catalog, 150).value("id").toInt(), 151);
+        QCOMPARE(catalog.position(), position);
+        QCOMPARE(notices.size(), 0);
+        catalog.setBrowsingActive(false);
+        QVERIFY(AudioEffectCatalogTestAccess::windowRows(catalog) <= 128);
+    }
+    void unlinkedCachePreservesReadableRecords()
+    {
+        Session s;
+        auto &catalog = s.catalog();
+        QTRY_VERIFY(AudioEffectCatalogTestAccess::ready(catalog));
+        AudioEffectCatalogTestAccess::page(catalog, s.api, {effect(1, "Preserved")});
+        AudioEffectCatalogTestAccess::page(catalog, s.api, {});
+        const auto key = row(catalog).value("key").toString();
+        catalog.savePosition(catalog.viewId(), key, -3, 40);
+        const auto position = catalog.position();
+        const auto path =
+            s.settings.files("audio-effect-catalog", SettingsDomain::Device) + "/catalog.sqlite";
+        if (!QFile::remove(path))
+            QSKIP("Platform prevents deleting an open SQLite file; complete loss is tested "
+                  "separately");
+        catalog.setQuery("Preserved");
+        QTRY_VERIFY(!catalog.searching());
+        QCOMPARE(catalog.rowCount(), 1);
+        QCOMPARE(row(catalog).value("name").toString(), QString("Preserved"));
+        QVERIFY(QFileInfo::exists(path));
+        QCOMPARE(AudioEffectCatalogTestAccess::request(catalog), quint64(0));
+        catalog.setQuery({});
+        QTRY_VERIFY(!catalog.searching());
+        QCOMPARE(catalog.position(), position);
+    }
+    void legacyCacheUpgradeAndOversizedRecordsStayReadable()
+    {
+        QTemporaryDir directory;
+        const auto settings = directory.filePath("settings.ini");
+        QString path;
+        {
+            Session s(settings);
+            auto &catalog = s.catalog();
+            QTRY_VERIFY(AudioEffectCatalogTestAccess::ready(catalog));
+            path = s.settings.files("audio-effect-catalog", SettingsDomain::Device) +
+                   "/catalog.sqlite";
+            QJsonArray rows;
+            for (int i = 0; i < 4; ++i) {
+                auto value = effect(i + 1, QString("Large %1").arg(i), "Legacy writer");
+                value["intro"] = QString(600 * 1024, 'x');
+                rows.append(value);
+            }
+            AudioEffectCatalogTestAccess::page(catalog, s.api, rows);
+            AudioEffectCatalogTestAccess::page(catalog, s.api, {});
+        }
+        {
+            auto db = QSqlDatabase::addDatabase("QSQLITE", "legacy-effect-upgrade");
+            db.setDatabaseName(path);
+            QVERIFY(db.open());
+            QSqlQuery q(db);
+            QVERIFY(q.exec("ALTER TABLE effect_entries DROP COLUMN search"));
+            QVERIFY(q.exec("PRAGMA user_version=1"));
+        }
+        QSqlDatabase::removeDatabase("legacy-effect-upgrade");
+        Session s(settings);
+        auto &catalog = s.catalog();
+        QTRY_VERIFY(AudioEffectCatalogTestAccess::ready(catalog));
+        QTRY_VERIFY(!catalog.searching());
+        QCOMPARE(catalog.cachedCount(), 4);
+        for (int index : {0, 3, 1, 0}) {
+            const auto value = row(catalog, index);
+            QCOMPARE(value.value("id").toInt(), index + 1);
+            QCOMPARE(value.value("intro").toString().size(), 600 * 1024);
+            QVERIFY(!value.contains("sound_urls"));
+        }
+        catalog.setQuery("Legacy writer");
+        QTRY_VERIFY(!catalog.searching());
+        QCOMPARE(catalog.rowCount(), 4);
+    }
+    void realDirectorySnapshotUsesBoundedWindows()
+    {
+        const auto source = qEnvironmentVariable("ECHO_EFFECT_CACHE_SNAPSHOT");
+        if (source.isEmpty())
+            QSKIP("Explicit read-only public-directory snapshot benchmark");
+        Session session;
+        QTemporaryDir directory;
+        const auto path = directory.filePath("catalog.sqlite");
+        QVERIFY(QFile::copy(source, path));
+        AudioEffectCatalog catalog(session.api, *session.playback.audioControls(), nullptr, path);
+        QTRY_VERIFY(AudioEffectCatalogTestAccess::ready(catalog));
+        QTRY_VERIFY(!catalog.searching());
+        for (const auto &category : QStringList{"artist", "headphone", "market"}) {
+            catalog.selectCategory(category);
+            AudioEffectCatalogTestAccess::pauseAutomaticRequests(catalog);
+            for (int sort : category == "market" ? QList<int>{2, 3, 4} : QList<int>{2}) {
+                catalog.setSort(sort);
+                QTRY_VERIFY(!catalog.searching());
+                const int count = catalog.rowCount();
+                QVERIFY(count > 0);
+                for (int cycle = 0; cycle < 3; ++cycle)
+                    for (int index : QList<int>{0, count / 2, count - 1}) {
+                        const auto value = row(catalog, index);
+                        QVERIFY(!value.value("name").toString().isEmpty());
+                        QVERIFY(!value.contains("sound_urls"));
+                        QVERIFY(AudioEffectCatalogTestAccess::windowRows(catalog) <= 128);
+                        QVERIFY(AudioEffectCatalogTestAccess::windowCost(catalog) <= 1024 * 1024);
+                    }
+                const auto last = row(catalog, count - 1);
+                QElapsedTimer elapsed;
+                elapsed.start();
+                catalog.setQuery(last.value("name").toString());
+                QTRY_VERIFY(!catalog.searching());
+                QTRY_VERIFY(catalog.indexOfKey(last.value("key").toString()) >= 0);
+                qInfo() << "Public snapshot category/sort/count/query-ms/hot-rows/hot-cost:"
+                        << category << sort << count << elapsed.elapsed()
+                        << AudioEffectCatalogTestAccess::windowRows(catalog)
+                        << AudioEffectCatalogTestAccess::windowCost(catalog);
+                catalog.setQuery({});
+                QTRY_VERIFY(!catalog.searching());
+                QCOMPARE(catalog.rowCount(), count);
+            }
+        }
+        QSignalSpy closed(&catalog, &AudioEffectCatalog::closed);
+        catalog.shutdown();
+        QTRY_VERIFY(!closed.isEmpty());
+    }
     void searchAcrossPagesAndStableActivation()
     {
         Session s;
@@ -164,7 +422,7 @@ private slots:
         QTRY_VERIFY(!catalog.searching());
         QCOMPARE(row(catalog).value("id").toInt(), 3); // Bounded typo matching.
         catalog.setQuery({});
-        QCOMPARE(catalog.rowCount(), 3);
+        QTRY_COMPARE(catalog.rowCount(), 3);
         QCOMPARE(row(catalog).value("id").toInt(), 1);
     }
     void relevantOrderAndSupersededSearch()
@@ -357,7 +615,7 @@ private slots:
         QSignalSpy resets(&catalog, &QAbstractItemModel::modelReset);
         QSignalSpy changes(&catalog, &QAbstractItemModel::dataChanged);
         QSignalSpy inserted(&catalog, &QAbstractItemModel::rowsInserted);
-        const auto firstKey = catalog.keyAt(0);
+        const auto firstKey = row(catalog).value("key").toString();
         AudioEffectCatalogTestAccess::refreshGeneration(catalog);
         auto refreshed = items.first().toObject();
         refreshed["author"] = "Updated author";
@@ -370,6 +628,34 @@ private slots:
         QCOMPARE(resets.size(), 0);
         QCOMPARE(inserted.size(), 1);
         QCOMPARE(catalog.rowCount(), 101);
+        AudioEffectCatalogTestAccess::page(catalog, s.api, {});
+        QCOMPARE(catalog.rowCount(), 2);
+        QPersistentModelIndex first(catalog.index(0));
+        AudioEffectCatalogTestAccess::refreshGeneration(catalog);
+        AudioEffectCatalogTestAccess::page(catalog, s.api,
+                                           {effect(101, "New effect"), effect(1, "Effect 0")});
+        QCOMPARE(resets.size(), 0);
+        QVERIFY(first.isValid());
+        QCOMPARE(first.row(), 1);
+        QCOMPARE(row(catalog, first.row()).value("id").toInt(), 1);
+    }
+    void unobservedProjectionKeepsMetadataUpdatesIncremental()
+    {
+        Session s;
+        auto &catalog = s.catalog();
+        QAbstractItemModelTester tester(&catalog,
+                                        QAbstractItemModelTester::FailureReportingMode::QtTest);
+        QTRY_VERIFY(AudioEffectCatalogTestAccess::ready(catalog));
+        AudioEffectCatalogTestAccess::page(catalog, s.api,
+                                           {effect(1, "Stable"), effect(2, "Other")});
+        QSignalSpy resets(&catalog, &QAbstractItemModel::modelReset);
+        AudioEffectCatalogTestAccess::unobservedProjection(catalog);
+        AudioEffectCatalogTestAccess::evictWindow(catalog);
+        QCOMPARE(row(catalog, 1).value("id").toInt(), 2);
+        AudioEffectCatalogTestAccess::refreshGeneration(catalog);
+        AudioEffectCatalogTestAccess::page(catalog, s.api, {effect(1, "Stable", "Updated")});
+        QCOMPARE(resets.size(), 0);
+        QCOMPARE(row(catalog).value("author").toString(), QString("Updated"));
     }
     void combinedEffectsExposeIrWithoutClaimingVpfSupport()
     {
@@ -531,9 +817,9 @@ private slots:
             const auto last = row(catalog, count - 1);
             catalog.setQuery(last.value("name").toString());
             QTRY_VERIFY(!catalog.searching());
-            QVERIFY(catalog.indexOfKey(last.value("key").toString()) >= 0);
+            QTRY_VERIFY(catalog.indexOfKey(last.value("key").toString()) >= 0);
             catalog.setQuery({});
-            QCOMPARE(catalog.rowCount(), count);
+            QTRY_COMPARE(catalog.rowCount(), count);
         }
         catalog.setBrowsingActive(false);
     }
@@ -626,6 +912,7 @@ private slots:
         QFETCH(double, scale);
         Session s;
         auto &catalog = s.catalog();
+        AudioEffectCatalogTestAccess::blockAutomaticRequests(catalog);
         QTRY_VERIFY(AudioEffectCatalogTestAccess::ready(catalog));
         QJsonArray rows;
         for (int i = 0; i < 1000; ++i)

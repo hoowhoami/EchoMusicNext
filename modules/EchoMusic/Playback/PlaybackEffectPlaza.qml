@@ -21,10 +21,14 @@ Item {
             return;
         const index = view.indexAt(24, view.contentY + 4);
         const item = index >= 0 ? view.itemAtIndex(index) : null;
-        catalog.savePosition(displayedView, catalog.keyAt(index), item ? item.y - view.contentY : 0, view.contentY);
+        const key = catalog.keyAt(index);
+        if (key.length || view.moving || view.dragging || view.EchoWheelScroll.running)
+            catalog.savePosition(displayedView, key, item ? item.y - view.contentY : 0, view.contentY, index);
     }
     function restore() {
         if (!restoring || positioning || !resourceActive)
+            return;
+        if (catalog.positionPending)
             return;
         const view = brands.visible ? brands : effects;
         if (!view.model || view.height <= 0)
@@ -32,7 +36,7 @@ Item {
         positioning = true;
         view.forceLayout();
         const position = catalog.position();
-        const index = position.key ? catalog.indexOfKey(position.key) : -1;
+        const index = position.key ? catalog.indexOfKey(position.key) : (position.row >= 0 && position.row < view.count ? position.row : -1);
         if (index >= 0)
             view.positionViewAtIndex(index, ListView.Beginning);
         view.forceLayout();
@@ -73,12 +77,22 @@ Item {
         id: restoreDeadline
         interval: 500
         onTriggered: {
+            if (plaza.catalog.positionPending) {
+                restart();
+                return;
+            }
             plaza.restore();
             plaza.restoring = false;
         }
     }
     Connections {
         target: plaza.catalog
+        function onDataChanged() {
+            if (plaza.restoring)
+                plaza.restore();
+            else
+                plaza.remember();
+        }
         function onProjectionAboutToChange() {
             plaza.remember();
             plaza.restoring = true;
@@ -346,6 +360,7 @@ Item {
                     id: brand
                     required property int index
                     required property var effect
+                    enabled: !effect._loading
                     width: brands.cellWidth - 7
                     height: brands.cellHeight - 7
                     padding: 8
@@ -364,13 +379,13 @@ Item {
                             spacing: 3
                             Label {
                                 Layout.fillWidth: true
-                                text: brand.effect.name
+                                text: brand.effect.name || ""
                                 elide: Text.ElideRight
                                 color: Theme.floating.text
                                 font: Theme.font(11, Theme.boldWeight)
                             }
                             Label {
-                                text: brand.effect.model_count + qsTr(" 款")
+                                text: brand.effect._loading ? "" : (brand.effect.model_count || 0) + qsTr(" 款")
                                 color: Theme.floating.secondaryText
                                 font: Theme.font(9, Theme.regularWeight)
                             }
