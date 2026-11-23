@@ -180,6 +180,11 @@ bool CommentsController::hasComments() const
     const auto *s = current();
     return s && !s->rows.isEmpty();
 }
+bool CommentsController::hasSingerComments() const
+{
+    const auto *s = current();
+    return m_tab == 0 && s && !s->singerRows.isEmpty();
+}
 bool CommentsController::fetching() const
 {
     const auto k = currentKey();

@@ -41,6 +41,7 @@
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QtTest>
+#include <QtMath>
 #include <ctime>
 #include <functional>
 #ifdef Q_OS_MACOS
@@ -1031,8 +1032,207 @@ Window {
                     click(window, cancel);
                     QTRY_VERIFY(!retiringForm);
                 }
+        DetailsTestAccess::singers(*controller);
+        for (bool compact : {false, true}) {
+            root->setProperty("compact", compact);
+            shell.resetZoom();
+            QVERIFY(QMetaObject::invokeMethod(list, "positionViewAtBeginning"));
+            QQuickItem *singer = nullptr, *dividerRow = nullptr, *ordinary = nullptr;
+            QTRY_VERIFY((singer = rowAt(1)) && (dividerRow = rowAt(2)) && (ordinary = rowAt(3)) &&
+                        visual(singer, "commentCardSurface") &&
+                        visual(dividerRow, "commentSingerDivider") &&
+                        visual(ordinary, "commentCardSurface"));
+            auto *singerCard = visual(singer, "commentCardSurface");
+            auto *divider = visual(dividerRow, "commentSingerDivider");
+            auto *ordinaryCard = visual(ordinary, "commentCardSurface");
+            QVERIFY(singerCard && divider && ordinaryCard);
+            const qreal gap = compact ? 12 : 16;
+            QTRY_VERIFY(qAbs(divider->mapToScene({0, 0}).y() -
+                             singerCard->mapToScene({0, singerCard->height()}).y() - gap) < 1.);
+            QTRY_VERIFY(qAbs(ordinaryCard->mapToScene({0, 0}).y() -
+                             divider->mapToScene({0, divider->height()}).y() - gap) < 1.);
+        }
         root.reset();
         service.shutdown();
+        router.shutdown();
+        QSignalSpy drain(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(drain.size(), 1, 15000);
+        api.shutdown();
+    }
+    void drawerDividersUseSameFloatingStyle()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        RouteController router;
+        DetailsService details(api, playback, router, false);
+        details.registerRoutes(router);
+        QVERIFY(router.navigate("song-detail", {}, "32042818"));
+        auto *song = details.songFor(router.current());
+        QVERIFY(song);
+        DetailsTestAccess::seed(*song);
+        auto *discussion = details.playbackDiscussion();
+        DetailsTestAccess::comments(*discussion->comments(), 5);
+        DetailsTestAccess::singers(*discussion->comments());
+        ThemeStore theme(prefs);
+        theme.setMotionEnabled(false);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Details
+import EchoMusic.Theme
+import EchoMusic.Controls
+import EchoMusic.Playback
+import EchoMusic.Themes
+import EchoMusic.Shell
+Window {
+ id: host
+ required property PlaybackDiscussion discussion
+ required property SongDetailContext detail
+ required property PlaybackService playback
+ required property RouteController router
+ property int kind: 0
+ property real zoom: 1
+ readonly property alias currentDrawer: owner.item
+ visible: true; width: 1000; height: 900; color: Theme.main
+ EchoBackdropRoot {
+  anchors.fill: parent
+  Rectangle { anchors.fill: parent; color: Theme.main }
+ }
+ EchoPopupLoader {
+  id: owner
+  hostItem: host.contentItem
+  sourceComponent: host.kind === 0 ? comments : host.kind === 1 ? song : host.kind === 2 ? appearance : skin
+ }
+ Component { id: comments; PlaybackCommentDrawer { service: host.discussion; uiScale: host.zoom } }
+ Component { id: song; PlaybackSongDetailDrawer { detailContext: host.detail; router: host.router; uiScale: host.zoom } }
+ Component { id: appearance; ThemeAppearanceDrawer { uiScale: host.zoom } }
+ Component { id: skin; LyricSkinDrawer { playback: host.playback; uiScale: host.zoom } }
+ function openDrawer(index: int): void { kind = index; owner.open(); }
+ function closeDrawer(): void { owner.close(); }
+})",
+                          QUrl("qrc:/playback-singer-divider.qml"));
+        QScopedPointer<QObject> root(
+            component.createWithInitialProperties({{"discussion", QVariant::fromValue(discussion)},
+                                                   {"detail", QVariant::fromValue(song)},
+                                                   {"router", QVariant::fromValue(&router)},
+                                                   {"playback", QVariant::fromValue(&playback)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window && Test::prepareNativeInput(window));
+        const auto artifacts = qEnvironmentVariable("ECHO_DETAILS_ARTIFACTS");
+        const QStringList names{"playbackCommentHeaderDivider", "songDetailHeaderDivider",
+                                "appearanceHeaderDivider", "lyricSkinHeaderDivider"};
+        QHash<QString, QColor> referenceLines;
+        QHash<QString, QColor> referenceColors;
+        for (int kind = 0; kind < names.size(); ++kind) {
+            QVERIFY(QMetaObject::invokeMethod(root.data(), "openDrawer", Q_ARG(int, kind)));
+            QObject *drawer = nullptr;
+            QTRY_VERIFY((drawer = root->property("currentDrawer").value<QObject *>()) &&
+                        drawer->property("opened").toBool());
+            for (bool gray : {false, true})
+                for (bool dark : {false, true})
+                    for (qreal scale : {1., 1.25}) {
+                        theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
+                        theme.setFloatingFrosted(gray);
+                        if (gray) {
+                            const auto background = dark ? "#343434" : "#d5d5d5";
+                            const QVariantMap variant{
+                                {"palette", QVariantMap{{"main", background},
+                                                        {"elevated", background},
+                                                        {"border", dark ? "#353535" : "#d6d6d6"}}}};
+                            QVERIFY(theme.overrides().put("comment-gray-background",
+                                                          {{"light", variant}, {"dark", variant}},
+                                                          0, {}));
+                        } else {
+                            theme.overrides().remove("comment-gray-background");
+                        }
+                        root->setProperty("zoom", scale);
+                        QQuickItem *divider = nullptr;
+                        QTRY_VERIFY(
+                            (divider = visual(window->contentItem(),
+                                              kind == 0 ? "commentSingerDivider" : names[kind])));
+                        QCOMPARE(divider->property("thickness").toReal(), 1.);
+                        auto *paint = visual(divider, "dividerAlignedSurface");
+                        QVERIFY(paint && paint->width() > 100 && paint->height() > 0);
+                        Test::FrameSpy frames(window);
+                        window->update();
+                        QTRY_VERIFY(frames.size() > 0);
+                        // Material capture can require another scene update after palette/zoom.
+                        window->update();
+                        QTRY_VERIFY(frames.size() > 1);
+                        const auto image = window->grabWindow();
+                        QVERIFY(!image.isNull());
+                        const auto ratio = qreal(image.width()) / window->width();
+                        const auto center =
+                            paint->mapToScene({paint->width() / 2, paint->height() / 2});
+                        const QPoint pixel(qFloor(center.x() * ratio), qFloor(center.y() * ratio));
+                        const auto line = image.pixelColor(pixel);
+                        const auto background = image.pixelColor(pixel + QPoint(0, -6));
+                        if (!artifacts.isEmpty()) {
+                            QDir().mkpath(artifacts);
+                            QVERIFY(image.save(artifacts + QString("/drawer-%1-%2-%3-%4.png")
+                                                               .arg(kind)
+                                                               .arg(gray ? "gray" : "default")
+                                                               .arg(dark ? "dark" : "light")
+                                                               .arg(scale)));
+                        }
+                        QVERIFY2(
+                            qAbs(line.red() - background.red()) +
+                                    qAbs(line.green() - background.green()) +
+                                    qAbs(line.blue() - background.blue()) >
+                                30,
+                            qPrintable(QString("gray=%1 dark=%2 scale=%3 line=%4 background=%5")
+                                           .arg(gray)
+                                           .arg(dark)
+                                           .arg(scale)
+                                           .arg(line.name())
+                                           .arg(background.name())));
+                        auto *header = visual(window->contentItem(), names[kind]);
+                        QVERIFY(header);
+                        QCOMPARE(header->property("thickness").toReal(), 1.);
+                        QVERIFY(qAbs(header->width() - drawer->property("width").toReal()) < 1.);
+                        auto *headerPaint = visual(header, "dividerAlignedSurface");
+                        QVERIFY(headerPaint);
+                        const auto headerCenter = headerPaint->mapToScene(
+                            {headerPaint->width() / 2, headerPaint->height() / 2});
+                        const QPoint headerPixel(qFloor(headerCenter.x() * ratio),
+                                                 qFloor(headerCenter.y() * ratio));
+                        const auto headerLine = image.pixelColor(headerPixel);
+                        const auto headerBackground = image.pixelColor(headerPixel + QPoint(0, -6));
+                        QVERIFY(qAbs(headerLine.red() - headerBackground.red()) +
+                                    qAbs(headerLine.green() - headerBackground.green()) +
+                                    qAbs(headerLine.blue() - headerBackground.blue()) >
+                                30);
+                        const auto paletteKey = QString("%1/%2/%3").arg(gray).arg(dark).arg(scale);
+                        if (kind == 0) {
+                            referenceLines.insert(paletteKey, headerLine);
+                            referenceColors.insert(paletteKey,
+                                                   header->property("lineColor").value<QColor>());
+                            QCOMPARE(line, headerLine);
+                        } else {
+                            QCOMPARE(header->property("lineColor").value<QColor>(),
+                                     referenceColors.value(paletteKey));
+                            // The same RGBA can differ by one 8-bit level after separate frosted
+                            // captures. Keep the source color exact and bound that quantization.
+                            const auto reference = referenceLines.value(paletteKey);
+                            QVERIFY(qAbs(headerLine.red() - reference.red()) <= 1 &&
+                                    qAbs(headerLine.green() - reference.green()) <= 1 &&
+                                    qAbs(headerLine.blue() - reference.blue()) <= 1);
+                        }
+                        qInfo() << "drawer_divider_paint" << kind << gray << dark << scale
+                                << line.name() << background.name() << headerLine.name()
+                                << headerBackground.name();
+                    }
+            QVERIFY(QMetaObject::invokeMethod(root.data(), "closeDrawer"));
+            QTRY_VERIFY(!root->property("currentDrawer").value<QObject *>());
+        }
+        root.reset();
+        details.shutdown();
         router.shutdown();
         QSignalSpy drain(&playback, &PlaybackService::closed);
         playback.shutdown();
@@ -1065,6 +1265,7 @@ Window {
         QCOMPARE(kind(1), "singerComment");
         QCOMPARE(kind(2), "singerDivider");
         QCOMPARE(kind(3), "comment");
+        QVERIFY(c->hasSingerComments());
         QCOMPARE(c->comment("9001").value("id").toString(), "9001");
         QVERIFY(c->hasMore());
         DetailsTestAccess::pending(*c, 2002, "all", 2);
@@ -1074,6 +1275,7 @@ Window {
         QVERIFY(!c->hasMore());
         QCOMPARE(c->totalText(), "2");
         c->setTab(1);
+        QVERIFY(!c->hasSingerComments());
         DetailsTestAccess::comments(*c, 2, "category:1");
         QCOMPARE(c->model()->rowCount(), 2);
         QCOMPARE(kind(0), "comment");
@@ -2166,7 +2368,7 @@ Window {
                     QVERIFY(header && subTabs);
                     QTRY_VERIFY(qAbs(subTabs->mapToScene(QPointF()).y() -
                                      header->mapToScene(QPointF(0, header->height())).y() -
-                                     42 * scale) < 1.);
+                                     10 * scale) < 1.);
                     QQuickItem *firstRow = nullptr;
                     QTRY_VERIFY(QMetaObject::invokeMethod(commentList, "rowItemAt",
                                                           Q_RETURN_ARG(QQuickItem *, firstRow),
@@ -2208,6 +2410,36 @@ Window {
                     commentList->parentItem()->property("pageContainer").value<QObject *>();
                 QVERIFY(QMetaObject::invokeMethod(container, "resetPosition"));
                 QTRY_VERIFY(visual(window->contentItem(), "commentSingerHeading"));
+                const auto rowAt = [&](int index) {
+                    QQuickItem *item = nullptr;
+                    QMetaObject::invokeMethod(commentList, "rowItemAt",
+                                              Q_RETURN_ARG(QQuickItem *, item), Q_ARG(int, index));
+                    return item;
+                };
+                QQuickItem *singer = nullptr, *dividerRow = nullptr, *ordinary = nullptr;
+                QTRY_VERIFY((singer = rowAt(1)) && (dividerRow = rowAt(2)) &&
+                            (ordinary = rowAt(3)));
+                auto *heading = visual(window->contentItem(), "commentSingerHeading");
+                auto *tabs = visual(window->contentItem(), "commentSections");
+                auto *singerCard = visual(singer, "commentCardSurface");
+                auto *divider = visual(dividerRow, "commentSingerDivider");
+                auto *ordinaryCard = visual(ordinary, "commentCardSurface");
+                QVERIFY(heading && tabs && singerCard && divider && ordinaryCard);
+                auto *selection = visual(tabs, "tabSelection");
+                auto *selectedTab = visual(tabs, "tab-0");
+                QVERIFY(selection && selectedTab);
+                QTRY_VERIFY(qAbs(selection->x() - selectedTab->x()) < .01);
+                QTRY_VERIFY(qAbs(heading->mapToScene({0, 0}).y() -
+                                 tabs->mapToScene({0, tabs->height()}).y() - 18 * scale) < 1.);
+                QTRY_VERIFY(qAbs(singerCard->mapToScene({0, 0}).y() -
+                                 heading->mapToScene({0, heading->height()}).y() - 10 * scale) <
+                            1.);
+                QTRY_VERIFY(qAbs(divider->mapToScene({0, 0}).y() -
+                                 singerCard->mapToScene({0, singerCard->height()}).y() -
+                                 16 * scale) < 1.);
+                QTRY_VERIFY(qAbs(ordinaryCard->mapToScene({0, 0}).y() -
+                                 divider->mapToScene({0, divider->height()}).y() - 16 * scale) <
+                            1.);
                 auto *content = visual(window->contentItem(), "commentContent");
                 auto *toggle = visual(window->contentItem(), "commentThreadToggle");
                 QVERIFY(content && toggle);

@@ -7,6 +7,8 @@
 #include <QAbstractItemModelTester>
 #include <QCryptographicHash>
 #include <QDataStream>
+#include <QDir>
+#include <QJsonArray>
 #include <QFile>
 #include <QJsonDocument>
 #include <QLibrary>
@@ -59,6 +61,123 @@ private slots:
         std::atomic_bool canceled = false;
         QVERIFY(nextSnapshot->waitForWriters(canceled));
         installer.shutdown();
+    }
+    void actualVpfAndCombinedResourcesReachImportedProvider()
+    {
+        const auto library = qEnvironmentVariable("ECHO_DSP_TEST_PROVIDER");
+        const auto resources = qEnvironmentVariable("ECHO_DSP_TEST_RESOURCES");
+        if (library.isEmpty() || resources.isEmpty())
+            QSKIP("Requires an explicitly supplied private Provider and real VPF/IR resources");
+        QTemporaryDir directory;
+        SettingsStore settings(directory.filePath("preferences.ini"));
+        NativeBridge native;
+        AudioEngine engine;
+        QSignalSpy events(&engine, &AudioEngine::eventReceived),
+            closed(&engine, &AudioEngine::closed);
+        QTRY_VERIFY_WITH_TIMEOUT(seen(events, "ready"), 15000);
+        PlaybackAudioControls audio(engine, native, settings);
+        // This short-lived controls owner retires event captures before engine drain.
+        connect(&engine, &AudioEngine::eventReceived, &audio, &PlaybackAudioControls::handleEvent);
+        audio.initialize();
+        QTRY_VERIFY_WITH_TIMEOUT(!audio.providers()->busy(), 5000);
+        audio.providers()->importFile(QUrl::fromLocalFile(library));
+        QTRY_VERIFY_WITH_TIMEOUT(!audio.effectPending() && audio.supportsVpf(), 15000);
+        const auto providerId = audio.providerId();
+        const auto root = audio.effectFilesRoot();
+        QVERIFY(QDir().mkpath(root));
+        const auto ir = root + "/combined.wav", vpf = root + "/combined.vpf";
+        QVERIFY(QFile::copy(resources + "/impulse-response.wav", ir));
+        QVERIFY(QFile::copy(resources + "/effect.vpf", vpf));
+        audio.registerImpulseResponse(ir, "Combined", "market-combined", true, vpf);
+        QVERIFY(!audio.partialImpulseResponse(ir));
+        const auto silence = directory.filePath("silence.wav");
+        QFile silentFile(silence);
+        QVERIFY(silentFile.open(QIODevice::WriteOnly));
+        QDataStream stream(&silentFile);
+        stream.setByteOrder(QDataStream::LittleEndian);
+        const QByteArray pcm(48000 * 4 * 10, '\0');
+        stream.writeRawData("RIFF", 4);
+        stream << quint32(36 + pcm.size());
+        stream.writeRawData("WAVEfmt ", 8);
+        stream << quint32(16) << quint16(1) << quint16(2) << quint32(48000) << quint32(192000)
+               << quint16(4) << quint16(16);
+        stream.writeRawData("data", 4);
+        stream << quint32(pcm.size());
+        stream.writeRawData(pcm.constData(), pcm.size());
+        silentFile.close();
+        engine.command(AudioEngine::Volume, 0);
+        engine.load(silence, 1);
+        QTRY_VERIFY_WITH_TIMEOUT(seen(events, "file-loaded"), 10000);
+        engine.command(AudioEngine::Play);
+        QTRY_COMPARE_WITH_TIMEOUT(audio.graph().value("provider_id").toString(), providerId, 10000);
+        audio.selectImpulseResponse(ir);
+        QTRY_VERIFY_WITH_TIMEOUT(!audio.effectPending(), 10000);
+        QVERIFY2(audio.errorMessage().isEmpty(), qPrintable(audio.errorMessage()));
+        auto resourceJson = audio.graph().value("provider_resource_json").toString().toUtf8();
+        const auto resourceList = QJsonDocument::fromJson(resourceJson).array();
+        QCOMPARE(resourceList.size(), 2);
+        QSet<QString> kinds;
+        for (const auto &resource : resourceList)
+            kinds.insert(resource.toObject().value("kind").toString());
+        QVERIFY(kinds.contains("vpf") && kinds.contains("impulse-response"));
+        const auto resourceState = [&audio] {
+            return QJsonDocument::fromJson(
+                       audio.graph().value("provider_state_json").toString().toUtf8())
+                .object()
+                .value("opaque")
+                .toObject()
+                .value("resourceReference")
+                .toObject();
+        };
+        QTRY_VERIFY2_WITH_TIMEOUT(resourceState().value("vpfLoaded").toBool(),
+                                  qPrintable(audio.graph().value("provider_state_json").toString()),
+                                  10000);
+        QVERIFY(resourceState().value("impulseResponseLoaded").toBool());
+        audio.deactivateProvider();
+        QTRY_VERIFY_WITH_TIMEOUT(!audio.effectPending(), 10000);
+        QVERIFY(audio.providerId().isEmpty());
+        QVERIFY(audio.impulseEnabled());
+        QVERIFY(audio.partialImpulseResponse(ir));
+        QVERIFY(audio.errorMessage().isEmpty());
+        audio.setImpulseMix(0.4);
+        audio.setImpulseMixMode("reverb");
+        QTRY_VERIFY_WITH_TIMEOUT(!audio.effectPending(), 10000);
+        QVERIFY2(audio.errorMessage().isEmpty(), qPrintable(audio.errorMessage()));
+        audio.activateProvider(providerId);
+        QTRY_VERIFY_WITH_TIMEOUT(!audio.effectPending(), 10000);
+        QVERIFY(audio.supportsVpf());
+        QVERIFY(!audio.partialImpulseResponse(ir));
+        audio.registerImpulseResponse(vpf, "VPF only", "market-vpf", true, vpf);
+        audio.selectImpulseResponse(vpf);
+        QTRY_VERIFY_WITH_TIMEOUT(!audio.effectPending(), 10000);
+        QVERIFY2(audio.errorMessage().isEmpty(), qPrintable(audio.errorMessage()));
+        QCOMPARE(QJsonDocument::fromJson(
+                     audio.graph().value("provider_resource_json").toString().toUtf8())
+                     .array()
+                     .size(),
+                 1);
+        events.clear();
+        engine.load(silence, 2);
+        QTRY_VERIFY_WITH_TIMEOUT(seen(events, "file-loaded"), 10000);
+        engine.command(AudioEngine::Play);
+        QTRY_VERIFY2_WITH_TIMEOUT(resourceState().value("vpfLoaded").toBool() &&
+                                      !resourceState().value("impulseResponseLoaded").toBool(),
+                                  qPrintable(audio.graph().value("provider_state_json").toString()),
+                                  10000);
+        audio.deactivateProvider();
+        QTRY_VERIFY_WITH_TIMEOUT(!audio.effectPending(), 10000);
+        QVERIFY(!audio.impulseEnabled());
+        audio.selectImpulseResponse(vpf);
+        QVERIFY(!audio.impulseEnabled());
+        QVERIFY(audio.errorMessage().contains("VPF"));
+        audio.removeImpulseResponse(ir);
+        QVERIFY(!QFileInfo::exists(ir));
+        // VPF can be shared with a separately registered VPF-only entry.
+        QVERIFY(QFileInfo::exists(vpf));
+        audio.removeImpulseResponse(vpf);
+        QVERIFY(!QFileInfo::exists(vpf));
+        engine.shutdown();
+        QTRY_VERIFY_WITH_TIMEOUT(!closed.isEmpty(), 10000);
     }
     void importLifecycle_data()
     {

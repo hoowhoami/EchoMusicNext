@@ -1025,7 +1025,8 @@ add_test(
         relevantOrderAndSupersededSearch categoriesBrandsAndAliasesRetainTheirQueries
         completenessPauseResumeAndRepeatedPage diskCacheNeverRestoresAuthorizationOrSignedUrls
         validationFindsLaterPagesAndRetiresRemovedEntries cacheFailuresAndTruncatedCoverage
-        largeDirectorySearchAndCoverageLimit
+        largeDirectorySearchAndCoverageLimit cachedRevalidationKeepsStableRowsAndCovers
+        combinedEffectsExposeIrWithoutClaimingVpfSupport
 )
 set_tests_properties(effect-catalog PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 add_test(NAME effect-catalog-ui COMMAND echo-effect-catalog-test productionPopupSearchAndReopen)
@@ -1696,6 +1697,10 @@ target_link_libraries(
             echo_shellplugin
             echo_music
             echo_musicplugin
+            echo_playback
+            echo_playbackplugin
+            echo_themes
+            echo_themesplugin
             echo_playback_service
             Qt6::Quick
             Qt6::Sql

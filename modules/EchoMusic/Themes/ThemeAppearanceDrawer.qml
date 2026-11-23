@@ -87,7 +87,8 @@ Popup {
             onCloseRequested: drawer.close()
         }
         EchoDivider {
-            lineColor: Theme.floatingBorder
+            objectName: "appearanceHeaderDivider"
+            lineColor: Theme.floating.surfaceOutline
             Layout.fillWidth: true
         }
         ScrollView {
@@ -241,7 +242,7 @@ Popup {
                     }
                 }
                 EchoDivider {
-                    lineColor: Theme.floatingBorder
+                    lineColor: Theme.floating.surfaceOutline
                     Layout.fillWidth: true
                     Layout.leftMargin: 24
                     Layout.rightMargin: 24
@@ -290,7 +291,7 @@ Popup {
                     }
                 }
                 EchoDivider {
-                    lineColor: Theme.floatingBorder
+                    lineColor: Theme.floating.surfaceOutline
                     Layout.fillWidth: true
                     Layout.leftMargin: 24
                     Layout.rightMargin: 24
@@ -343,7 +344,7 @@ Popup {
                     }
                 }
                 EchoDivider {
-                    lineColor: Theme.floatingBorder
+                    lineColor: Theme.floating.surfaceOutline
                     Layout.fillWidth: true
                     Layout.leftMargin: 24
                     Layout.rightMargin: 24
@@ -397,7 +398,7 @@ Popup {
                     }
                 }
                 EchoDivider {
-                    lineColor: Theme.floatingBorder
+                    lineColor: Theme.floating.surfaceOutline
                     Layout.fillWidth: true
                     Layout.leftMargin: 24
                     Layout.rightMargin: 24
@@ -436,7 +437,7 @@ Popup {
             }
         }
         EchoDivider {
-            lineColor: Theme.floatingBorder
+            lineColor: Theme.floating.surfaceOutline
             Layout.fillWidth: true
         }
         EchoButton {

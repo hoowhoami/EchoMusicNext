@@ -92,7 +92,15 @@ public:
     }
     bool loading() const
     {
-        return m_request || m_common || (m_active && !m_cacheReady);
+        if (m_closing)
+            return false;
+        if (m_request || m_common || ((m_active || m_firstRequest) && !m_cacheReady))
+            return true;
+        // Pagination is one loading operation, including the bounded pause between requests.
+        const auto bucket = m_buckets.constFind(scope());
+        return (m_active || m_firstRequest) && bucket != m_buckets.cend() && !bucket->complete &&
+               !bucket->limited && bucket->error.isEmpty() && m_downloading.isEmpty() &&
+               m_pendingActivation != "common";
     }
     QString errorMessage() const
     {
@@ -182,7 +190,9 @@ private:
     QList<QVariantMap> m_rows;
     QVariantMap m_downloading, m_commonEffect;
     QStringList m_urls;
-    QString m_category = "artist", m_brandName, m_error, m_destination;
+    QString m_category = "artist", m_brandName, m_error, m_destination, m_vpfDestination;
+    QStringList m_vpfUrls;
+    bool m_downloadingVpf = false;
     quint64 m_revision = 0, m_request = 0, m_common = 0, m_brand = 0;
     int m_page = 1, m_total = 0, m_sort = 2;
     bool m_more = true, m_closing = false;

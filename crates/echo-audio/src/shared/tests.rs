@@ -301,6 +301,34 @@ fn playback_reset_cancels_a_waiting_transition_dsp_request() {
 }
 
 #[test]
+fn provider_graph_change_coalesces_and_preserves_latest_state() {
+    let shared = SharedAudio::new(
+        MixFormat::stereo_f32(48_000),
+        0.1,
+        8.0,
+        &DspSettings::default(),
+    );
+    let (wake_rx, _telemetry_rx) = bind_test_signal_senders(&shared);
+    let descriptor = ProviderDescriptor {
+        id: "provider".to_string(),
+        state_json: r#"{"loaded":true}"#.to_string(),
+        ..ProviderDescriptor::default()
+    };
+    shared.set_provider_descriptor(Some(descriptor.clone()));
+    shared.set_provider_descriptor(None);
+    shared.set_provider_descriptor(Some(descriptor.clone()));
+    assert_eq!(wake_rx.try_recv(), Ok(()));
+    assert_eq!(
+        shared.take_pending_control_signal(),
+        Some(PlaybackSignal::AudioGraphChanged)
+    );
+    assert_eq!(shared.provider_descriptor(), Some(descriptor.clone()));
+    assert_eq!(shared.take_pending_control_signal(), None);
+    shared.set_provider_descriptor(Some(descriptor));
+    assert_eq!(shared.take_pending_control_signal(), None);
+}
+
+#[test]
 fn provider_descriptor_cache_survives_runtime_gain_but_invalidates_provider_changes() {
     let settings = DspSettings {
         provider_path: Some("provider.dylib".to_string()),

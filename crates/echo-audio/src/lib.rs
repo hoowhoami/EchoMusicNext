@@ -965,6 +965,19 @@ fn prepare_source(
                                 emit_shared_event(&signal_shared, PlayerEvent::output_stats(stats));
                             }
                         }
+                        PlaybackSignal::AudioGraphChanged => {
+                            let graph_shared = signal_shared.clone();
+                            dispatch_core_command(
+                                "audio-graph-changed",
+                                Box::new(move |runtime| {
+                                    if runtime.session.as_ref().is_some_and(|session| {
+                                        Arc::ptr_eq(&session.shared, &graph_shared)
+                                    }) {
+                                        update_runtime_audio_graph(runtime);
+                                    }
+                                }),
+                            );
+                        }
                         PlaybackSignal::NormalizationGainApplied { track_seq, gain_db, stage, captured_at, generation, output_position_secs } => {
                             emit_shared_event(
                                 &signal_shared,

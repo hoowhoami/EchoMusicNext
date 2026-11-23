@@ -100,6 +100,13 @@ impl SharedAudio {
             return Some(signal);
         }
 
+        if self
+            .pending_audio_graph_change
+            .swap(false, Ordering::AcqRel)
+        {
+            return Some(PlaybackSignal::AudioGraphChanged);
+        }
+
         self.pending_playback_end
             .swap(false, Ordering::AcqRel)
             .then_some(PlaybackSignal::PlaybackEnd)

@@ -98,7 +98,8 @@ AudioEffectCatalog::AudioEffectCatalog(ApiClient &api, PlaybackAudioControls &co
     connect(&m_installer, &ImpulseResponseInstaller::progress, this,
             [this](quint64 generation, double progress) {
                 if (!m_closing && generation == m_downloadGeneration) {
-                    m_progress = progress;
+                    const bool combined = !m_urls.isEmpty() && !m_vpfUrls.isEmpty();
+                    m_progress = combined ? (m_downloadingVpf ? .5 : 0.) + progress * .5 : progress;
                     emit changed();
                 }
             });
@@ -294,6 +295,22 @@ QVariantMap AudioEffectCatalog::decorate(QVariantMap effect) const
         effect.remove("vpf_urls");
         effect.remove("unavailable_reason");
     }
+    const auto soundUrls = effect.value("sound_urls").toList();
+    const bool hasIr = std::any_of(soundUrls.cbegin(), soundUrls.cend(), [](const QVariant &url) {
+        return resource(QUrl(url.toString()));
+    });
+    const bool hasVpf = !effect.value("vpf_urls").toList().isEmpty();
+    const bool partial = path.isEmpty() ? hasIr && hasVpf && !m_controls.supportsVpf()
+                                        : m_controls.partialImpulseResponse(path);
+    effect.insert("partial", partial);
+    effect.insert("support_text", partial ? tr("仅使用 IR 卷积，未应用 VPF 参数") : QString());
+    if (!path.isEmpty() && QFileInfo(path).suffix() == "vpf" && !m_controls.supportsVpf())
+        effect.insert("unavailable_reason", tr("此音效仅含 VPF 参数，需要启用支持 VPF 的音效引擎"));
+    if (verified && path.isEmpty() && effect.value("unavailable_reason").toString().isEmpty() &&
+        !hasIr && (!m_controls.supportsVpf() || !hasVpf))
+        effect.insert("unavailable_reason",
+                      hasVpf ? tr("此音效仅含 VPF 参数，需要启用支持 VPF 的音效引擎")
+                             : tr("此音效没有可用的脉冲响应资源"));
     return effect;
 }
 void AudioEffectCatalog::cancel(bool download)
@@ -308,7 +325,12 @@ void AudioEffectCatalog::cancel(bool download)
         return;
     m_pendingActivation.clear();
     ++m_downloadGeneration;
-    m_installer.cancel();
+    // Cancellation and removal share the install worker, after any in-flight commit.
+    m_installer.cancel({m_destination, m_vpfDestination});
+    m_destination.clear();
+    m_vpfDestination.clear();
+    m_vpfUrls.clear();
+    m_downloadingVpf = false;
     m_downloading.clear();
     m_urls.clear();
     m_progress = 0;
@@ -683,7 +705,16 @@ void AudioEffectCatalog::applyProjection(const QList<QVariantMap> &rows, quint64
     // Appending another directory page does not invalidate the visible pool or
     // touch its scroll position. A different query/order uses the anchor handoff.
     if (m_projectionView == viewId() && rows.size() >= m_rows.size() &&
-        std::equal(m_rows.cbegin(), m_rows.cend(), rows.cbegin())) {
+        std::equal(m_rows.cbegin(), m_rows.cend(), rows.cbegin(),
+                   [](const auto &a, const auto &b) { return a.value("key") == b.value("key"); })) {
+        // Revalidation changes authorization and timestamps, not delegate identity.
+        // Retain loaded covers while replacing the affected row values in place.
+        for (int i = 0; i < m_rows.size(); ++i) {
+            if (m_rows[i] != rows[i]) {
+                m_rows[i] = rows[i];
+                emit dataChanged(index(i), index(i), {Qt::UserRole + 1});
+            }
+        }
         if (rows.size() > m_rows.size()) {
             const auto first = m_rows.size();
             beginInsertRows({}, first, rows.size() - 1);
@@ -692,6 +723,66 @@ void AudioEffectCatalog::applyProjection(const QList<QVariantMap> &rows, quint64
         }
         m_searching = false;
         emit changed();
+        return;
+    }
+    if (m_projectionView == viewId()) {
+        // Real refreshes can also insert or move an item within a cached page.
+        // Preserve surviving delegates through Qt row operations, with the same
+        // scroll-anchor handoff used for a new projection.
+        emit projectionAboutToChange();
+        QSet<QString> wanted;
+        for (const auto &row : rows)
+            wanted.insert(row.value("key").toString());
+        for (int last = m_rows.size() - 1; last >= 0;) {
+            if (wanted.contains(m_rows[last].value("key").toString())) {
+                --last;
+                continue;
+            }
+            int first = last;
+            while (first > 0 && !wanted.contains(m_rows[first - 1].value("key").toString()))
+                --first;
+            beginRemoveRows({}, first, last);
+            m_rows.remove(first, last - first + 1);
+            endRemoveRows();
+            last = first - 1;
+        }
+        QHash<QString, int> positions;
+        for (int i = 0; i < m_rows.size(); ++i)
+            positions.insert(m_rows[i].value("key").toString(), i);
+        for (int i = 0; i < rows.size(); ++i) {
+            const auto key = rows[i].value("key").toString();
+            const int old = positions.value(key, -1);
+            if (old == i)
+                continue;
+            if (old >= 0) {
+                beginMoveRows({}, old, old, {}, i);
+                m_rows.move(old, i);
+                endMoveRows();
+                for (int j = i; j <= old; ++j)
+                    positions[m_rows[j].value("key").toString()] = j;
+            } else {
+                int last = i;
+                while (last + 1 < rows.size() &&
+                       !positions.contains(rows[last + 1].value("key").toString()))
+                    ++last;
+                beginInsertRows({}, i, last);
+                for (int j = i; j <= last; ++j)
+                    m_rows.insert(j, rows[j]);
+                endInsertRows();
+                for (int j = i; j < m_rows.size(); ++j)
+                    positions[m_rows[j].value("key").toString()] = j;
+                i = last;
+            }
+        }
+        for (int i = 0; i < rows.size(); ++i) {
+            if (m_rows[i] != rows[i]) {
+                m_rows[i] = rows[i];
+                emit dataChanged(index(i), index(i), {Qt::UserRole + 1});
+            }
+        }
+        m_searching = false;
+        emit changed();
+        emit projectionChanged();
         return;
     }
     emit projectionAboutToChange();
@@ -789,14 +880,9 @@ void AudioEffectCatalog::activateKey(const QString &key)
 }
 void AudioEffectCatalog::beginDownload(const QVariantMap &effect)
 {
-    if (!effect.value("unavailable_reason").toString().isEmpty()) {
-        m_error = effect.value("unavailable_reason").toString();
-        emit changed();
-        emit notice(m_error, true);
-        return;
-    }
-    if (!effect.value("vpf_urls").toList().isEmpty()) {
-        m_error = tr("此音效需要支持 VPF 的音效引擎");
+    const auto available = decorate(effect);
+    if (!available.value("unavailable_reason").toString().isEmpty()) {
+        m_error = available.value("unavailable_reason").toString();
         emit changed();
         emit notice(m_error, true);
         return;
@@ -807,16 +893,26 @@ void AudioEffectCatalog::beginDownload(const QVariantMap &effect)
         if (resource(url))
             m_urls.append(url.toString());
     }
-    if (m_urls.isEmpty()) {
+    m_vpfUrls.clear();
+    for (const auto &raw : effect.value("vpf_urls").toList()) {
+        const QUrl url(raw.toString());
+        if (resource(url))
+            m_vpfUrls.append(url.toString());
+    }
+    if (m_urls.isEmpty() && (m_vpfUrls.isEmpty() || !m_controls.supportsVpf())) {
         m_error = tr("此音效没有可用的脉冲响应资源");
         emit changed();
         emit notice(m_error, true);
         return;
     }
-    m_downloading = effect;
+    m_downloading = available;
     const auto directory = m_controls.effectFilesRoot() + "/downloads";
-    m_destination = directory + "/" + QUuid::createUuid().toString(QUuid::WithoutBraces) + ".irs";
-    m_installer.install(++m_downloadGeneration, m_urls, m_destination);
+    const auto stem = directory + "/" + QUuid::createUuid().toString(QUuid::WithoutBraces);
+    m_vpfDestination = m_vpfUrls.isEmpty() ? QString() : stem + ".vpf";
+    m_downloadingVpf = m_urls.isEmpty();
+    m_destination = m_downloadingVpf ? m_vpfDestination : stem + ".irs";
+    m_installer.install(++m_downloadGeneration, m_downloadingVpf ? m_vpfUrls : m_urls,
+                        m_destination);
     emit changed();
 }
 void AudioEffectCatalog::useDownloaded(const QString &key)
@@ -838,19 +934,36 @@ void AudioEffectCatalog::useDownloaded(const QString &key)
                                                         : m_controls.errorMessage(),
                     true);
     else
-        emit notice(tr("已使用音效"), false);
+        emit notice(m_controls.partialImpulseResponse(path) ? tr("已使用卷积音效，未应用 VPF 参数")
+                                                            : tr("已使用音效"),
+                    false);
 }
 void AudioEffectCatalog::finishDownload(bool success, const QString &error)
 {
+    if (success && !m_downloadingVpf && !m_vpfUrls.isEmpty()) {
+        m_downloadingVpf = true;
+        m_progress = .5;
+        m_installer.install(m_downloadGeneration, m_vpfUrls, m_vpfDestination);
+        emit changed();
+        return;
+    }
     if (success) {
         m_controls.registerImpulseResponse(m_destination, m_downloading.value("name").toString(),
-                                           identity(m_downloading));
+                                           identity(m_downloading), !m_vpfDestination.isEmpty(),
+                                           m_vpfDestination);
         m_error.clear();
         emit downloaded(identity(m_downloading), m_downloading.value("name").toString());
     } else {
         m_error = error.isEmpty() ? tr("音效下载失败") : error;
         emit notice(m_error, true);
     }
+    if (!success) {
+        m_installer.cancel({m_destination, m_vpfDestination});
+    }
+    m_destination.clear();
+    m_vpfDestination.clear();
+    m_vpfUrls.clear();
+    m_downloadingVpf = false;
     m_downloading = {};
     m_urls.clear();
     m_progress = 0;

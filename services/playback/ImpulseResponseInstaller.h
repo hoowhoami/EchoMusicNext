@@ -13,7 +13,7 @@ public:
     explicit ImpulseResponseInstaller(QObject *parent = nullptr);
     ~ImpulseResponseInstaller() override;
     void install(quint64 generation, const QStringList &urls, const QString &destination);
-    void cancel();
+    void cancel(const QStringList &unpublishedPaths = {});
     void shutdown();
 signals:
     void progress(quint64 generation, double value);

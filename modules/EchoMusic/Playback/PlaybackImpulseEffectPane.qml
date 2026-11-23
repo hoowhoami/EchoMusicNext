@@ -68,7 +68,7 @@ ColumnLayout {
                 }
                 Label {
                     Layout.fillWidth: true
-                    text: pane.audio.providerId.length > 0 ? pane.audio.providerName : qsTr("由内置音效引擎处理")
+                    text: pane.audio.impulseEnabled && pane.selectedFile && pane.selectedFile.partial ? pane.selectedFile.support_text : pane.audio.providerId.length > 0 ? pane.audio.providerName : qsTr("由内置音效引擎处理")
                     color: Theme.floating.secondaryText
                     font: Theme.font(9, 550)
                     elide: Text.ElideRight
@@ -108,7 +108,7 @@ ColumnLayout {
         }
     }
     Rectangle {
-        visible: pane.audio.providerId.length === 0
+        visible: pane.audio.providerId.length === 0 && (!pane.selectedFile || pane.selectedFile.has_ir)
         Layout.fillWidth: true
         Layout.leftMargin: 10
         Layout.rightMargin: 10
@@ -134,10 +134,30 @@ ColumnLayout {
                     Layout.fillWidth: true
                 }
                 Label {
-                    text: pane.audio.impulseEnabled ? qsTr("原声与当前音效的混合比例") : qsTr("启用空间音效后可调节")
+                    text: !pane.audio.impulseEnabled ? qsTr("启用空间音效后可调节") : pane.audio.impulseMixMode === "reverb" ? qsTr("保留原声，调节混响叠加量") : qsTr("原声与当前音效的混合比例")
                     font: Theme.font(9, Theme.regularWeight)
                     color: Theme.floating.secondaryText
                 }
+            }
+            EchoSelect {
+                objectName: "impulseMixMode"
+                Layout.fillWidth: true
+                colors: Theme.floating
+                size: EchoControlSize.Compact
+                options: [
+                    {
+                        value: "blend",
+                        label: qsTr("原声 / 音效混合（适合校正 IR）")
+                    },
+                    {
+                        value: "reverb",
+                        label: qsTr("叠加混响（保留原声）")
+                    }
+                ]
+                value: pane.audio.impulseMixMode
+                enabled: pane.audio.impulseEnabled
+                Accessible.name: qsTr("卷积混合方式")
+                onValueEdited: nextValue => pane.audio.impulseMixMode = nextValue
             }
             EchoSlider {
                 Layout.fillWidth: true
@@ -157,7 +177,7 @@ ColumnLayout {
                 spacing: 5
                 Layout.fillWidth: true
                 Label {
-                    text: qsTr("原声")
+                    text: pane.audio.impulseMixMode === "reverb" ? qsTr("无混响") : qsTr("原声")
                     font: Theme.font(9, Theme.semiboldWeight)
                     color: Theme.floating.secondaryText
                 }
@@ -165,7 +185,7 @@ ColumnLayout {
                     Layout.fillWidth: true
                 }
                 Label {
-                    text: qsTr("完整音效")
+                    text: pane.audio.impulseMixMode === "reverb" ? qsTr("最大混响") : qsTr("完整音效")
                     font: Theme.font(9, Theme.semiboldWeight)
                     color: Theme.floating.secondaryText
                 }

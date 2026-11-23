@@ -119,6 +119,8 @@ Item {
                 }
             }
             EchoIconButton {
+                id: refreshButton
+                objectName: "effectPlazaRefresh"
                 Layout.fillWidth: false
                 Layout.fillHeight: false
                 Layout.maximumWidth: 26
@@ -130,6 +132,15 @@ Item {
                 glyph: "refresh"
                 text: qsTr("刷新音效")
                 enabled: !plaza.catalog.loading
+                contentItem: EchoSpinner {
+                    objectName: "effectPlazaRefreshIcon"
+                    visible: !refreshButton.iconCovered && !refreshButton.publicPart.replaced
+                    opacity: refreshButton.enabled ? 1 : refreshButton.disabledOpacity
+                    name: plaza.catalog.loading ? "verification-spinner" : refreshButton.glyph
+                    color: refreshButton.visualForeground
+                    spinning: plaza.catalog.loading
+                    resourceActive: plaza.resourceActive && refreshButton.visualContentActive
+                }
                 onClicked: plaza.catalog.refresh()
             }
         }

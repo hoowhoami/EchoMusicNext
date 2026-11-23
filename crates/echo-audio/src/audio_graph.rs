@@ -149,26 +149,20 @@ pub fn snapshot_filter_graph_with_device_output(
     )
     .map(|tempo| tempo.latency_secs(process_format.sample_rate))
     .unwrap_or_default();
-    // A diagnostic snapshot must not instantiate a Provider: creation can load resources and
-    // initialize a full DSP engine. Provider metadata comes from the active filter graph instead.
-    let builtin_effects = settings.provider_path.is_none().then(|| {
-        DspChain::new(
-            process_format.sample_rate,
-            process_format.channels,
-            settings,
-        )
-        .expect("builtin audio graph should initialize")
-    });
+    // Diagnostics use live Provider metadata or immutable IR latency. Rebuilding a
+    // convolver here would allocate FFT histories for every mix/volume update.
+    let builtin_latency_secs =
+        settings.builtin_effect_latency_secs(process_format.sample_rate, process_format.channels);
     let effect_latency_secs = running_provider
         .map(|provider| {
             f64::from(provider.latency_frames) / f64::from(process_format.sample_rate.max(1))
         })
-        .or_else(|| builtin_effects.as_ref().map(DspChain::latency_secs))
-        .unwrap_or_default();
-    let spatial_latency_secs = builtin_effects
-        .as_ref()
-        .map(DspChain::spatial_latency_secs)
-        .unwrap_or_default();
+        .unwrap_or(builtin_latency_secs);
+    let spatial_latency_secs = if settings.spatial.is_some() {
+        builtin_latency_secs
+    } else {
+        0.0
+    };
     let latency_secs = tempo_latency_secs + effect_latency_secs;
     AudioGraphSnapshot {
         revision: 0.0,
@@ -281,6 +275,7 @@ fn graph_node_snapshot(
     let latency_secs = match node.kind {
         AudioFilterNodeKind::Tempo => tempo_latency_secs,
         AudioFilterNodeKind::Spatial => spatial_latency_secs,
+
         _ => 0.0,
     };
     let parameters = graph_node_parameters(node.kind, settings);
@@ -330,6 +325,14 @@ fn graph_node_parameters(
                 AudioGraphNodeParameterSnapshot {
                     name: "mode".to_string(),
                     value: spatial.mode().to_string(),
+                    unit: None,
+                    min: None,
+                    max: None,
+                    runtime_editable: false,
+                },
+                AudioGraphNodeParameterSnapshot {
+                    name: "mix-mode".to_string(),
+                    value: settings.spatial_mix_mode.name().to_string(),
                     unit: None,
                     min: None,
                     max: None,
@@ -1346,7 +1349,7 @@ mod tests {
                 .iter()
                 .map(|parameter| parameter.name.as_str())
                 .collect::<Vec<_>>(),
-            vec!["mix", "mode", "peak-response", "duration"]
+            vec!["mix", "mode", "mix-mode", "peak-response", "duration"]
         );
         let mix = spatial
             .parameters

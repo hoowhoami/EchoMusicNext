@@ -62,7 +62,7 @@ EchoDrawer {
                 EchoDivider {
                     anchors.bottom: parent.bottom
                     width: parent.width
-                    lineColor: Theme.floating.subtleBorder
+                    lineColor: Theme.floating.surfaceOutline
                 }
             }
             contentItem: RowLayout {
@@ -201,7 +201,7 @@ EchoDrawer {
             background: Item {
                 EchoDivider {
                     width: parent.width
-                    lineColor: Theme.floating.subtleBorder
+                    lineColor: Theme.floating.surfaceOutline
                 }
             }
             contentItem: RowLayout {

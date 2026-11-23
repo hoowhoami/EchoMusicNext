@@ -58,7 +58,8 @@ EchoDrawer {
             onCloseRequested: drawer.close()
         }
         EchoDivider {
-            lineColor: Theme.floatingBorder
+            objectName: "socialHeaderDivider"
+            lineColor: Theme.floating.surfaceOutline
             Layout.fillWidth: true
         }
         EchoTabBar {

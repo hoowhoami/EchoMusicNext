@@ -168,7 +168,7 @@ qreal CommentExtent::estimate(const QVariantMap &entry, const QString &kind) con
     if (kind == "singerHeading")
         return m_compact ? 12 + 13 * 1.5 + 8 : 18 + 13 * 1.5 + 10;
     if (kind == "singerDivider")
-        return m_compact ? 25 : 33;
+        return m_compact ? 17 : 21;
     const qreal outer = m_compact ? 0 : 12;
     const qreal padding = m_compact ? 14 : 20;
     const qreal gap = m_compact ? 8 : 12;

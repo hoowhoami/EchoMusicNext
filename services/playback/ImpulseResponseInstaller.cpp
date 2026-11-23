@@ -14,6 +14,24 @@ namespace
 {
 Q_LOGGING_CATEGORY(effectDownloads, "echo.playback.effect.download")
 constexpr qint64 limit = 64 * 1024 * 1024;
+bool validVpf(const QByteArray &header, qint64 bytes)
+{
+    const QByteArray magic("ViPER4WindowsX");
+    if (!header.startsWith(magic) || header.size() < magic.size() + 4)
+        return false;
+    // EchoMusic's supported legacy resource format requires the freestyle section.
+    if (quint8(header[magic.size() + 3]) != 1)
+        return false;
+    const int sectionSizes[] = {0x170, 0x2e4, 0x2e8, 0x31c};
+    qint64 expected = magic.size() + 4;
+    for (int i = 0; i < 4; ++i) {
+        const auto flag = quint8(header[magic.size() + i]);
+        if (flag > 1)
+            return false;
+        expected += flag ? sectionSizes[i] : 0;
+    }
+    return expected == bytes;
+}
 bool permitted(const QUrl &url)
 {
     const auto host = url.host().toLower();
@@ -29,6 +47,7 @@ public:
         cancel();
         m_generation = generation;
         m_destination = destination;
+        m_vpf = QFileInfo(destination).suffix() == "vpf";
         m_storage = StorageFence::write(destination);
         if (!m_storage) {
             complete(false, tr("备份进行中，请稍后下载音效"));
@@ -70,7 +89,9 @@ private:
         while (m_reply->bytesAvailable() > 0) {
             const auto chunk = m_reply->read(65536);
             m_bytes += chunk.size();
-            if (m_bytes > limit || m_file->write(chunk) != chunk.size())
+            if (m_header.size() < 18)
+                m_header.append(chunk.left(18 - m_header.size()));
+            if (m_bytes > (m_vpf ? 1024 * 1024 : limit) || m_file->write(chunk) != chunk.size())
                 return false;
         }
         return true;
@@ -87,6 +108,7 @@ private:
             return;
         }
         m_bytes = 0;
+        m_header.clear();
         m_throttle.start();
         QNetworkRequest request{QUrl(m_urls[m_url++])};
         // The resource CDN rejects requests without a User-Agent. Keep the
@@ -107,7 +129,7 @@ private:
         });
         connect(reply, &QNetworkReply::downloadProgress, this,
                 [this](qint64 received, qint64 total) {
-                    if (total > limit) {
+                    if (total > (m_vpf ? 1024 * 1024 : limit)) {
                         m_reply->abort();
                         return;
                     }
@@ -120,7 +142,8 @@ private:
             const bool valid =
                 reply->error() == QNetworkReply::NoError &&
                 reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() == 200 &&
-                consume() && m_bytes > 0 && m_bytes <= limit;
+                consume() && m_bytes > 0 && m_bytes <= limit &&
+                (!m_vpf || validVpf(m_header, m_bytes));
             m_reply = nullptr;
             reply->deleteLater();
             if (valid && m_file->commit()) {
@@ -152,6 +175,8 @@ private:
     quint64 m_generation = 0;
     qint64 m_bytes = 0;
     int m_url = 0;
+    QByteArray m_header;
+    bool m_vpf = false;
 };
 } // namespace
 ImpulseResponseInstaller::ImpulseResponseInstaller(QObject *parent)
@@ -179,11 +204,16 @@ void ImpulseResponseInstaller::install(quint64 generation, const QStringList &ur
             m_worker, [worker = static_cast<InstallWorker *>(m_worker), generation, urls,
                        destination] { worker->install(generation, urls, destination); });
 }
-void ImpulseResponseInstaller::cancel()
+void ImpulseResponseInstaller::cancel(const QStringList &unpublishedPaths)
 {
     if (!m_closing)
         QMetaObject::invokeMethod(
-            m_worker, [worker = static_cast<InstallWorker *>(m_worker)] { worker->cancel(); });
+            m_worker, [worker = static_cast<InstallWorker *>(m_worker), unpublishedPaths] {
+                worker->cancel();
+                for (const auto &path : unpublishedPaths)
+                    if (!path.isEmpty())
+                        QFile::remove(path);
+            });
 }
 void ImpulseResponseInstaller::shutdown()
 {

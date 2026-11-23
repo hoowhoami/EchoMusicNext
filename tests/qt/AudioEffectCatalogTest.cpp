@@ -4,6 +4,8 @@
 #include "ThemeStore.h"
 #include "NativeWindow.h"
 #include <QApplication>
+#include <QAbstractItemModelTester>
+#include <QPointer>
 #include <QQmlEngine>
 #include <QQmlComponent>
 #include <QQuickWindow>
@@ -56,9 +58,17 @@ public:
     {
         return catalog.m_request;
     }
+    static void refreshGeneration(AudioEffectCatalog &catalog)
+    {
+        catalog.resetScope(catalog.scope());
+    }
     static void fail(AudioEffectCatalog &catalog)
     {
         catalog.failRead("Controlled failure");
+    }
+    static void pauseAutomaticRequests(AudioEffectCatalog &catalog)
+    {
+        catalog.m_next.stop();
     }
 };
 class ApiClientTestAccess
@@ -333,6 +343,134 @@ private slots:
         QCOMPARE(row(catalog).value("id").toInt(), 10000);
         qInfo() << "10,000-entry local query including debounce:" << timer.elapsed() << "ms";
     }
+    void cachedRevalidationKeepsStableRowsAndCovers()
+    {
+        Session s;
+        QAbstractItemModelTester tester(&s.catalog(),
+                                        QAbstractItemModelTester::FailureReportingMode::QtTest);
+        auto &catalog = s.catalog();
+        QTRY_VERIFY(AudioEffectCatalogTestAccess::ready(catalog));
+        QJsonArray items;
+        for (int i = 0; i < 100; ++i)
+            items.append(effect(i + 1, QString("Effect %1").arg(i)));
+        AudioEffectCatalogTestAccess::page(catalog, s.api, items);
+        QSignalSpy resets(&catalog, &QAbstractItemModel::modelReset);
+        QSignalSpy changes(&catalog, &QAbstractItemModel::dataChanged);
+        QSignalSpy inserted(&catalog, &QAbstractItemModel::rowsInserted);
+        const auto firstKey = catalog.keyAt(0);
+        AudioEffectCatalogTestAccess::refreshGeneration(catalog);
+        auto refreshed = items.first().toObject();
+        refreshed["author"] = "Updated author";
+        AudioEffectCatalogTestAccess::page(catalog, s.api, {refreshed});
+        QCOMPARE(resets.size(), 0);
+        QVERIFY(!changes.isEmpty());
+        QCOMPARE(catalog.keyAt(0), firstKey);
+        QCOMPARE(row(catalog).value("author").toString(), QString("Updated author"));
+        AudioEffectCatalogTestAccess::page(catalog, s.api, {effect(101, "New effect")});
+        QCOMPARE(resets.size(), 0);
+        QCOMPARE(inserted.size(), 1);
+        QCOMPARE(catalog.rowCount(), 101);
+    }
+    void combinedEffectsExposeIrWithoutClaimingVpfSupport()
+    {
+        Session s;
+        auto &catalog = s.catalog();
+        QTRY_VERIFY(AudioEffectCatalogTestAccess::ready(catalog));
+        auto combined = effect(1, "Combined");
+        combined.remove("unavailable_reason");
+        combined["vpf_urls"] = QJsonArray{"https://fixture.kugou.com/effect.vpf"};
+        auto vpfOnly = combined;
+        vpfOnly["id"] = 2;
+        vpfOnly["sound_urls"] = QJsonArray{};
+        auto denied = combined;
+        denied["id"] = 3;
+        denied["unavailable_reason"] = "Account restriction";
+        AudioEffectCatalogTestAccess::page(catalog, s.api, {combined, vpfOnly, denied});
+        QVERIFY(row(catalog, 0).value("unavailable_reason").toString().isEmpty());
+        QVERIFY(row(catalog, 0).value("partial").toBool());
+        QVERIFY(row(catalog, 1).value("unavailable_reason").toString().contains("VPF"));
+        QCOMPARE(row(catalog, 2).value("unavailable_reason").toString(),
+                 QString("Account restriction"));
+        QSignalSpy notices(&catalog, &AudioEffectCatalog::notice);
+        catalog.activate(1);
+        QVERIFY(!catalog.downloading());
+        QCOMPARE(notices.size(), 1);
+        catalog.activate(2);
+        QCOMPARE(notices.last().first().toString(), QString("Account restriction"));
+        const auto path = s.directory.filePath("downloaded.irs");
+        const auto vpf = s.directory.filePath("effect.vpf");
+        for (const auto &file : {path, vpf}) {
+            QFile output(file);
+            QVERIFY(output.open(QIODevice::WriteOnly));
+            output.write("domain-only registration");
+        }
+        auto *audio = s.playback.audioControls();
+        audio->registerImpulseResponse(path, "Combined", "artist-1", true, vpf);
+        QVERIFY(audio->partialImpulseResponse(path));
+        QCOMPARE(audio->vpfImpulseResponse(path), vpf);
+        QVERIFY(row(catalog).value("partial").toBool());
+        QVERIFY(audio->impulseResponses().first().toMap().value("partial").toBool());
+    }
+    void liveCombinedResourceDownload()
+    {
+        if (!qEnvironmentVariableIsSet("ECHO_EFFECT_SEARCH_LIVE"))
+            QSKIP("Explicit live resource download only");
+        const auto library = qEnvironmentVariable("ECHO_DSP_TEST_PROVIDER");
+        if (library.isEmpty())
+            QSKIP("Requires an explicitly supplied private Provider");
+        Session s;
+        auto *audio = s.playback.audioControls();
+        QTRY_VERIFY_WITH_TIMEOUT(!audio->providers()->busy(), 10000);
+        audio->providers()->importFile(QUrl::fromLocalFile(library));
+        QTRY_VERIFY_WITH_TIMEOUT(!audio->effectPending() && audio->supportsVpf(), 15000);
+        auto &catalog = s.catalog();
+        catalog.selectCategory("market");
+        catalog.setBrowsingActive(true);
+        QVariantMap selected;
+        const bool found = QTest::qWaitFor(
+            [&] {
+                for (int i = 0; i < catalog.rowCount(); ++i) {
+                    const auto candidate = row(catalog, i);
+                    if (!candidate.value("sound_urls").toList().isEmpty() &&
+                        !candidate.value("vpf_urls").toList().isEmpty() &&
+                        candidate.value("unavailable_reason").toString().isEmpty() &&
+                        !candidate.value("needs_validation").toBool()) {
+                        selected = candidate;
+                        return true;
+                    }
+                }
+                return !catalog.errorMessage().isEmpty() || catalog.complete();
+            },
+            60000);
+        QVERIFY(found);
+        QVERIFY2(!selected.isEmpty(), qPrintable(catalog.errorMessage()));
+        QVERIFY(!selected.value("partial").toBool());
+        QSignalSpy downloaded(&catalog, &AudioEffectCatalog::downloaded);
+        catalog.activateKey(selected.value("key").toString());
+        QTRY_VERIFY_WITH_TIMEOUT(!catalog.downloading(), 45000);
+        QVERIFY2(!downloaded.isEmpty(), qPrintable(catalog.errorMessage()));
+        const auto identity = downloaded.first().first().toString();
+        const auto ir = audio->downloadedImpulseResponse(identity);
+        const auto vpf = audio->vpfImpulseResponse(ir);
+        QVERIFY(QFileInfo(ir).size() > 0);
+        QVERIFY(QFileInfo(vpf).size() > 0);
+        qInfo() << "Live combined resources, bytes:" << QFileInfo(ir).size()
+                << QFileInfo(vpf).size();
+        catalog.useDownloaded(identity);
+        QTRY_VERIFY_WITH_TIMEOUT(!audio->effectPending(), 15000);
+        QVERIFY2(audio->errorMessage().isEmpty(), qPrintable(audio->errorMessage()));
+        QCOMPARE(QJsonDocument::fromJson(
+                     audio->graph().value("provider_resource_json").toString().toUtf8())
+                     .array()
+                     .size(),
+                 2);
+        audio->deactivateProvider();
+        QTRY_VERIFY_WITH_TIMEOUT(!audio->effectPending(), 15000);
+        QVERIFY2(audio->errorMessage().isEmpty(), qPrintable(audio->errorMessage()));
+        QVERIFY(audio->partialImpulseResponse(ir));
+        QVERIFY(audio->impulseEnabled());
+        catalog.setBrowsingActive(false);
+    }
     void liveProviderEnumeration()
     {
         if (!qEnvironmentVariableIsSet("ECHO_EFFECT_SEARCH_LIVE"))
@@ -408,8 +546,10 @@ private slots:
         QVERIFY(!catalog.complete()); // A reported total alone is not proof of coverage.
         QCOMPARE(AudioEffectCatalogTestAccess::nextPage(catalog), 2);
         catalog.setBrowsingActive(true);
+        QVERIFY(catalog.loading());
         QTRY_VERIFY(AudioEffectCatalogTestAccess::request(catalog));
         catalog.setBrowsingActive(false);
+        QVERIFY(!catalog.loading());
         QCOMPARE(AudioEffectCatalogTestAccess::request(catalog), quint64(0));
         QCOMPARE(AudioEffectCatalogTestAccess::nextPage(catalog), 2);
         AudioEffectCatalogTestAccess::page(catalog, s.api, {effect(1, "First")});
@@ -491,6 +631,14 @@ private slots:
         for (int i = 0; i < 1000; ++i)
             rows.append(effect(i + 1, QString("Effect %1").arg(i)));
         AudioEffectCatalogTestAccess::page(catalog, s.api, rows);
+        const auto coverPath = s.directory.filePath("effect-cover.png");
+        QImage coverImage(40, 40, QImage::Format_ARGB32_Premultiplied);
+        coverImage.fill(QColor("#64b920"));
+        QVERIFY(coverImage.save(coverPath));
+        auto firstRow = rows.first().toObject();
+        firstRow["icon_url"] = QUrl::fromLocalFile(coverPath).toString();
+        AudioEffectCatalogTestAccess::refreshGeneration(catalog);
+        AudioEffectCatalogTestAccess::page(catalog, s.api, {firstRow});
         ThemeStore theme(s.settings);
         theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
         theme.setMotionEnabled(false);
@@ -519,6 +667,90 @@ private slots:
         QVERIFY(delegates > 0 && delegates < 60);
         qInfo() << "Rendered effect delegates / directory rows:" << delegates
                 << catalog.cachedCount();
+        QPointer<QQuickItem> stableCover = visual(window->contentItem(), "effectCardCover");
+        QVERIFY(stableCover);
+        QTRY_COMPARE(stableCover->property("status").toInt(), 1);
+        QSignalSpy imageStatus(stableCover, SIGNAL(statusChanged()));
+        QSignalSpy modelResets(&catalog, &QAbstractItemModel::modelReset);
+        for (int page = 0; page < 3; ++page) {
+            AudioEffectCatalogTestAccess::refreshGeneration(catalog);
+            firstRow["author"] = QString("Author %1").arg(page);
+            AudioEffectCatalogTestAccess::page(catalog, s.api, {firstRow});
+            QCoreApplication::processEvents();
+            QVERIFY(stableCover);
+            QCOMPARE(stableCover->property("status").toInt(), 1);
+        }
+        QCOMPARE(modelResets.size(), 0);
+        QCOMPARE(imageStatus.size(), 0);
+        auto *refresh = visual(window->contentItem(), "effectPlazaRefresh");
+        QPointer<QQuickItem> refreshIcon = visual(window->contentItem(), "effectPlazaRefreshIcon");
+        QVERIFY(refresh && refreshIcon);
+        auto *rotation = refreshIcon->findChild<QObject *>("spinnerRotation");
+        QVERIFY(rotation);
+        QTRY_COMPARE(refreshIcon->property("status").toInt(), 1);
+        theme.setMotionEnabled(true);
+        catalog.setBrowsingActive(true);
+        AudioEffectCatalogTestAccess::pauseAutomaticRequests(catalog);
+        QVERIFY(catalog.loading());
+        QTRY_VERIFY(rotation->property("running").toBool());
+        QCOMPARE(refreshIcon->property("name").toString(), QString("verification-spinner"));
+        QTRY_COMPARE(refreshIcon->property("status").toInt(), 1);
+        QSignalSpy refreshImageStatus(refreshIcon, SIGNAL(statusChanged()));
+        QVERIFY(!refresh->isEnabled());
+        const auto refreshOpacity = refreshIcon->opacity();
+        for (int page = 0; page < 3; ++page) {
+            AudioEffectCatalogTestAccess::refreshGeneration(catalog);
+            AudioEffectCatalogTestAccess::page(catalog, s.api, {firstRow});
+            AudioEffectCatalogTestAccess::pauseAutomaticRequests(catalog);
+            QCOMPARE(AudioEffectCatalogTestAccess::request(catalog), quint64(0));
+            QVERIFY(catalog.loading());
+            QCoreApplication::processEvents();
+            QCOMPARE(visual(window->contentItem(), "effectPlazaRefreshIcon"), refreshIcon.data());
+            QVERIFY(!refresh->isEnabled());
+            QCOMPARE(refreshIcon->opacity(), refreshOpacity);
+            QVERIFY(rotation->property("running").toBool());
+        }
+        const auto refreshFrame = [&] {
+            const auto image = window->grabWindow();
+            const auto bounds = refresh->mapRectToScene(refresh->boundingRect());
+            const auto density = qreal(image.width()) / window->width();
+            return image.copy(QRectF(bounds.x() * density, bounds.y() * density,
+                                     bounds.width() * density, bounds.height() * density)
+                                  .toAlignedRect());
+        };
+        const auto firstRefreshFrame = refreshFrame();
+        QTest::qWait(130);
+        const auto secondRefreshFrame = refreshFrame();
+        QVERIFY(!firstRefreshFrame.isNull());
+        QVERIFY(firstRefreshFrame != secondRefreshFrame);
+        QCOMPARE(refreshImageStatus.size(), 0);
+        const auto captures = qEnvironmentVariable("ECHO_EFFECT_SEARCH_CAPTURES");
+        if (!captures.isEmpty()) {
+            QDir().mkpath(captures);
+            QVERIFY(firstRefreshFrame.save(captures + "/refresh-first-" + QTest::currentDataTag() +
+                                           ".png"));
+            QVERIFY(secondRefreshFrame.save(captures + "/refresh-second-" +
+                                            QTest::currentDataTag() + ".png"));
+        }
+        theme.setMotionEnabled(false);
+        QTRY_VERIFY(!rotation->property("running").toBool());
+        theme.setMotionEnabled(true);
+        QTRY_VERIFY(rotation->property("running").toBool());
+        window->hide();
+        QTRY_VERIFY(!rotation->property("running").toBool());
+        window->show();
+        QVERIFY(Test::prepareNativeInput(window));
+        QTRY_VERIFY(rotation->property("running").toBool());
+        // Finish the controlled directory without losing the rows used by search below.
+        rows[0] = firstRow;
+        AudioEffectCatalogTestAccess::page(catalog, s.api, rows);
+        AudioEffectCatalogTestAccess::page(catalog, s.api, {});
+        QVERIFY(!catalog.loading());
+        QTRY_VERIFY(!rotation->property("running").toBool());
+        QVERIFY(refresh->isEnabled());
+        QCOMPARE(refreshIcon->property("name").toString(), QString("refresh"));
+        catalog.setBrowsingActive(false);
+        theme.setMotionEnabled(false);
         list->setProperty("contentY", 1500.);
         QTest::qWait(550); // End bounded initial position restoration before the user scroll.
         list->setProperty("contentY", 1500.);
@@ -532,7 +764,6 @@ private slots:
         QTRY_VERIFY(!catalog.searching() && catalog.query() == "Effect 999");
         QCOMPARE(catalog.rowCount(), 1);
         QCOMPARE(row(catalog).value("name").toString(), QString("Effect 999"));
-        const auto captures = qEnvironmentVariable("ECHO_EFFECT_SEARCH_CAPTURES");
         if (!captures.isEmpty()) {
             QDir().mkpath(captures);
             window->update();
@@ -578,6 +809,25 @@ private slots:
         QTRY_VERIFY((search = visual(window->contentItem(), "effectPlazaSearch")));
         QCOMPARE(search->property("text").toString(), QString("Effect 999"));
         QCOMPARE(catalog.rowCount(), 1);
+        auto *popup = root->findChild<QObject *>("effectSearchPopup");
+        QVERIFY(popup);
+        QVERIFY(popup->setProperty("tab", 2));
+        QQuickItem *mixMode = nullptr;
+        QTRY_VERIFY((mixMode = visual(window->contentItem(), "impulseMixMode")));
+        QTRY_VERIFY(mixMode->isVisible());
+        QVERIFY(mixMode->width() > 0 && mixMode->height() >= 32);
+        QCOMPARE(s.playback.audioControls()->impulseMix(), 1.0);
+        QCOMPARE(mixMode->property("value").toString(), QString("blend"));
+        QVERIFY(
+            QMetaObject::invokeMethod(mixMode, "valueEdited", Q_ARG(QVariant, QVariant("reverb"))));
+        QCOMPARE(s.playback.audioControls()->impulseMixMode(), QString("reverb"));
+        QCOMPARE(mixMode->property("value").toString(), QString("reverb"));
+        if (!captures.isEmpty()) {
+            window->update();
+            QTest::qWait(80);
+            QVERIFY(
+                window->grabWindow().save(captures + "/mix-" + QTest::currentDataTag() + ".png"));
+        }
     }
 };
 int main(int argc, char **argv)

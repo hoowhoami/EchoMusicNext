@@ -44,7 +44,8 @@ RoutePage {
             anchors.fill: parent
             controller: page.detail.comments
             pageContainer: viewport
-            topMargin: 216
+            topMargin: heading.expandedHeight + (page.commentTab ? 2 : 20)
+            sectionTopMargin: 8
             showComments: page.commentTab
             showSections: page.music
             onSectionPicked: index => page.router.replaceQuery(Object.assign({}, page.context.query, {

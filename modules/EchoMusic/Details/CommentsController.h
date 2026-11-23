@@ -57,6 +57,7 @@ class CommentsController final : public QObject
     Q_PROPERTY(bool loading READ loading NOTIFY changed)
     Q_PROPERTY(bool fetching READ fetching NOTIFY changed)
     Q_PROPERTY(bool hasComments READ hasComments NOTIFY changed)
+    Q_PROPERTY(bool hasSingerComments READ hasSingerComments NOTIFY changed)
     Q_PROPERTY(bool hasMore READ hasMore NOTIFY changed)
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
     Q_PROPERTY(int sendCooldownSeconds READ sendCooldownSeconds NOTIFY sendCooldownChanged)
@@ -92,6 +93,7 @@ public:
     bool loading() const;
     bool fetching() const;
     bool hasComments() const;
+    bool hasSingerComments() const;
     bool hasMore() const;
     bool busy() const;
     int sendCooldownSeconds() const

@@ -87,6 +87,7 @@ pub enum PlaybackSignal {
     PacketCacheStats(PacketCacheStats),
     OutputStats(AudioOutputStats),
     OutputStatsChanged,
+    AudioGraphChanged,
     NormalizationGainApplied {
         track_seq: u64,
         gain_db: f32,

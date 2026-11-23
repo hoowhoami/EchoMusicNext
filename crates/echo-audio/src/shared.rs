@@ -77,6 +77,7 @@ pub struct SharedAudio {
     dsp_settings: Mutex<DspSettings>,
     staged_filter_graph: Mutex<Option<(u64, AudioFilterGraph, bool)>>,
     provider_descriptor: Mutex<Option<ProviderDescriptor>>,
+    pending_audio_graph_change: AtomicBool,
     pub paused: AtomicBool,
     pub stop: AtomicBool,
     output_started: AtomicBool,
@@ -188,6 +189,7 @@ impl SharedAudio {
             dsp_settings: Mutex::new(dsp_settings.clone()),
             staged_filter_graph: Mutex::new(None),
             provider_descriptor: Mutex::new(None),
+            pending_audio_graph_change: AtomicBool::new(false),
             paused: AtomicBool::new(true),
             stop: AtomicBool::new(false),
             output_started: AtomicBool::new(false),
@@ -420,7 +422,16 @@ impl SharedAudio {
 
     pub fn set_provider_descriptor(&self, descriptor: Option<ProviderDescriptor>) {
         if let Ok(mut current) = self.provider_descriptor.lock() {
+            if *current == descriptor {
+                return;
+            }
             *current = descriptor;
+            drop(current);
+            // The filter adopts a prepared graph after the core has committed its settings.
+            // Publish that final live state even when output-device stats stay unchanged.
+            self.pending_audio_graph_change
+                .store(true, Ordering::Release);
+            self.wake_control_signal();
         }
     }
 

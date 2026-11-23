@@ -34,8 +34,9 @@ EchoDrawer {
             }
         }
         EchoDivider {
+            objectName: "songDetailHeaderDivider"
             Layout.fillWidth: true
-            lineColor: Theme.subtleBorder
+            lineColor: Theme.floating.surfaceOutline
         }
         Flickable {
             id: scroll

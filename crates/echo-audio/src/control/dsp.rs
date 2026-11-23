@@ -1,5 +1,6 @@
 use super::*;
 use crate::audio_graph::{prepare_filter_graph, process_format_for_output};
+use crate::dsp::basic::SpatialMixMode;
 use crate::work::{Command, Work};
 
 pub struct SetSpeedTask {
@@ -116,7 +117,32 @@ impl Command for SetAudioEffectTask {
             provider_resource_json,
             provider_mode,
             impulse_response_mix,
+            impulse_response_mix_mode,
         ) = parse_audio_effect_payload(&self.payload).map_err(crate::EngineError::from_reason)?;
+        if self
+            .payload
+            .get("impulseResponseParametersOnly")
+            .and_then(serde_json::Value::as_bool)
+            == Some(true)
+        {
+            return call_core_command("update-spatial-mix", move |runtime| {
+                if provider_path.is_some()
+                    || provider_resource_json.is_some()
+                    || runtime.dsp_settings.provider_path.is_some()
+                    || runtime.spatial_file_path != impulse_response_path
+                    || runtime.dsp_settings.spatial.is_none()
+                {
+                    return Err(crate::EngineError::from_reason(
+                        "当前卷积音效已变化，请重新选择音效".to_string(),
+                    ));
+                }
+                runtime.dsp_settings.spatial_mix = impulse_response_mix;
+                runtime.dsp_settings.spatial_mix_mode = impulse_response_mix_mode;
+                sync_current_session_dsp_settings(runtime);
+                update_runtime_audio_graph(runtime);
+                Ok(())
+            });
+        }
         let has_provider_resources = provider_resource_json.is_some();
         let provider_resource_json = provider_path.as_ref().map(|_| {
             let mut resources = provider_resource_json
@@ -179,6 +205,7 @@ impl Command for SetAudioEffectTask {
         }
         candidate.spatial = spatial.clone();
         candidate.spatial_mix = impulse_response_mix;
+        candidate.spatial_mix_mode = impulse_response_mix_mode;
         let (candidate, prepared_graph) =
             prepare_filter_graph(mix_format, candidate).map_err(crate::EngineError::from_reason)?;
         let can_reconfigure_provider_in_place = can_reconfigure_provider_in_place(
@@ -220,6 +247,7 @@ impl Command for SetAudioEffectTask {
             runtime.dsp_settings.provider_process_sample_rate = provider_process_sample_rate;
             runtime.dsp_settings.spatial = spatial;
             runtime.dsp_settings.spatial_mix = impulse_response_mix;
+            runtime.dsp_settings.spatial_mix_mode = impulse_response_mix_mode;
             if let Some(shared) = current_shared {
                 // Keep the validated candidate until the filter worker knows whether the running
                 // Provider accepted configure(). If opaque in-place configuration fails, the
@@ -278,11 +306,12 @@ fn parse_audio_effect_payload(
         Option<String>,
         u32,
         f32,
+        SpatialMixMode,
     ),
     String,
 > {
     if payload.is_null() {
-        return Ok((None, None, None, None, 0, 0.5));
+        return Ok((None, None, None, None, 0, 0.5, SpatialMixMode::Blend));
     }
     let object = payload
         .as_object()
@@ -323,6 +352,12 @@ fn parse_audio_effect_payload(
             .clamp(0.0, 1.0) as f32,
         _ => return Err("invalid impulse response mix".to_string()),
     };
+    let impulse_response_mix_mode = match object.get("impulseResponseMixMode") {
+        None | Some(serde_json::Value::Null) => SpatialMixMode::Blend,
+        Some(serde_json::Value::String(value)) if value == "blend" => SpatialMixMode::Blend,
+        Some(serde_json::Value::String(value)) if value == "reverb" => SpatialMixMode::Reverb,
+        _ => return Err("invalid impulse response mix mode".to_string()),
+    };
     Ok((
         impulse_response_path,
         provider_path,
@@ -330,6 +365,7 @@ fn parse_audio_effect_payload(
         provider_resource_json,
         provider_mode,
         impulse_response_mix,
+        impulse_response_mix_mode,
     ))
 }
 
@@ -381,6 +417,20 @@ mod tests {
         }))
         .expect("payload should default");
         assert_eq!(defaulted.5, 1.0);
+    }
+
+    #[test]
+    fn audio_effect_mix_mode_is_explicit_and_defaults_to_correction_blend() {
+        let parsed = parse_audio_effect_payload(&serde_json::json!({})).unwrap();
+        assert_eq!(parsed.6, SpatialMixMode::Blend);
+        let parsed =
+            parse_audio_effect_payload(&serde_json::json!({"impulseResponseMixMode":"reverb"}))
+                .unwrap();
+        assert_eq!(parsed.6, SpatialMixMode::Reverb);
+        assert!(
+            parse_audio_effect_payload(&serde_json::json!({"impulseResponseMixMode":"automatic"}))
+                .is_err()
+        );
     }
 
     #[test]

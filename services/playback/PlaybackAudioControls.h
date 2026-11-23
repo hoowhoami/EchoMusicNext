@@ -25,6 +25,7 @@ class PlaybackAudioControls final : public QObject
     Q_PROPERTY(bool exclusive READ exclusive WRITE setExclusive NOTIFY changed)
     Q_PROPERTY(QString impulseResponse READ impulseResponse NOTIFY changed)
     Q_PROPERTY(double impulseMix READ impulseMix WRITE setImpulseMix NOTIFY changed)
+    Q_PROPERTY(QString impulseMixMode READ impulseMixMode WRITE setImpulseMixMode NOTIFY changed)
     Q_PROPERTY(bool impulseEnabled READ impulseEnabled WRITE setImpulseEnabled NOTIFY changed)
     Q_PROPERTY(QVariantList impulseResponses READ impulseResponses NOTIFY changed)
     Q_PROPERTY(bool importingImpulseResponses READ importingImpulseResponses NOTIFY changed)
@@ -44,6 +45,7 @@ class PlaybackAudioControls final : public QObject
     Q_PROPERTY(QString providerPresetId READ providerPresetId NOTIFY changed)
     Q_PROPERTY(bool providerEffectActive READ providerEffectActive NOTIFY changed)
     Q_PROPERTY(bool effectPending READ effectPending NOTIFY changed)
+    Q_PROPERTY(bool supportsVpf READ supportsVpf NOTIFY changed)
     Q_PROPERTY(QVariantList providerControls READ providerControls NOTIFY changed)
     Q_PROPERTY(QString providerEditingPreset READ providerEditingPreset NOTIFY changed)
 public:
@@ -121,7 +123,12 @@ public:
     void setReferenceLufs(double lufs);
     void setTrackLoudness(const QJsonObject &source);
     void registerImpulseResponse(const QString &path, const QString &name,
-                                 const QString &identity = {});
+                                 const QString &identity = {}, bool partial = false,
+                                 const QString &vpfPath = {});
+    bool partialImpulseResponse(const QString &path) const;
+    QString vpfImpulseResponse(const QString &path) const;
+    bool supportsVpf() const;
+    QString effectSupportText(const QString &path) const;
     QString downloadedImpulseResponse(const QString &identity) const;
 
     void handleEvent(const QJsonObject &event);
@@ -144,9 +151,14 @@ public:
     Q_INVOKABLE void selectImpulseResponse(const QString &path);
     QString effectFilesRoot() const;
     Q_INVOKABLE void removeImpulseResponse(const QString &path);
+    QString impulseMixMode() const
+    {
+        return m_mixMode;
+    }
+    void setImpulseMixMode(const QString &mode);
     void setImpulseMix(double mix);
     void setImpulseEnabled(bool enabled);
-    void applyEffect();
+    void applyEffect(bool parametersOnly = false);
     DspProviderRegistry *providers()
     {
         return &m_providers;
@@ -228,6 +240,7 @@ private:
     QStringList m_irsPaths, m_importBatchPaths;
     QString uniqueEffectName(const QString &name, const QString &exceptPath) const;
     bool m_exclusive = false, m_ready = false, m_irsEnabled = false;
-    double m_mix = .5;
+    double m_mix = 1.;
+    QString m_mixMode = "blend";
 };
 } // namespace EchoMusic

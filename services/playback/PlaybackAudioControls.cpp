@@ -34,11 +34,31 @@ QString effectNameKey(const QString &path, const QString &root)
                    QCryptographicHash::Sha256)
                    .toHex());
 }
+bool providerSupportsVpf(const QVariantMap &record)
+{
+    const auto resources = record.value("manifest").toMap().value("resources").toList();
+    for (const auto &resource : resources) {
+        const auto entry = resource.toMap();
+        if (entry.value("kind").toString().compare("vpf", Qt::CaseInsensitive) != 0)
+            continue;
+        if (!entry.contains("extensions"))
+            return true;
+        for (const auto &extension : entry.value("extensions").toList())
+            if (extension.toString().compare(".vpf", Qt::CaseInsensitive) == 0)
+                return true;
+    }
+    return false;
+}
 QString outputSelection(const QString &name)
 {
     // The engine's auto/default selectors represent the single empty Qt
     // selection. They are not physical devices or additional UI options.
     return name == "auto" || name == "default" ? QString() : name;
+}
+QString effectPartialKey(const QString &path, const QString &root)
+{
+    return EchoMusic::SettingsKeys::Audio::ImpulsePartialPrefix +
+           effectNameKey(path, root).mid(EchoMusic::SettingsKeys::Audio::ImpulseNamesPrefix.size());
 }
 QString presetBankKey(const QString &provider, const QString &mode, const QString &preset)
 {
@@ -164,8 +184,11 @@ PlaybackAudioControls::PlaybackAudioControls(AudioEngine &engine, NativeBridge &
     m_irs = settings.value(EchoMusic::SettingsKeys::Audio::ImpulseResponse).toString();
     m_irsEnabled = settings.value(EchoMusic::SettingsKeys::Audio::ImpulseEnabled, false).toBool();
     m_irsPaths = settings.value(EchoMusic::SettingsKeys::Audio::ImpulseResponses).toStringList();
-    const auto mix = settings.value(EchoMusic::SettingsKeys::Audio::ImpulseMix, .5).toDouble();
-    m_mix = std::isfinite(mix) ? qBound(0., mix, 1.) : .5;
+    const auto mix = settings.value(EchoMusic::SettingsKeys::Audio::ImpulseMix, 1.).toDouble();
+    m_mix = std::isfinite(mix) ? qBound(0., mix, 1.) : 1.;
+    m_mixMode = settings.value(EchoMusic::SettingsKeys::Audio::ImpulseMixMode, "blend").toString();
+    if (m_mixMode != "reverb")
+        m_mixMode = "blend";
 }
 QVariantList PlaybackAudioControls::gains() const
 {
@@ -197,16 +220,21 @@ QVariantList PlaybackAudioControls::impulseResponses() const
         result.append(QVariantMap{
             {"path", path},
             {"source", sources.value(path, QStringLiteral("local"))},
+            {"partial", partialImpulseResponse(path)},
+            {"support_text", effectSupportText(path)},
+            {"has_ir", QFileInfo(path).suffix() != "vpf"},
             {"name",
              effectDisplayName(m_settings
                                    .value(effectNameKey(path, m_settings.portableFilesRoot()),
                                           QFileInfo(path).fileName())
                                    .toString())},
-            {"available", QFileInfo(path).isReadable()}});
+            {"available", QFileInfo(path).isReadable() &&
+                              (QFileInfo(path).suffix() != "vpf" || supportsVpf())}});
     return result;
 }
 void PlaybackAudioControls::registerImpulseResponse(const QString &path, const QString &name,
-                                                    const QString &identity)
+                                                    const QString &identity, bool partial,
+                                                    const QString &vpfPath)
 {
     if (!QFileInfo(path).isReadable())
         return;
@@ -215,10 +243,39 @@ void PlaybackAudioControls::registerImpulseResponse(const QString &path, const Q
     m_irsPaths.prepend(path);
     m_settings.setValue(EchoMusic::SettingsKeys::Audio::ImpulseResponses, m_irsPaths);
     m_settings.setValue(effectNameKey(path, m_settings.portableFilesRoot()), displayName);
+    m_settings.setValue(effectPartialKey(path, m_settings.portableFilesRoot()), partial);
+    m_settings.setValue(EchoMusic::SettingsKeys::Audio::ImpulseVpfPrefix +
+                            effectNameKey(path, m_settings.portableFilesRoot()).section('/', -1),
+                        vpfPath);
     if (!identity.isEmpty())
         m_settings.setValue(EchoMusic::SettingsKeys::Audio::DownloadedEffectsPrefix + identity,
                             path);
     emit changed();
+}
+bool PlaybackAudioControls::partialImpulseResponse(const QString &path) const
+{
+    return m_settings.value(effectPartialKey(path, m_settings.portableFilesRoot()), false)
+               .toBool() &&
+           (!supportsVpf() || vpfImpulseResponse(path).isEmpty());
+}
+QString PlaybackAudioControls::effectSupportText(const QString &path) const
+{
+    return partialImpulseResponse(path) ? tr("仅使用 IR 卷积，未应用 VPF 参数") : QString();
+}
+bool PlaybackAudioControls::supportsVpf() const
+{
+    return providerSupportsVpf(providerInfo());
+}
+QString PlaybackAudioControls::vpfImpulseResponse(const QString &path) const
+{
+    const auto companion =
+        QFileInfo(path).suffix().compare("vpf", Qt::CaseInsensitive) == 0
+            ? path
+            : m_settings
+                  .value(EchoMusic::SettingsKeys::Audio::ImpulseVpfPrefix +
+                         effectNameKey(path, m_settings.portableFilesRoot()).section('/', -1))
+                  .toString();
+    return QFileInfo(companion).isReadable() ? companion : QString();
 }
 QString PlaybackAudioControls::downloadedImpulseResponse(const QString &identity) const
 {
@@ -534,6 +591,11 @@ void PlaybackAudioControls::selectImpulseResponse(const QString &path)
 {
     if (m_effectPending || !m_irsPaths.contains(path))
         return;
+    if (QFileInfo(path).suffix() == "vpf" && !supportsVpf()) {
+        m_error = tr("此音效仅含 VPF 参数，需要启用支持 VPF 的音效引擎");
+        emit changed();
+        return;
+    }
     m_targetPreset.clear();
     m_irs = path;
     m_irsEnabled = true;
@@ -557,6 +619,10 @@ void PlaybackAudioControls::removeImpulseResponse(const QString &path)
     }
     m_irsPaths.removeAll(path);
     m_settings.remove(effectNameKey(path, m_settings.portableFilesRoot()));
+    const auto companion = vpfImpulseResponse(path);
+    m_settings.remove(effectPartialKey(path, m_settings.portableFilesRoot()));
+    m_settings.remove(EchoMusic::SettingsKeys::Audio::ImpulseVpfPrefix +
+                      effectNameKey(path, m_settings.portableFilesRoot()).section('/', -1));
     for (const auto &key : m_settings.allKeys())
         if (key.startsWith(EchoMusic::SettingsKeys::Audio::DownloadedEffectsPrefix) &&
             m_settings.value(key).toString() == path)
@@ -569,10 +635,18 @@ void PlaybackAudioControls::removeImpulseResponse(const QString &path)
     }
     // Remove owned resources without touching the user's original file.
     // Canonical containment excludes symlinks to external resources.
-    const auto canonical = QFileInfo(path).canonicalFilePath();
     const auto directory = QFileInfo(effectFilesRoot()).canonicalFilePath();
-    if (!directory.isEmpty() && canonical.startsWith(directory + "/"))
-        QFile::remove(path);
+    const auto removeUnused = [&](const QString &candidate) {
+        const auto canonical = QFileInfo(candidate).canonicalFilePath();
+        if (directory.isEmpty() || !canonical.startsWith(directory + "/"))
+            return;
+        for (const auto &remaining : m_irsPaths)
+            if (remaining == candidate || vpfImpulseResponse(remaining) == candidate)
+                return;
+        QFile::remove(candidate);
+    };
+    removeUnused(path);
+    removeUnused(companion);
     emit changed();
     emit fileNotice(tr("已移除音效"), true);
 }
@@ -582,8 +656,18 @@ void PlaybackAudioControls::setImpulseMix(double mix)
         return;
     m_mix = qBound(0., mix, 1.);
     m_settings.setValue(EchoMusic::SettingsKeys::Audio::ImpulseMix, m_mix);
-    if (m_irsEnabled)
-        applyEffect();
+    if (m_irsEnabled && m_targetProvider.isEmpty())
+        applyEffect(true);
+    emit changed();
+}
+void PlaybackAudioControls::setImpulseMixMode(const QString &mode)
+{
+    if ((mode != "blend" && mode != "reverb") || mode == m_mixMode)
+        return;
+    m_mixMode = mode;
+    m_settings.setValue(EchoMusic::SettingsKeys::Audio::ImpulseMixMode, mode);
+    if (m_irsEnabled && m_targetProvider.isEmpty())
+        applyEffect(true);
     emit changed();
 }
 void PlaybackAudioControls::setImpulseEnabled(bool enabled)
@@ -593,11 +677,11 @@ void PlaybackAudioControls::setImpulseEnabled(bool enabled)
     applyEffect();
     emit changed();
 }
-void PlaybackAudioControls::applyEffect()
+void PlaybackAudioControls::applyEffect(bool parametersOnly)
 {
     if (!m_ready)
         return;
-    if (m_irsEnabled && !QFileInfo(m_irs).isReadable()) {
+    if (!parametersOnly && m_irsEnabled && !QFileInfo(m_irs).isReadable()) {
         m_error = tr("脉冲响应文件不可读取");
         if (!m_providerNotice.isEmpty()) {
             m_providerNotice.clear();
@@ -607,9 +691,18 @@ void PlaybackAudioControls::applyEffect()
         return;
     }
     const auto record = m_providers.record(m_targetProvider);
+    const bool vpfOnly = QFileInfo(m_irs).suffix() == "vpf";
+    const auto vpf = m_irsEnabled ? vpfImpulseResponse(m_irs) : QString();
+    if (m_irsEnabled && vpfOnly && m_targetProvider.isEmpty()) {
+        m_error = tr("此音效仅含 VPF 参数，需要启用支持 VPF 的音效引擎");
+        emit changed();
+        return;
+    }
     QJsonObject configuration{
-        {"impulseResponsePath", m_irsEnabled ? QJsonValue(m_irs) : QJsonValue()},
-        {"impulseResponseMix", m_mix}};
+        {"impulseResponsePath", m_irsEnabled && !vpfOnly ? QJsonValue(m_irs) : QJsonValue()},
+        {"impulseResponseMix", m_mix},
+        {"impulseResponseMixMode", m_mixMode},
+        {"impulseResponseParametersOnly", parametersOnly}};
     if (!m_targetProvider.isEmpty()) {
         if (record.isEmpty()) {
             m_error = tr("音效引擎不可用");
@@ -622,6 +715,16 @@ void PlaybackAudioControls::applyEffect()
         }
         configuration.insert("providerPath", record.value("path").toString());
         configuration.insert("providerMode", m_targetMode);
+        if (!vpf.isEmpty()) {
+            if (providerSupportsVpf(record))
+                configuration.insert("providerResources",
+                                     QJsonArray{QJsonObject{{"kind", "vpf"}, {"path", vpf}}});
+            else if (vpfOnly) {
+                m_error = tr("当前引擎不支持 VPF 音效");
+                emit changed();
+                return;
+            }
+        }
         if (!m_targetPreset.isEmpty())
             configuration.insert("providerPresetJson", m_targetPreset);
     }
@@ -659,6 +762,10 @@ void PlaybackAudioControls::deactivateProvider()
         m_providerNotice = tr("已停用“%1”").arg(providerName());
     m_targetProvider.clear();
     m_targetPreset.clear();
+    if (m_irsEnabled && QFileInfo(m_irs).suffix() == "vpf") {
+        m_irsEnabled = false;
+        m_settings.setValue(EchoMusic::SettingsKeys::Audio::ImpulseEnabled, false);
+    }
     applyEffect();
 }
 void PlaybackAudioControls::removeProvider(const QString &id)

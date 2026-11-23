@@ -54,7 +54,8 @@ EchoDrawer {
                 }
             }
             EchoDivider {
-                lineColor: Theme.subtleBorder
+                objectName: "playbackCommentHeaderDivider"
+                lineColor: Theme.floating.surfaceOutline
                 Layout.fillWidth: true
             }
         }

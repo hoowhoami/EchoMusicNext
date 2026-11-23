@@ -19,6 +19,7 @@ Item {
     property bool showComments: true
     property bool showSections: true
     property real topMargin: 0
+    property real sectionTopMargin: 22
     property real contentInset: 24
     property real uiScale: 1
     property Component detailContent: null
@@ -103,12 +104,12 @@ Item {
             y: -height
             width: list.width
             spacing: 0
-            // Include the sticky main-tab's 14px bottom margin,
-            // then the comment shell and sub-tab's 8px top spacing.
+            // Catalogs include their main-tab margin; standalone song comments
+            // reserve only the comment shell's own top spacing.
             Item {
                 visible: root.showComments && root.showSections
                 width: parent.width
-                height: 22
+                height: root.sectionTopMargin
             }
             Loader {
                 width: parent.width
@@ -130,7 +131,9 @@ Item {
             Item {
                 visible: root.showComments && root.showSections
                 width: parent.width
-                height: 16
+                // The singer heading owns its 18px margin. In the source flow
+                // it collapses with the sub-tab's 16px bottom margin.
+                height: root.controller.hasSingerComments ? 0 : 16
             }
             ListView {
                 id: chips
@@ -210,8 +213,10 @@ Item {
                 id: singerSection
                 Item {
                     readonly property bool heading: delegate.kind === "singerHeading"
-                    // Account for the existing list gap in the outer margins.
-                    implicitHeight: heading ? (root.compact ? 12 : 18) + singerTitle.implicitHeight + (root.compact ? 8 : 10) - list.spacing : (root.compact ? 24 : 32) + 1 - 2 * list.spacing
+                    // The preceding card already owns its trailing gap. Count
+                    // it once so the divider has equal visual space on both sides.
+                    readonly property real precedingGap: root.compact ? 8 : 12
+                    implicitHeight: heading ? (root.compact ? 12 : 18) + singerTitle.implicitHeight + (root.compact ? 8 : 10) : (root.compact ? 24 : 32) + 1 - precedingGap
                     Label {
                         id: singerTitle
                         objectName: "commentSingerHeading"
@@ -228,9 +233,9 @@ Item {
                         objectName: "commentSingerDivider"
                         visible: !parent.heading
                         x: root.compact ? 4 : 12
-                        y: (root.compact ? 12 : 16) - list.spacing
+                        y: (root.compact ? 12 : 16) - parent.precedingGap
                         width: Math.max(0, parent.width - (root.compact ? 8 : 24))
-                        lineColor: Theme.subtleBorder
+                        lineColor: root.compact ? Theme.floating.surfaceOutline : Theme.subtleBorder
                     }
                 }
             }

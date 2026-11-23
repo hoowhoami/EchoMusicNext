@@ -12,7 +12,7 @@ Rectangle {
     required property AudioEffectCatalog catalog
     required property int row
     property bool resourceActive: true
-    readonly property string unavailable: effect.needs_validation ? "" : effect.unavailable_reason || (effect.vpf_urls && effect.vpf_urls.length > 0 ? qsTr("此音效需要支持 VPF 的音效引擎") : "")
+    readonly property string unavailable: effect.needs_validation ? "" : effect.unavailable_reason || ""
     implicitHeight: Math.max(64, copy.implicitHeight + 20)
     radius: Theme.cardRadius
     color: hovered.hovered || effect.active ? Theme.mix(Theme.floating.elevated, Theme.floating.accent, .06) : Theme.floating.mutedSurface
@@ -28,7 +28,7 @@ Rectangle {
     EchoToolTip {
         parent: card
         text: card.effect.name || ""
-        description: card.unavailable
+        description: card.unavailable || (card.effect.support_text || "")
         requestedVisible: hovered.hovered && (description.length > 0 || effectName.truncated)
     }
     RowLayout {
@@ -36,6 +36,7 @@ Rectangle {
         anchors.margins: 10
         spacing: 10
         EchoCover {
+            objectName: "effectCardCover"
             Layout.preferredWidth: 40
             Layout.preferredHeight: 40
             Layout.maximumWidth: 40
@@ -80,6 +81,15 @@ Rectangle {
                 wrapMode: Text.Wrap
                 maximumLineCount: 2
                 elide: Text.ElideRight
+            }
+            Label {
+                objectName: "effectPartialNotice"
+                Layout.fillWidth: true
+                visible: !!card.effect.partial && card.unavailable.length === 0
+                text: card.effect.support_text || ""
+                color: Theme.floating.secondaryText
+                font: Theme.font(9, Theme.regularWeight)
+                wrapMode: Text.Wrap
             }
             Label {
                 Layout.fillWidth: true

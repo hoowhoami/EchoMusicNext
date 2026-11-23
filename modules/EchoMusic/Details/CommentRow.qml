@@ -121,7 +121,7 @@ Item {
         visible: row.replyRow && !row.entry.reply_first
         x: surface.mainLeft + surface.floorPadding
         width: Math.max(0, row.width - x - row.contentRight)
-        lineColor: Theme.subtleBorder
+        lineColor: row.compact ? Theme.floating.surfaceOutline : Theme.subtleBorder
     }
     RowLayout {
         id: content

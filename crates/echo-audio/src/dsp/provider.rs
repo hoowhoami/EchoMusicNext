@@ -8,7 +8,7 @@ pub const PROVIDER_ABI_VERSION: u32 = 2;
 // These values describe the physical output context, not an effect module.
 pub const PROVIDER_MODE_HEADPHONE: u32 = 0;
 pub const PROVIDER_MODE_SPEAKER: u32 = 1;
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ProviderDescriptor {
     pub id: String,
     pub version: String,
