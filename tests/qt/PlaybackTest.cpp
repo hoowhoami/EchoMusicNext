@@ -4,6 +4,7 @@
 #include "PlaybackService.h"
 #include "PlaybackOutputController.h"
 #include "PlaybackSourcePlan.h"
+#include "AudioEffectCatalogCache.h"
 #include "SongCommands.h"
 #include "SongShareText.h"
 #include "ShareTarget.h"
@@ -68,6 +69,11 @@ public:
 class AudioEffectCatalogTestAccess
 {
 public:
+    static bool ready(AudioEffectCatalog &catalog)
+    {
+        catalog.m_cache->load();
+        return catalog.m_cacheReady;
+    }
     static void finish(AudioEffectCatalog &catalog, ApiClient &api, const QJsonObject &domain)
     {
         catalog.cancel();
@@ -1262,8 +1268,22 @@ private slots:
         playback.setVolume(0);
         QSignalSpy notices(playback.transition(), &TrackTransitionController::notice);
         QJsonArray history;
-        connect(&playback, &PlaybackService::historyLoaded, &playback,
+        QList<QColor> accents;
+        QList<PlaybackService::ProgressBusyReason> progress;
+        bool observedPreparation = false;
+        QObject observations;
+        connect(&playback, &PlaybackService::historyLoaded, &observations,
                 [&](const QJsonArray &entries) { history = entries; });
+        connect(&PlaybackServiceTestAccess::engine(playback), &AudioEngine::eventReceived,
+                &observations, [&](const QJsonObject &event) {
+                    if (observedPreparation || event.value("event") != "next-source-prepared" ||
+                        !event.value("prepared").toBool())
+                        return;
+                    observedPreparation = true;
+                    QCOMPARE(playback.queue()->currentIndex(), 0);
+                    QCOMPARE(playback.currentTrack().key(), tracks[0].key());
+                    QCOMPARE(history.size(), 1);
+                });
         playback.transition()->setMode("gapless");
         QCOMPARE(notices.size(), 0); // Settings and preparation are not audible boundaries.
         playback.playTracks(tracks, 0, "Transition", "transition-test");
@@ -1272,17 +1292,14 @@ private slots:
         QCOMPARE(history[0].toObject()["track"].toObject()["id"].toString(), tracks[0].id);
         QCOMPARE(history[0].toObject()["play_count"].toInteger(), 1);
         QTRY_COMPARE(playback.coverColor(), QColor("#d03050"));
-        QList<QColor> accents;
-        connect(&playback, &PlaybackService::changed, &playback,
+        connect(&playback, &PlaybackService::changed, &observations,
                 [&] { accents.append(playback.coverColor()); });
-        QTRY_VERIFY_WITH_TIMEOUT(
-            TrackTransitionControllerTestAccess::prepared(*playback.transition()), 15000);
-        QCOMPARE(playback.queue()->currentIndex(), 0);
-        QCOMPARE(playback.currentTrack().key(), tracks[0].key());
-        QCOMPARE(history.size(), 1); // Preparing the next reader does not record it.
+        // Inspect the event boundary itself: a queued native adoption can follow
+        // preparation before the next polling turn observes the intermediate state.
+        QTRY_VERIFY_WITH_TIMEOUT(observedPreparation, 15000);
         QVERIFY(playback.positionMs() > 0);
-        // EchoMusic manual clicks synchronously select a new track; only a
-        // natural boundary waits for the already prepared native deck.
+        // Only the natural boundary waits for native adoption. Manual selection
+        // can first hydrate a cold queue payload from the repository.
         QTRY_COMPARE_WITH_TIMEOUT(playback.currentTrack().key(), tracks[1].key(), 15000);
         QTRY_COMPARE(history.size(), 2);
         QCOMPARE(history[0].toObject()["track"].toObject()["id"].toString(), tracks[1].id);
@@ -1297,15 +1314,14 @@ private slots:
         QVERIFY2(playback.errorMessage().isEmpty(), qPrintable(playback.errorMessage()));
         QTRY_VERIFY_WITH_TIMEOUT(playback.playing(), 5000);
         playback.next();
-        QCOMPARE(playback.currentTrack().key(), tracks[0].key());
+        QTRY_COMPARE(playback.currentTrack().key(), tracks[0].key());
         QCOMPARE(playback.queue()->currentIndex(), 0);
         QCOMPARE(notices.size(),
-                 1); // Manual intent selects immediately, without another adoption notice.
+                 1); // Manual selection does not emit another native adoption notice.
         QTRY_VERIFY_WITH_TIMEOUT(playback.playing() && !playback.loading(), 10000);
         QTRY_COMPARE(history[0].toObject()["track"].toObject()["id"].toString(), tracks[0].id);
         QCOMPARE(history[0].toObject()["play_count"].toInteger(), 2);
-        QList<PlaybackService::ProgressBusyReason> progress;
-        connect(&playback, &PlaybackService::progressBusyReasonChanged, &playback,
+        connect(&playback, &PlaybackService::progressBusyReasonChanged, &observations,
                 [&] { progress.append(playback.progressBusyReason()); });
         playback.seek(2000);
         QTRY_VERIFY_WITH_TIMEOUT(progress.contains(PlaybackService::ProgressSeeking), 5000);
@@ -1320,7 +1336,7 @@ private slots:
         QCOMPARE(notices.size(), 1); // A retired preparation cannot re-announce a transition.
         // Close while the real decoder is seeking: QML must receive Ready
         // immediately, even though shutdown no longer emits general changed().
-        connect(&playback, &PlaybackService::progressBusyReasonChanged, &playback, [&] {
+        connect(&playback, &PlaybackService::progressBusyReasonChanged, &observations, [&] {
             if (playback.progressBusyReason() == PlaybackService::ProgressSeeking)
                 playback.shutdown();
         });
@@ -2264,7 +2280,9 @@ private slots:
         auto *actions = playback.libraryActions();
         QAbstractItemModelTester tester(actions,
                                         QAbstractItemModelTester::FailureReportingMode::QtTest);
+        QSignalSpy prepared(actions, &PlaybackLibraryActions::dialogRequested);
         actions->prepareViewedQueue();
+        QTRY_COMPARE(prepared.size(), 1);
         actions->setMultiple(true);
         actions->selectAll(true);
         QCOMPARE(actions->selectedCount(), 3);
@@ -2278,6 +2296,7 @@ private slots:
         QCOMPARE(catalog->snapshot().first().tracks.size(), 2);
         QVERIFY(!actions->busy());
         actions->prepareViewedQueue();
+        QTRY_COMPARE(prepared.size(), 2);
         actions->setMultiple(true);
         actions->selectAll(true);
         QVERIFY(api.setAccount(1, QStringLiteral("test-only-token")));
@@ -2482,8 +2501,8 @@ private slots:
                 target = i;
         model.move(target, 2);
         QCOMPARE(model.at(model.currentIndex())->id, QString("30000"));
-        QCOMPARE(model.at(model.takeNextPriority())->id, QString("12"));
         QCOMPARE(model.takeNextPriority(), 2);
+        QCOMPARE(model.at(model.takeNextPriority())->id, QString("12"));
         QCOMPARE(model.takeNextPriority(), -1);
         model.remove(0);
         QCOMPARE(model.at(model.currentIndex())->id, QString("30000"));
@@ -2583,10 +2602,11 @@ private slots:
                                      {"source", "artist"},
                                      {"retained_field", i + 100}});
         auto *catalog = playback.effectCatalog();
+        QTRY_VERIFY(AudioEffectCatalogTestAccess::ready(*catalog));
         AudioEffectCatalogTestAccess::finish(*catalog, api, {{"items", items}, {"total", 1}});
-        QCOMPARE(catalog->rowCount(), 35);
+        QTRY_COMPARE(catalog->rowCount(), 35);
         QVERIFY(catalog->errorMessage().isEmpty());
-        QCOMPARE(
+        QTRY_COMPARE(
             catalog->data(catalog->index(34), Qt::UserRole + 1).toMap()["retained_field"].toInt(),
             134);
         LyricSourceController sources(api, settings);

@@ -96,10 +96,20 @@ pub struct SongTag {
     pub parent_id: Option<String>,
 }
 #[derive(Debug, Serialize)]
+pub struct RecommendationCurator {
+    pub id: Option<u64>,
+    pub name: String,
+    pub avatar_url: String,
+}
+#[derive(Debug, Serialize)]
 pub struct RecommendationText {
     pub headline: String,
     pub detail: String,
     pub rank_label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub curator: Option<RecommendationCurator>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artwork_url: Option<String>,
 }
 #[derive(Debug, Serialize)]
 pub struct RankingPosition {

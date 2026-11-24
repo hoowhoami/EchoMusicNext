@@ -37,8 +37,16 @@ Item {
     property bool loading: false
     onLoadingChanged: {
         if (!loading && resourceActive && collection.count > 0)
-            Qt.callLater(listMotion.promote);
+            initialInsert.restart();
         schedulePreload();
+    }
+    // The catalog owns this one-shot. Destroying a route cancels it before a
+    // deferred QML function can outlive its evaluation context.
+    Timer {
+        id: initialInsert
+        interval: 0
+        onTriggered: if (root.resourceActive && root.visible && !root.loading && root.collection.count > 0)
+            listMotion.promote()
     }
     property string errorMessage: ""
     property bool resourceActive: true
@@ -55,7 +63,11 @@ Item {
     property int preloadRowCount: -1
     onHasMoreChanged: schedulePreload()
     onLoadingMoreChanged: schedulePreload()
-    onResourceActiveChanged: schedulePreload()
+    onResourceActiveChanged: {
+        if (!resourceActive)
+            initialInsert.stop();
+        schedulePreload();
+    }
     onErrorMessageChanged: schedulePreload()
     readonly property string activeTrackId: actions.currentTrackId
     readonly property alias listView: songs

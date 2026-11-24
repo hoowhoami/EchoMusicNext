@@ -102,13 +102,14 @@ SidebarLayoutModel::SidebarLayoutModel(EchoMusic::SettingsStore &preferences, QO
     m_entries = {{"favorites", tr("我最喜爱"), "heart", "library"},
                  {"cloud", tr("音乐云盘"), "cloud", "library"},
                  {"history", tr("播放历史"), "clock", "library"}};
-    m_shortcutCatalog = {{"home", tr("为您推荐"), "sparkles", {}},
-                         {"explore", tr("探索发现"), "compass", {}},
+    m_shortcutCatalog = {{"home", tr("歌曲推荐"), "sparkles", {}},
+                         {"explore", tr("歌单广场"), "compass", {}},
                          {"free-listen", tr("免费听"), "gift", {}},
                          {"discover-flow", tr("刷歌"), "vinyl", {}},
                          {"personal-fm", tr("私人 FM"), "radio", {}},
                          {"recommend", tr("每日推荐"), "calendar", {}},
                          {"ranking", tr("排行榜"), "trophy", {}},
+                         {"artist-recommendations", tr("歌手推荐"), "users", {}},
                          {"purchased", tr("已购音乐"), "shopping-bag", {}},
                          {"listen-together", tr("一起听"), "headphones", {}}};
     const auto savedResources =

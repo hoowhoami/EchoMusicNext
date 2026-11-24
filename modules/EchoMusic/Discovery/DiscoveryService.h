@@ -1,5 +1,6 @@
 #pragma once
 #include "SongCatalogModel.h"
+#include "RecommendationCards.h"
 #include "SongCatalogActions.h"
 #include "ApiClient.h"
 #include "PlaybackService.h"
@@ -21,6 +22,10 @@ class DiscoveryService final : public QObject
     Q_OBJECT
     QML_ELEMENT
     QML_UNCREATABLE("Owned by the application")
+    Q_PROPERTY(
+        EchoMusic::RecommendationCards *recommendationCards READ recommendationCards CONSTANT)
+    Q_PROPERTY(EchoMusic::RecommendationCard *detailCard READ detailCard NOTIFY changed)
+    Q_PROPERTY(EchoMusic::RecommendationCard *newSongsCard READ newSongsCard CONSTANT)
     Q_PROPERTY(EchoMusic::SongCatalogModel *styleSongs READ styleSongs CONSTANT)
     Q_PROPERTY(EchoMusic::SongCatalogModel *playlists READ playlists CONSTANT)
     Q_PROPERTY(EchoMusic::SongCatalogModel *editors READ editors CONSTANT)
@@ -155,6 +160,29 @@ public:
     {
         return m_activePage;
     }
+    RecommendationCards *recommendationCards()
+    {
+        return &m_recommendationCards;
+    }
+    RecommendationCard *detailCard() const
+    {
+        return m_detailCard;
+    }
+    RecommendationCard *newSongsCard() const
+    {
+        return m_recommendationCards.find("new");
+    }
+    void setPreferences(SettingsStore *preferences)
+    {
+        m_recommendationCards.setPreferences(preferences);
+    }
+    void setDetailCard(const QString &key);
+    Q_INVOKABLE EchoMusic::RecommendationCard *recommendationCard(const QString &key) const
+    {
+        return m_recommendationCards.find(key);
+    }
+    Q_INVOKABLE void activateCard(const QString &key, bool active);
+    Q_INVOKABLE void refreshCard(const QString &key);
     void setPage(const QString &name, const QString &instance, bool networkEnabled);
     void shutdown();
     Q_INVOKABLE EchoMusic::SongCatalogActions *actions(EchoMusic::SongCatalogModel *model);
@@ -191,6 +219,15 @@ signals:
     void notice(const QString &message, int tone);
 
 private:
+    void initializeCards();
+    void requestCard(RecommendationCard *);
+    void cancelCardRequests();
+    bool acceptCard(quint64 id, const QByteArray &);
+    bool failCard(quint64 id, const QString &);
+    RecommendationCards m_recommendationCards;
+    RecommendationCard *m_detailCard = nullptr;
+    QHash<quint64, QPair<RecommendationCard *, quint64>> m_cardPending;
+    QSet<QString> m_cardDemand;
     friend class DiscoveryServiceTestAccess;
     struct Pending
     {

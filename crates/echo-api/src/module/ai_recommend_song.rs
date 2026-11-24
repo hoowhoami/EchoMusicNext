@@ -58,6 +58,18 @@ struct Song {
     #[serde(default, deserialize_with = "crate::util::response::text")]
     suffix_audio_name: String,
     #[serde(default, deserialize_with = "crate::util::response::text")]
+    rec_info: String,
+    #[serde(default, deserialize_with = "crate::util::response::text")]
+    nick_name: String,
+    #[serde(default, deserialize_with = "crate::util::response::optional")]
+    userid: Option<u64>,
+    #[serde(default, deserialize_with = "crate::util::response::text")]
+    user_pic: String,
+    #[serde(default, deserialize_with = "crate::util::response::text")]
+    cover_pic: String,
+    #[serde(default, deserialize_with = "crate::util::response::text")]
+    pic: String,
+    #[serde(default, deserialize_with = "crate::util::response::text")]
     publish_date: String,
     #[serde(default, deserialize_with = "crate::util::response::text")]
     language: String,
@@ -230,6 +242,10 @@ const SONG_KEYS: &[&str] = &[
     "ori_audio_name",
     "official_songname",
     "suffix_audio_name",
+    "rec_info",
+    "nick_name",
+    "userid",
+    "user_pic",
     "publish_date",
     "language",
     "is_publish",
@@ -509,8 +525,21 @@ impl Song {
             ip_tags: Vec::new(),
             recommendation: RecommendationText {
                 headline: String::new(),
-                detail: String::new(),
+                detail: self.rec_info,
                 rank_label: None,
+                curator: (!self.nick_name.is_empty()
+                    || self.userid.is_some()
+                    || !self.user_pic.is_empty())
+                .then(|| RecommendationCurator {
+                    id: self.userid,
+                    name: self.nick_name,
+                    avatar_url: cover_url(self.user_pic),
+                }),
+                artwork_url: match (self.cover_pic.is_empty(), self.pic.is_empty()) {
+                    (false, _) => Some(cover_url(self.cover_pic)),
+                    (_, false) => Some(cover_url(self.pic)),
+                    _ => None,
+                },
             },
             ranking: None,
             artists,
@@ -536,13 +565,45 @@ pub fn convert(bytes: &[u8]) -> Result<FreeListenSongs, ApiError> {
         .collect::<Result<Vec<_>, ApiError>>()?;
     Ok(FreeListenSongs { songs, card_info })
 }
-pub async fn execute(client: &ApiClient, identity: &Identity) -> Result<Vec<u8>, ApiError> {
+#[derive(Deserialize)]
+#[serde(default)]
+pub struct Query {
+    pub page: u32,
+    pub pagesize: u32,
+    pub source: u32,
+}
+impl Default for Query {
+    fn default() -> Self {
+        Self {
+            page: 1,
+            pagesize: 30,
+            source: 2,
+        }
+    }
+}
+pub(crate) fn convert_song(raw: Value) -> Result<DiscoverySong, ApiError> {
+    let mut song: Song =
+        crate::util::response::from_value(raw.clone()).map_err(|_| ApiError::decode())?;
+    if song.songname.is_empty() {
+        song.songname = song.ori_audio_name.clone();
+        if !song.suffix_audio_name.is_empty() {
+            song.songname
+                .push_str(&format!(" ({})", song.suffix_audio_name));
+        }
+    }
+    song.convert(raw)
+}
+pub async fn execute(
+    client: &ApiClient,
+    identity: &Identity,
+    query: Query,
+) -> Result<Vec<u8>, ApiError> {
     // Keep page and page size numeric; string values can return 20010.
     let body = serde_json::to_vec(&serde_json::json!({
         "apiver": 2,
-        "source": 2,
-        "pagesize": 30,
-        "page": 1
+        "source": query.source,
+        "pagesize": query.pagesize,
+        "page": query.page
     }))
     .map_err(|_| ApiError::encoding())?;
     let bytes = client

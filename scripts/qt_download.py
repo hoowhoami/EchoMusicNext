@@ -1,4 +1,4 @@
-"""Use pinned aqt downloads with the verified Qt 6.12.0 Windows repository layout.
+"""Use pinned aqt downloads with the verified Qt 6.12.1 Windows repository layout.
 
 aqtinstall 3.3.0 predates split MSVC x64 repositories. This adapter only supplies
 metadata locations. aqt retains TLS, metadata/archive checksums, extraction and
@@ -12,12 +12,12 @@ from qt_sdk import VERSION
 
 
 def windows_repositories(host, arch):
-    if VERSION != "6.12.0":
+    if VERSION != "6.12.1":
         raise RuntimeError("Audit the official repository layout before changing Qt")
     if (host, arch) == ("windows", "win64_msvc2022_64"):
-        base = "windows_x86/desktop/qt6_6120/qt6_6120_msvc2022_64"
+        base = "windows_x86/desktop/qt6_6121/qt6_6121_msvc2022_64"
     elif (host, arch) == ("windows_arm64", "win64_msvc2022_arm64"):
-        base = "windows_arm64/desktop/qt6_6120/qt6_6120"
+        base = "windows_arm64/desktop/qt6_6121/qt6_6121"
     else:
         raise RuntimeError(f"Unsupported Windows kit: {host}/{arch}")
     return tuple("online/qtsdkrepository/" + path for path in (base,))

@@ -1,6 +1,19 @@
 #include "DesktopPagesTest.h"
 #include "DesktopPagesTestFixture.h"
 
+namespace EchoMusic
+{
+class CastServiceTestAccess
+{
+public:
+    static void setRemoteForVolumeUi(CastService &service, bool remote)
+    {
+        service.m_active = remote ? QStringLiteral("volume-ui-fixture") : QString();
+        emit service.changed();
+    }
+};
+} // namespace EchoMusic
+
 void DesktopPagesTest::productionPopoversSwitchOnOneOutsideClick()
 {
     Session session;
@@ -353,4 +366,199 @@ void DesktopPagesTest::taskIndicatorUsesSingleDot()
     QCOMPARE(menuDot->width(), 5.);
     QVERIFY(session.commands.tasks()->remove(handle));
     QTRY_VERIFY(!menuDot->isVisible());
+}
+
+void DesktopPagesTest::productionVolumeGainSurfaces_data()
+{
+    QTest::addColumn<bool>("dark");
+    QTest::addColumn<int>("zoom");
+    QTest::newRow("light-100") << false << 0;
+    QTest::newRow("dark-100") << true << 0;
+    QTest::newRow("light-125") << false << 5;
+    QTest::newRow("dark-125") << true << 5;
+}
+
+void DesktopPagesTest::productionVolumeGainSurfaces()
+{
+    QFETCH(bool, dark);
+    QFETCH(int, zoom);
+    Session session;
+    session.theme.setMotionEnabled(false);
+    session.theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
+    PlaybackService playback(session.api, session.preferences);
+    QVERIFY(session.create(&playback));
+    const auto cleanup = qScopeGuard([&] {
+        session.auxiliary.reset();
+        session.root.reset();
+        session.window = nullptr;
+        session.windows.shutdown();
+    });
+    for (int i = 0; i < zoom; ++i)
+        session.shell.zoomIn();
+    session.window->resize(1150, 800);
+    QVERIFY(Test::prepareNativeInput(session.window));
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    const auto captures = qEnvironmentVariable("ECHO_VOLUME_CAPTURE_DIR");
+    if (!captures.isEmpty())
+        QVERIFY(QDir().mkpath(captures));
+    const auto click = [](QQuickItem *item) {
+        QVERIFY(item && item->window() && item->isVisible());
+        QVERIFY(Test::settleNativeItem(item));
+        const auto point = item->mapToScene(item->boundingRect().center()).toPoint();
+        Test::moveNativePointer(item->window(), point);
+        QTest::mouseClick(item->window(), Qt::LeftButton, Qt::NoModifier, point);
+    };
+    const auto visibleItem = [](QQuickItem *root, const QString &name) -> QQuickItem * {
+        QList<QQuickItem *> pending{root};
+        while (!pending.isEmpty()) {
+            auto *item = pending.takeLast();
+            if (item->objectName() == name && item->isVisible())
+                return item;
+            pending.append(item->childItems());
+        }
+        return nullptr;
+    };
+    for (const auto &surface : {QString("playerbar"), QString("playback-page"), QString("mini")}) {
+        QPointer<QObject> page;
+        auto *host = session.window;
+        QObject *owner = nullptr;
+        if (surface == "playback-page") {
+            page = session.openOwnedPopup("playbackPageOwner");
+            QVERIFY(page);
+        }
+        if (surface == "mini") {
+            session.windows.floating()->showMini();
+            QTRY_VERIFY((host = session.windows.floating()->miniWindow()));
+            QVERIFY(Test::prepareNativeInput(host));
+            owner = host->findChild<QObject *>("miniPlayerVolumePopupOwner");
+        } else {
+            owner = session.root->findChild<QObject *>("playbackOptionsPopupOwner");
+        }
+        QVERIFY(owner);
+        QVERIFY(!owner->property("item").value<QObject *>());
+        QQuickItem *trigger = nullptr;
+        QTRY_VERIFY((trigger = visibleItem(host->contentItem(), surface == "mini"
+                                                                    ? "miniPlayerVolume"
+                                                                    : "playerbar-action-volume")));
+        playback.setVolume(125);
+        QQuickItem *mark = nullptr;
+        QTRY_VERIFY((mark = visual(trigger, "playbackVolumeBoostMark")));
+        QTRY_VERIFY(mark->isVisible());
+        QVERIFY(trigger->property("tooltipText").toString().contains(QStringLiteral("软件增益")));
+        if (!captures.isEmpty()) {
+            Test::FrameSpy frames(host);
+            host->update();
+            QTRY_VERIFY(!frames.isEmpty());
+            QVERIFY(host->grabWindow().save(captures + QString("/%1-%2-%3-icon.png")
+                                                           .arg(surface, dark ? "dark" : "light")
+                                                           .arg(zoom ? 125 : 100)));
+        }
+        playback.setVolume(100);
+        QTRY_VERIFY(!mark->isVisible());
+        click(trigger);
+        if (QTest::currentTestFailed())
+            return;
+        QPointer<QObject> popup;
+        QTRY_VERIFY((popup = owner->property("item").value<QObject *>()));
+        QTRY_VERIFY(popup->property("opened").toBool());
+        auto *content = popup->property("contentItem").value<QQuickItem *>();
+        QVERIFY(content);
+        QPointer<QQuickItem> panel = visual(content, "playbackVolumePanel");
+        QVERIFY(panel);
+        auto *slider = visual(panel, "playbackVolumeSlider");
+        auto *restore = visual(panel, "playbackVolumeRestore");
+        auto *info = visual(panel, "playbackVolumeInfo");
+        auto *mute = visual(panel, "playbackVolumeMute");
+        QVERIFY(slider && restore && info && mute);
+        QCOMPARE(slider->property("to").toReal(), 150.);
+        QCOMPARE(slider->property("orientation").toInt(), int(Qt::Horizontal));
+        auto *reference = visual(panel, "playbackVolumeReference");
+        QVERIFY(reference);
+        auto *referenceLine = reference->property("contentItem").value<QQuickItem *>();
+        QVERIFY(referenceLine);
+        auto *referenceText = referenceLine->property("textItem").value<QQuickItem *>();
+        QVERIFY(referenceText);
+        QTRY_VERIFY(
+            qAbs(referenceText->mapToItem(panel, referenceText->boundingRect().center()).x() -
+                 reference->mapToItem(panel, reference->boundingRect().center()).x()) < .51);
+        const auto height = panel->implicitHeight();
+        for (const int value : {0, 100, 101, 150}) {
+            playback.setVolume(value);
+            QTRY_COMPARE(slider->property("value").toReal(), qreal(value));
+            QTRY_COMPARE(restore->isVisible(), value > 100);
+            QTRY_COMPARE(mark->isVisible(), value > 100);
+            QTRY_COMPARE(panel->implicitHeight(), height);
+            auto *label = visual(panel, "playbackVolumeValue");
+            QVERIFY(label);
+            QCOMPARE(label->property("text").toString(), QString::number(value));
+        }
+        {
+            // Present a remote output state without opening a provider connection.
+            // Apply its volume before exposing the cast state, so no remote command
+            // is submitted by the service's playback synchronization observer.
+            playback.applyOutputVolume(100);
+            EchoMusic::CastServiceTestAccess::setRemoteForVolumeUi(*playback.cast(), true);
+            const auto localOutput = qScopeGuard([&] {
+                EchoMusic::CastServiceTestAccess::setRemoteForVolumeUi(*playback.cast(), false);
+                playback.restoreLocalVolume();
+            });
+            QTRY_COMPARE(slider->property("to").toReal(), 100.);
+            QTRY_VERIFY(!reference->isVisible());
+            QTRY_VERIFY(!restore->isVisible());
+            QTRY_VERIFY(!mark->isVisible());
+        }
+        QTRY_COMPARE(slider->property("to").toReal(), 150.);
+        playback.setVolume(100);
+        slider->forceActiveFocus();
+        QTest::keyClick(slider->window(), Qt::Key_Right);
+        QTRY_COMPARE(playback.volume(), 101.);
+        QTRY_VERIFY(mark->isVisible());
+        playback.setVolume(125);
+        const auto save = [&](const QString &suffix) {
+            if (captures.isEmpty())
+                return;
+            auto *window = content->window();
+            Test::FrameSpy frames(window);
+            window->update();
+            QTRY_VERIFY(!frames.isEmpty());
+            QVERIFY(window->grabWindow().save(captures + QString("/%1-%2-%3-%4.png")
+                                                             .arg(surface, dark ? "dark" : "light")
+                                                             .arg(zoom ? 125 : 100)
+                                                             .arg(suffix)));
+        };
+        save("gain");
+        click(restore);
+        QTRY_COMPARE(playback.volume(), 100.);
+        QTRY_VERIFY(!mark->isVisible());
+        QTRY_VERIFY(!restore->isVisible());
+        save("standard");
+        click(info);
+        QTRY_VERIFY(visual(panel, "playbackVolumeExplanation"));
+        QTRY_VERIFY(panel->implicitHeight() > height);
+        const auto expandedHeight = panel->implicitHeight();
+        for (int value : {100, 101, 150}) {
+            playback.setVolume(value);
+            QTRY_COMPARE(panel->implicitHeight(), expandedHeight);
+        }
+        playback.setVolume(125);
+        save("explanation");
+        if (surface == "mini")
+            QTRY_VERIFY(content->property("contentHeight").toReal() <= content->height() + .01);
+        click(mute);
+        QTRY_COMPARE(playback.volume(), 0.);
+        QTRY_VERIFY(!mark->isVisible());
+        click(mute);
+        QTRY_COMPARE(playback.volume(), 125.);
+        QTRY_VERIFY(mark->isVisible());
+        // Input dismissal is covered by the native Mini regression; retire
+        // this shared-content matrix through the explicit owner lifecycle.
+        QVERIFY(QMetaObject::invokeMethod(popup, "close"));
+        QTRY_VERIFY(popup.isNull());
+        QVERIFY(panel.isNull());
+        if (page) {
+            QVERIFY(QMetaObject::invokeMethod(page, "close"));
+            QTRY_VERIFY(page.isNull());
+        }
+    }
+    QVERIFY2(warnings.isEmpty(), "Production volume surfaces must load without QML warnings");
 }

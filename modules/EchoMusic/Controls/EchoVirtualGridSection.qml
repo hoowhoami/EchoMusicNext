@@ -44,43 +44,61 @@ Item {
     }
     Loader {
         id: viewport
+        // Let the page finish its column/size bindings before constructing
+        // artwork. Transient full-width cells must not set decode high-water.
+        asynchronous: true
         active: section.resourceActive && section.nearViewport && section.height > 0 && width > 0 && !projectionState.updating
         width: section.width
         height: Math.min(section.height, section.scrollView.height)
         y: Math.max(0, Math.min(section.localTop, section.height - height))
         function syncPosition(): void {
             const grid = item as GridView;
-            if (grid && Math.abs(grid.contentY - y) > .001)
-                grid.contentY = y;
+            if (!grid || Math.abs(grid.contentY - y) <= .001)
+                return;
+            if (Math.abs(grid.contentY - y) > grid.height)
+                grid.positionViewAtIndex(Math.floor(y / section.cellHeight) * section.columns, GridView.Beginning);
+            grid.contentY = y;
         }
         onYChanged: syncPosition()
         // Native component completion/model resets can restore the view's own
         // origin. This non-interactive view only projects the outer position.
-        onLoaded: syncPosition()
-        sourceComponent: GridView {
-            id: grid
-            model: section.model
-            delegate: section.delegate
-            cellWidth: section.cellWidth
-            cellHeight: section.cellHeight
-            onContentYChanged: if (Math.abs(contentY - viewport.y) > .001)
-                placement.restart()
-            onCountChanged: placement.restart()
-            currentIndex: -1
-            interactive: false
-            keyNavigationEnabled: false
-            reuseItems: true
-            cacheBuffer: cellHeight * 2
-            // Cached cells keep their original section coordinates. The outer
-            // page clips them; a second clip here would cut off card hover lift
-            // at the beginning of a section.
-            clip: false
-            boundsBehavior: Flickable.StopAtBounds
-            Timer {
-                id: placement
-                interval: 0
-                onTriggered: viewport.syncPosition()
-            }
+        onLoaded: {
+            const grid = item as Projection;
+            grid.positionViewAtIndex(Math.floor(y / section.cellHeight) * section.columns, GridView.Beginning);
+            grid.viewportReady = true;
+            syncPosition();
+        }
+        sourceComponent: Projection {}
+    }
+    component Projection: GridView {
+        id: grid
+        // Component completion refills GridView at its origin. Start with
+        // no viewport, position natively, then expose the real extent;
+        // otherwise returning deep into a section decodes its first rows.
+        property bool viewportReady: false
+        width: viewportReady ? viewport.width : 0
+        height: viewportReady ? viewport.height : 0
+        model: section.model
+        delegate: section.delegate
+        cellWidth: section.cellWidth
+        cellHeight: section.cellHeight
+        onContentYChanged: if (Math.abs(contentY - viewport.y) > .001)
+            placement.restart()
+        onCountChanged: placement.restart()
+        currentIndex: -1
+        interactive: false
+        keyNavigationEnabled: false
+        reuseItems: true
+        cacheBuffer: cellHeight * 2
+        // Cached cells keep their original section coordinates. The outer
+        // page clips them; a second clip here would cut off card hover lift
+        // at the beginning of a section.
+        clip: false
+        boundsBehavior: Flickable.StopAtBounds
+        Timer {
+            id: placement
+            interval: 0
+            onTriggered: viewport.syncPosition()
         }
     }
 }

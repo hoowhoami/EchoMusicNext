@@ -15,9 +15,12 @@ private slots:
     void wheelCancellationAndMotionPreferences();
     void pageWheelRegionsPreserveNativeEvents();
     void scaledPopupTextKeepsNativePixelResolution();
+    void popupLoaderAcceptsOptionalProperties();
     void badgeIconAndCountUseSameInkCenter();
     void scrollContentCannotPaintOverRoundedCornersOrBorder();
     void imageDensityTracksScaleWithoutTrackingScroll();
+    void imageRequestsCoalesceLayoutAndRetireSynchronously();
+    void coverRequestsUseSettledBoundedDimensions();
     void imageDensitySharesAncestorsAndReleasesInactiveObservers();
     void coverKeepsNativeResolutionUnderAncestorZoom();
     void viewPoolResetIsCanceledWithOwner();

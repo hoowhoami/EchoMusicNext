@@ -88,6 +88,8 @@ private slots:
     void productionResolvedQualityMarksPickerAndToolbar();
     void productionQualityPopupContainsAndScrollsAllOptions();
     void productionPopoversSwitchOnOneOutsideClick();
+    void productionVolumeGainSurfaces_data();
+    void productionVolumeGainSurfaces();
     void taskIndicatorUsesSingleDot_data();
     void taskIndicatorUsesSingleDot();
     void productionEmbeddedLyricsFromActualReader_data();

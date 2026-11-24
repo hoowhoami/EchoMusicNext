@@ -67,7 +67,24 @@ pub enum Request {
     EverydayRecommend {
         identity: Identity,
     },
+    DiscoveryCardRecommend {
+        #[serde(default)]
+        query: util::discovery_cards::Query,
+        identity: Identity,
+    },
+    DiscoveryCardSingle {
+        #[serde(default)]
+        query: util::discovery_cards::Query,
+        identity: Identity,
+    },
+    DiscoveryCardTag {
+        #[serde(default)]
+        query: util::discovery_cards::Query,
+        identity: Identity,
+    },
     AiRecommendSong {
+        #[serde(default)]
+        query: module::ai_recommend_song::Query,
         identity: Identity,
     },
     ListenTogetherRoom {
@@ -615,6 +632,9 @@ async fn execute_request(request: Request, client: &ApiClient) -> Result<Vec<u8>
                 "/song/url/auth/merge",
                 "/privilege/lite",
                 "/ai/recommend/song",
+                "/discovery/card/recommend",
+                "/discovery/card/single",
+                "/discovery/card/tag",
                 "/home/discover",
                 "/user/cloud",
                 "/user/cloud/del",
@@ -888,8 +908,17 @@ async fn execute_request(request: Request, client: &ApiClient) -> Result<Vec<u8>
         Request::EverydayRecommend { identity } => {
             module::everyday_recommend::execute(client, &identity).await
         }
-        Request::AiRecommendSong { identity } => {
-            module::ai_recommend_song::execute(client, &identity).await
+        Request::DiscoveryCardRecommend { query, identity } => {
+            module::discovery_card_recommend::execute(client, &identity, query).await
+        }
+        Request::DiscoveryCardSingle { query, identity } => {
+            module::discovery_card_single::execute(client, &identity, query).await
+        }
+        Request::DiscoveryCardTag { query, identity } => {
+            module::discovery_card_tag::execute(client, &identity, query).await
+        }
+        Request::AiRecommendSong { query, identity } => {
+            module::ai_recommend_song::execute(client, &identity, query).await
         }
         Request::ListenTogetherRoom { query, identity } => {
             module::listen_together_room::execute(client, &identity, query).await

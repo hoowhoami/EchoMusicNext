@@ -13,6 +13,9 @@ qt_add_qml_module(
     RecognitionService.cpp
     DiscoveryService.h
     DiscoveryService.cpp
+    DiscoveryRecommendations.cpp
+    RecommendationCards.h
+    RecommendationCards.cpp
     ExploreService.h
     ExploreService.cpp
     DiscoveryRouteCoordinator.h
@@ -22,6 +25,12 @@ qt_add_qml_module(
     RecognitionOrb.qml
     RecognitionMatchRow.qml
     HomePage.qml
+    RecommendationPanel.qml
+    RecommendationSongRow.qml
+    RecommendationFeatureSong.qml
+    RecommendationGroupCard.qml
+    RecommendationConfigPopup.qml
+    RecommendationDetailPage.qml
     HomeFeatureCard.qml
     HomeSongCard.qml
     DiscoverySongsPage.qml
@@ -29,6 +38,8 @@ qt_add_qml_module(
     DailyRecommendPage.qml
     RankingPage.qml
     ExplorePage.qml
+    PlaylistCollectionSection.qml
+    ArtistRecommendationsPage.qml
     ExploreHeader.qml
     FreeListenPage.qml
     FreeListenCover.qml
@@ -47,6 +58,7 @@ target_link_libraries(
     echo_discovery
     PUBLIC echo_music
     PRIVATE echo_bridge
+            echo_session_cache
             echo_account
             echo_playback_service
             echo_playback

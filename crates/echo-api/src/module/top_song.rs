@@ -394,6 +394,8 @@ pub fn convert(bytes: &[u8]) -> Result<NewSongs, ApiError> {
                             headline: s.recommend_reason,
                             detail: String::new(),
                             rank_label: None,
+                            curator: None,
+                            artwork_url: None,
                         },
                         ranking: None,
                         artists,

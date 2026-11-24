@@ -245,6 +245,18 @@ impl ApiClient {
             .await?
             .bytes)
     }
+    /// Discovery recipes already contain fixed concept signatures, including
+    /// child timestamps. Preserve them without injecting transport defaults.
+    pub async fn request_discovery(
+        &self,
+        identity: &Identity,
+        endpoint: Endpoint<'_>,
+    ) -> Result<Vec<u8>, ApiError> {
+        Ok(self
+            .send_endpoint(identity, endpoint, true, true)
+            .await?
+            .bytes)
+    }
     /// Relation writes carry authentication in body key/p, without defaults/signature.
     pub async fn request_relation(
         &self,

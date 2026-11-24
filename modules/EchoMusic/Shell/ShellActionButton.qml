@@ -34,7 +34,8 @@ EchoIconButton {
     animatePlayPause: player && builtinId === "play-toggle"
     playIconOffset: 1
     text: actionTitle
-    readonly property string volumeTooltip: player && builtinId === "volume" && playback ? qsTr("音量·%1").arg(Math.round(playback.volume)) : ""
+    readonly property string volumeTooltip: player && builtinId === "volume" && playback ? (playback.volume > 100 && !playback.cast.remote ? qsTr("音量 %1% · 软件增益").arg(Math.round(playback.volume)) : qsTr("音量 %1%").arg(Math.round(playback.volume))) : ""
+    Accessible.description: player && builtinId === "volume" && playback && playback.volume > 100 && !playback.cast.remote ? qsTr("已启用软件增益，可能影响音质") : ""
     tooltipText: volumeTooltip.length > 0 ? volumeTooltip : actionTooltip !== actionTitle || badgeTitle.length > 0 ? actionTooltip + (badgeVisible && badgeTitle.length > 0 ? " · " + badgeTitle + ": " + actionBadge : "") : builtinId === "barrage" ? actionActive ? qsTr("弹幕已开启 · 设置与发送") : qsTr("弹幕已关闭 · 设置与发送") : text
     enabled: actionEnabled || player && builtinId === "play-toggle" && playbackLoading
     hoverBackground: !player
@@ -55,6 +56,17 @@ EchoIconButton {
         if (builtinId.length > 0)
             aboutToActivate(builtinId, button);
         actions.activate(actionKey);
+    }
+    Loader {
+        active: button.player && button.builtinId === "volume" && button.playback !== null && button.visualContentActive
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.rightMargin: button.padding - 2
+        anchors.topMargin: button.padding - 1
+        sourceComponent: PlaybackVolumeBoostMark {
+            playback: button.playback
+            colors: button.colors
+        }
     }
     HoverHandler {
         enabled: button.visible && button.visualContentActive

@@ -574,3 +574,90 @@ fn home_discover_device_only_capture_returns_rows_without_credentials() {
         wire_first["timelength_128"].as_u64()
     );
 }
+
+#[test]
+fn concept_discovery_captures_keep_song_identity_resources_and_empty_cards() {
+    use echo_api::util::discovery_cards;
+    for id in [3001, 3004, 3005, 3006, 3014, 3032, 3101, 3102, 3103, 3107] {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/api/discovery_cards")
+            .join(format!("{id}-20261124.json"));
+        let record: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+        let wire = &record["payload"];
+        let card = discovery_cards::convert(id, &bytes(wire)).unwrap();
+        match id {
+            3014 => assert_eq!(card.description, "春不晚 - 邓寓君(等什么君)"),
+            3101 => assert_eq!(card.description, "10月25日 — 11月23日"),
+            3102 => assert_eq!(card.description, "听完R&B睡个好觉"),
+            3103 => assert_eq!(card.description, "摇滚 · 电子 · 欧美"),
+            _ => {}
+        }
+        let mut raw = wire["data"]["song_list"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        if id == 3103 {
+            for tag in wire["data"]["tag_list"].as_array().unwrap() {
+                raw.extend(tag["song_list"].as_array().unwrap().iter().cloned());
+            }
+        }
+        if id == 3107 {
+            raw = wire["data"]["list"].as_array().unwrap().clone();
+        }
+        assert_eq!(card.songs.len(), raw.len());
+        for (song, source) in card.songs.iter().zip(&raw) {
+            assert_eq!(
+                song.metadata.recommendation.detail,
+                source["rec_info"].as_str().unwrap_or_default()
+            );
+            if let Some(name) = source["nick_name"].as_str().filter(|s| !s.is_empty()) {
+                let curator = song.metadata.recommendation.curator.as_ref().unwrap();
+                assert_eq!(curator.name, name);
+                assert_eq!(
+                    curator.avatar_url,
+                    source["user_pic"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .replace("{size}", "240")
+                );
+            }
+            assert_eq!(
+                song.song.hash,
+                source["audio_info"]["hash"].as_str().unwrap()
+            );
+            let expected = source["mixsongid"]
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| source["mixsongid"].to_string());
+            assert_eq!(song.song.id, expected);
+            assert!(!song.song.title.is_empty());
+            assert_eq!(
+                song.song.album_id,
+                source["album_info"]["album_id"].as_str().unwrap()
+            );
+            assert!(!song.metadata.resources.is_empty());
+            assert!(song.metadata.provider_extension.is_some());
+        }
+        if id == 3103 {
+            assert_eq!(card.groups.len(), 3);
+            assert_eq!(card.groups[0]["title"], "摇滚");
+            assert_eq!(card.groups[0]["preview"].as_array().unwrap().len(), 3);
+            assert_eq!(card.groups[0]["preview"][0]["id"], card.songs[0].id);
+            assert!(
+                !card.groups[0]["provider_extension"]
+                    .as_object()
+                    .unwrap()
+                    .contains_key("song_list")
+            );
+        }
+        if id == 3102 {
+            assert_eq!(card.groups.len(), 1);
+            assert_eq!(card.groups[0]["title"], "R&B");
+            assert_eq!(card.groups[0]["description"], "听完R&B睡个好觉");
+        }
+    }
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/api/discovery_cards/3007-20261124.json");
+    let record: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    assert!(discovery_cards::convert(3007, &bytes(&record["payload"])).is_err());
+}

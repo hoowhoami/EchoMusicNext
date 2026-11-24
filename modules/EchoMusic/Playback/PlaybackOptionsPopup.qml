@@ -13,14 +13,14 @@ EchoAnchoredPopup {
     objectName: "playbackOptionsPopup"
     required property PlaybackService playback
     property string kind: "volume"
-    preferredWidth: kind === "volume" ? 48 : kind === "speed" ? 360 : kind === "play-mode" ? 184 : 208
+    preferredWidth: kind === "volume" ? 320 : kind === "speed" ? 360 : kind === "play-mode" ? 184 : 208
     // Fit the bounded option list to available window space; scroll when constrained.
     maximumHeight: kind === "quality" ? implicitHeight : 420
     preferAbove: true
     alignEnd: false
     showArrow: false
     sideOffset: 8
-    padding: kind === "volume" ? 12 : 6
+    padding: kind === "volume" ? 20 : 6
     topPadding: kind === "speed" ? 14 : padding
     bottomPadding: kind === "speed" ? 12 : padding
     leftPadding: kind === "speed" ? 16 : padding
@@ -44,40 +44,12 @@ EchoAnchoredPopup {
             id: contents
             width: scroll.width
             spacing: popup.kind === "speed" ? 12 : popup.kind === "volume" ? 6 : 2
-            ColumnLayout {
-                visible: popup.kind === "volume"
-                Layout.alignment: Qt.AlignHCenter
-                spacing: 6
-                EchoSlider {
-                    colors: Theme.floating
-                    objectName: "playbackVolumeSlider"
-                    Layout.preferredWidth: 24
-                    Layout.preferredHeight: 98
-                    padding: 0
-                    orientation: Qt.Vertical
-                    from: 0
-                    to: popup.playback.cast.remote ? 100 : 150
-                    value: popup.playback.volume
-                    onMoved: popup.playback.setVolume(value)
-                    Accessible.name: qsTr("音量")
-                }
-                Label {
-                    Layout.alignment: Qt.AlignHCenter
-                    text: Math.round(popup.playback.volume)
-                    font: Theme.font(10, Theme.boldWeight)
-                    color: Theme.floating.secondaryText
-                }
-                EchoIconButton {
-                    colors: Theme.floating
-                    Layout.preferredWidth: 24
-                    Layout.preferredHeight: 24
-                    // The mute target is 24px with a 16px icon.
-                    objectName: "playbackVolumeMute"
-                    padding: 4
-                    hoverBackground: false
-                    glyph: popup.playback.volume === 0 ? "volume-3" : popup.playback.volume < 50 ? "volume-2" : "volume"
-                    text: popup.playback.volume === 0 ? qsTr("取消静音") : qsTr("静音")
-                    onClicked: popup.playback.toggleMute()
+            Loader {
+                active: popup.kind === "volume"
+                visible: active
+                Layout.fillWidth: true
+                sourceComponent: PlaybackVolumePanel {
+                    playback: popup.playback
                 }
             }
             ColumnLayout {

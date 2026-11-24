@@ -1,5 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import EchoMusic.Controls
 
 // The cover uses 22% opacity beneath an 84–95% surface scrim.
 // Compose the full panel and rounded edge in one quad without extra capture layers.
@@ -10,11 +11,18 @@ Item {
     required property color baseColor
     property real cornerRadius: 15
     property bool roundTop: false
+    EchoImageMetrics {
+        id: metrics
+        item: backdrop
+        source: backdrop.coverSource
+        maximumDecodeSize: 512
+        deferRequests: true
+    }
     Image {
         id: cover
         objectName: "miniLyricBackdropCover"
-        source: backdrop.coverSource
-        sourceSize: Qt.size(512, 512)
+        source: metrics.resolvedSource
+        sourceSize: metrics.decodeSize
         cache: false
         asynchronous: true
         visible: false

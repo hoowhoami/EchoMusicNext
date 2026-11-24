@@ -519,13 +519,13 @@ Item {
         QTRY_VERIFY(image->property("sourceSize").toSize().width() >= needed);
         direct->setProperty("sourceSize", image->property("sourceSize"));
         QTRY_COMPARE(direct->property("status").toInt(), 1);
-        auto *capture = findVisual(cover, "coverCapture");
-        auto *effect = findVisual(cover, "coverMaskEffect");
-        QVERIFY(capture && effect);
+        QQuickItem *effect = nullptr;
+        QTRY_VERIFY((effect = findVisual(cover, "coverMaskEffect")));
+        QCOMPARE(effect->property("image").value<QObject *>(), image);
+        QVERIFY(!findVisual(cover, "coverCapture"));
         QSize texture;
-        QTRY_VERIFY((texture = renderedTextureSize(session.window, capture)).width() >= needed &&
+        QTRY_VERIFY((texture = renderedTextureSize(session.window, image)).width() >= needed &&
                     texture.height() >= needed);
-        QCOMPARE(effect->property("hasProxySource").toBool(), false);
         // Compare sampling after the production artwork reveal reaches its
         // endpoint; an in-progress fade is not a resolution difference.
         QTRY_COMPARE(cover->property("revealOpacity").toReal(), 1.);
@@ -609,7 +609,7 @@ void ControlsUiTest::coverCropAndRoundedPixels()
         };
         QCOMPARE(pixel(1, 1), QColor(Qt::black));
         QVERIFY2(pixel(5, 50).green() > 240 && pixel(5, 50).red() < 10,
-                 "MultiEffect must preserve the image's aspect crop, not stretch its raw texture");
+                 "Rounded covers must preserve aspect crop without stretching the source texture");
         int partial = 0;
         const auto origin = cover->mapToScene({0, 0}) * ratio;
         for (int y = 0; y < qCeil(20 * scale * ratio); ++y)
@@ -623,7 +623,7 @@ void ControlsUiTest::coverCropAndRoundedPixels()
         if (!captures.isEmpty())
             QVERIFY(frame.save(captures + QString("/cover-%1.png").arg(scale)));
     }
-    QPointer<QQuickItem> mask = findVisual(cover, "coverRoundedMask");
+    QPointer<QQuickItem> mask = findVisual(cover, "coverMaskEffect");
     QVERIFY(mask);
     cover->setProperty("circular", true);
     QTest::qWait(80);
@@ -635,7 +635,7 @@ void ControlsUiTest::coverCropAndRoundedPixels()
     QTRY_COMPARE(cover->property("status").toInt(), int(0));
     cover->setProperty("resourceActive", true);
     QTRY_COMPARE(cover->property("status").toInt(), int(1));
-    QTRY_VERIFY(findVisual(cover, "coverRoundedMask"));
+    QTRY_VERIFY(findVisual(cover, "coverMaskEffect"));
 }
 
 void ControlsUiTest::clearActionIsOneUserEditButProgrammaticClearIsNot()

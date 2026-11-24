@@ -1047,6 +1047,7 @@ elif sys.argv[1] == 'dispatch':
         ThemeSession session;
         QVERIFY(session.create());
         session.theme.setMotionEnabled(false);
+        render(session.window);
         QQmlComponent referenceComponent(&session.engine);
         referenceComponent.setData(
             "import QtQuick\nimport EchoMusic.Controls\nimport EchoMusic.Theme\nEchoBadge { count: "
@@ -1097,7 +1098,7 @@ elif sys.argv[1] == 'dispatch':
                                                                     anchor->boundingRect());
                             const auto scale = session.shell.uiScale();
                             return qAbs(viewport->x() + viewport->width() * scale / 2 -
-                                        rect.center().x()) < .6 &&
+                                        viewport->parentItem()->width() / 2) < .6 &&
                                    qAbs(viewport->y() + viewport->height() * scale -
                                         (rect.y() - 12 * scale)) < .6;
                         };
@@ -2046,6 +2047,7 @@ elif sys.argv[1] == 'dispatch':
         ThemeSession session;
         QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
         QVERIFY(session.create());
+        render(session.window);
         const auto id = session.shellController.toasts()->show("背景图片不可用，已显示主题默认底色",
                                                                ToastService::Warning, 0);
         render(session.window);

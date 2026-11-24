@@ -447,6 +447,10 @@ quint64 ApiClient::dailyRecommendations()
 {
     return m_catalog->dailyRecommendations();
 }
+quint64 ApiClient::discoveryCard(quint32 cardId, const QString &sourceMixsong)
+{
+    return m_catalog->discoveryCard(cardId, sourceMixsong);
+}
 quint64 ApiClient::freeListenSongs()
 {
     return m_catalog->freeListenSongs();

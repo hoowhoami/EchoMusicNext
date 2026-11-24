@@ -475,11 +475,13 @@ RoutePage {
                     }
                 }
                 secondaryDetailsComponent: Component {
-                    Flow {
+                    RowLayout {
+                        objectName: "personalFmMetadata"
                         spacing: 8
                         EchoButtonContent {
-                            width: Math.min(parent.width, implicitWidth + 4)
-                            height: implicitHeight
+                            objectName: "personalFmMetadataStation"
+                            Layout.preferredWidth: implicitWidth + 4
+                            Layout.fillHeight: true
                             horizontalAlignment: Qt.AlignLeft
                             text: page.fm.title
                             glyph: "heartbeat"
@@ -489,23 +491,27 @@ RoutePage {
                             color: Theme.secondaryText
                             font: Theme.font(11, Theme.semiboldWeight)
                         }
-                        EchoTextTagRow {
-                            width: Math.min(parent.width, implicitWidth + 4)
-                            height: implicitHeight
+                        EchoTextLine {
+                            objectName: "personalFmMetadataPool"
+                            Layout.preferredWidth: Math.ceil(implicitWidth)
+                            Layout.fillHeight: true
+                            fillTextWidth: true
                             text: page.fm.poolLabel
                             color: Theme.secondaryText
                             font: Theme.font(11, Theme.semiboldWeight)
                             lineHeight: 16.5
                         }
-                        EchoTextTagRow {
-                            width: Math.min(parent.width, implicitWidth + 4)
-                            height: implicitHeight
+                        EchoTextLine {
+                            objectName: "personalFmMetadataTrack"
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.fillHeight: true
+                            fillTextWidth: true
                             visible: page.hasTrack
                             text: page.hasTrack ? page.track.title + " · " + page.track.artist : ""
                             color: Theme.secondaryText
                             font: Theme.font(11, Theme.semiboldWeight)
                             lineHeight: 16.5
-                            wrap: true
                         }
                     }
                 }

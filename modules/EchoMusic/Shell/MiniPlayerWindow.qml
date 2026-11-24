@@ -595,8 +595,16 @@ Window {
                                 colors: window.miniColors
                                 glyph: window.playback.volume > 0 ? "volume" : "volume-off"
                                 text: qsTr("音量")
-                                tooltipText: qsTr("音量 %1%").arg(Math.round(window.playback.volume))
+                                tooltipText: !window.playback ? qsTr("音量") : window.playback.volume > 100 && !window.playback.cast.remote ? qsTr("音量 %1% · 软件增益").arg(Math.round(window.playback.volume)) : qsTr("音量 %1%").arg(Math.round(window.playback.volume))
+                                Accessible.description: window.playback && window.playback.volume > 100 && !window.playback.cast.remote ? qsTr("已启用软件增益，可能影响音质") : ""
                                 onClicked: volumePopupOwner.visible ? volumePopupOwner.close() : volumePopupOwner.open()
+                                PlaybackVolumeBoostMark {
+                                    playback: window.playback
+                                    colors: window.miniColors
+                                    anchors.right: parent.right
+                                    anchors.top: parent.top
+                                    anchors.topMargin: 4
+                                }
                                 PlayerVolumeWheelArea {
                                     anchors.fill: parent
                                     playback: window.playback

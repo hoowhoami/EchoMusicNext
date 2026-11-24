@@ -7,47 +7,44 @@
 namespace EchoMusic
 {
 class ExploreServiceTestAccess;
-/// Owns the five discovery catalogs and session-scoped request lifetimes.
+class DiscoveryService;
+/// Owns playlist/album/artist catalogs and session-scoped request lifetimes.
 /// QML receives domain projections, never upstream JSON or arbitrary routes.
 class ExploreService final : public QObject
 {
     Q_OBJECT
     QML_ELEMENT
     QML_UNCREATABLE("Owned by the application")
+    Q_PROPERTY(EchoMusic::SongCatalogModel *albums READ albums CONSTANT)
+    Q_PROPERTY(bool albumsLoading READ albumsLoading NOTIFY changed)
+    Q_PROPERTY(QString albumError READ albumError NOTIFY changed)
     Q_PROPERTY(int tab READ tab NOTIFY changed)
     Q_PROPERTY(bool loading READ loading NOTIFY changed)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY changed)
     Q_PROPERTY(EchoMusic::SongCatalogModel *cards READ cards CONSTANT)
-    Q_PROPERTY(EchoMusic::SongCatalogModel *newSongs READ newSongs CONSTANT)
-    Q_PROPERTY(EchoMusic::SongCatalogModel *rankSongs READ rankSongs CONSTANT)
-    Q_PROPERTY(EchoMusic::SongCatalogActions *newActions READ newActions CONSTANT)
-    Q_PROPERTY(EchoMusic::SongCatalogActions *rankActions READ rankActions CONSTANT)
     Q_PROPERTY(EchoMusic::PlaybackService *playback READ playback CONSTANT)
     Q_PROPERTY(QVariantList categories READ categories NOTIFY changed)
-    Q_PROPERTY(QVariantList ranks READ ranks NOTIFY changed)
     Q_PROPERTY(QVariantList sexFilters READ sexFilters NOTIFY changed)
     Q_PROPERTY(QVariantList typeFilters READ typeFilters NOTIFY changed)
     Q_PROPERTY(QStringList artistLetters READ artistLetters NOTIFY changed)
     Q_PROPERTY(QString artistLetter READ artistLetter NOTIFY changed)
     Q_PROPERTY(QString categoryLabel READ categoryLabel NOTIFY changed)
     Q_PROPERTY(QString category READ category NOTIFY changed)
-    Q_PROPERTY(QString rankId READ rankId NOTIFY changed)
-    Q_PROPERTY(QString rankLabel READ rankLabel NOTIFY changed)
     Q_PROPERTY(QString region READ region NOTIFY changed)
     Q_PROPERTY(QString sex READ sex NOTIFY changed)
     Q_PROPERTY(QString artistType READ artistType NOTIFY changed)
 public:
     /// Explicit UI composition; construction alone does not register pages.
     void registerRoutes(RouteController &router);
+    void setDiscovery(DiscoveryService *service)
+    {
+        m_discovery = service;
+    }
     enum Part
     {
         Categories,
         Playlists,
-        RankCatalog,
-        RankFallback,
-        RankSongs,
         Albums,
-        NewSongs,
         Artists,
         PartCount
     };
@@ -69,25 +66,13 @@ public:
     }
     bool loading() const;
     QString errorMessage() const;
+    SongCatalogModel *albums()
+    {
+        return &m_albums;
+    }
     SongCatalogModel *cards()
     {
         return &m_cards;
-    }
-    SongCatalogModel *newSongs()
-    {
-        return &m_newSongs;
-    }
-    SongCatalogModel *rankSongs()
-    {
-        return &m_rankSongs;
-    }
-    SongCatalogActions *newActions()
-    {
-        return &m_newActions;
-    }
-    SongCatalogActions *rankActions()
-    {
-        return &m_rankActions;
     }
     PlaybackService *playback()
     {
@@ -96,10 +81,6 @@ public:
     QVariantList categories() const
     {
         return m_categories.toVariantList();
-    }
-    QVariantList ranks() const
-    {
-        return m_ranks.toVariantList();
     }
     QVariantList sexFilters() const
     {
@@ -122,11 +103,6 @@ public:
     {
         return m_category;
     }
-    QString rankId() const
-    {
-        return QString::number(m_rank);
-    }
-    QString rankLabel() const;
     QString region() const
     {
         return m_region;
@@ -139,13 +115,23 @@ public:
     {
         return m_artistType;
     }
-    Q_INVOKABLE void selectTab(int);
     Q_INVOKABLE void selectCategory(const QString &);
-    Q_INVOKABLE void selectRank(const QString &);
     Q_INVOKABLE void selectRegion(const QString &);
     Q_INVOKABLE void selectSex(const QString &);
     Q_INVOKABLE void selectArtistType(const QString &);
     Q_INVOKABLE void selectLetter(const QString &);
+    bool albumsLoading() const
+    {
+        return m_states[Albums] == Idle || m_states[Albums] == Loading;
+    }
+    QString albumError() const
+    {
+        return m_errors[Albums];
+    }
+    Q_INVOKABLE void retryAlbums()
+    {
+        request(Albums);
+    }
     Q_INVOKABLE void retry();
     void shutdown();
 signals:
@@ -172,16 +158,17 @@ private:
     ApiClient &m_api;
     PlaybackService &m_playback;
     RouteController &m_router;
-    SongCatalogModel m_cards, m_newSongs, m_rankSongs;
-    SongCatalogActions m_newActions, m_rankActions;
+    DiscoveryService *m_discovery = nullptr;
+    SongCatalogModel m_albums;
+    SongCatalogModel m_cards;
     QHash<quint64, Pending> m_pending;
     std::array<State, PartCount> m_states{};
     std::array<QString, PartCount> m_errors{};
-    QJsonArray m_categories, m_playlistCards, m_ranks, m_artistGroups, m_sexFilters, m_typeFilters;
+    QJsonArray m_categories, m_playlistCards, m_artistGroups, m_sexFilters, m_typeFilters;
     QJsonObject m_albumRegions;
-    QString m_instance, m_category = "0", m_categoryLabel, m_region = "all", m_sex = "0",
-                        m_artistType = "0:0", m_letter;
-    quint64 m_rank = 0;
+    QHash<QString, QString> m_instances;
+    QString m_category = "0", m_categoryLabel, m_region = "all", m_sex = "0", m_artistType = "0:0",
+            m_letter;
     int m_tab = 0;
     bool m_network = false, m_active = false, m_closed = false;
 };

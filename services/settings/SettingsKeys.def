@@ -252,3 +252,6 @@ ECHO_FIELD(FloatingFields, SecondaryColor, "secondaryColor")
 ECHO_FIELD(FloatingFields, SecondaryFollowCoverColor, "secondaryFollowCoverColor")
 ECHO_FIELD(TaskbarFields, SecondaryColor, "secondaryColor")
 ECHO_FIELD(TaskbarFields, SecondaryFollowCoverColor, "secondaryFollowCoverColor")
+
+ECHO_SETTING(Discovery, Cards, "discovery/cards", Portable)
+ECHO_SETTING(Discovery, CardsDefaultsVersion, "discovery/cardsDefaultsVersion", Portable)

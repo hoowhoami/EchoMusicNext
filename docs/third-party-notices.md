@@ -7,7 +7,7 @@ EchoMusicNext 采用 GPL-3.0-only。第三方代码、库和资源保留各自�
 | EchoMusic / hoowhoami | 原生核心、主题与调色算法、均衡器曲线、等级星球插画、应用与托盘图标、验证加载环及刷新图形；各原生模块来源见 `crates/*/SOURCE.json` | Copyright (c) 2026 hoowhoami；GPL-3.0-only，见[项目许可](../LICENSE) |
 | PeriTray / oneday5799 | 任务栏子窗口挂载顺序（先改 WS_CHILD 再 SetParent）、SetParent 返回值双判、UIA 占用区与空闲区布局的判据参考；来源 revision `aee4ea69a1019431138bc312f447222fd82d6a5e` 的 `src-tauri/src/taskbar_layout.rs`、`src-tauri/src/taskbar_widget.rs`，本项目在 Qt/C++ 中重写并保留来源注释 | Copyright (c) 2026 oneday5799；GPL-3.0-only，见[上游许可](https://github.com/oneday5799/PeriTray/blob/main/LICENSE) |
 | KugouMusicApi / MakcRe、Lines 等 | 请求地址、参数、协议常量、签名和加密协议参考 | Copyright (c) 2023 MakcRe；[MIT 原文](licenses/kugou-music-api-MIT.txt) |
-| Qt 6.12.0 / The Qt Company Ltd. 及贡献者 | 实际链接的 Core、Gui、Widgets、Qml、Quick、QuickShapes、QuickEffects、QuickControls2、QuickDialogs2、Multimedia、Svg、Sql、Network、WebSockets 等模块；Test 用于测试，ShaderTools 用于构建 | 各模块自带版权、GPL/LGPL 和第三方许可；[Qt 许可说明](https://doc.qt.io/qt-6/licensing.html) |
+| Qt 6.12.1 / The Qt Company Ltd. 及贡献者 | 实际链接的 Core、Gui、Widgets、Qml、Quick、QuickShapes、QuickEffects、QuickControls2、QuickDialogs2、Multimedia、Svg、Sql、Network、WebSockets 等模块；Test 用于测试，ShaderTools 用于构建 | 各模块自带版权、GPL/LGPL 和第三方许可；[Qt 许可说明](https://doc.qt.io/qt-6/licensing.html) |
 | ICU4C 78.x / Unicode, Inc. 及贡献者 | 可选的原生后台词语分段，兼容 Unicode 17；通过 ICU 公开 C API 使用真实字典规则 | [ICU 与第三方完整许可](licenses/icu4c-78-LICENSE.txt)、[集成与构建说明](plugin-text.md)；分发须附实际链接库与对应许可 |
 | Qt RectangularShadow shader | `Controls/shaders/action-shadow.vert` / `.frag` 基于 Qt 6.11.2 `qtdeclarative/src/effects/data/shaders/rectangularshadow`，增加阴影内部剔除并保留 uniform 布局 | Copyright (C) 2024 The Qt Company Ltd.；保留原 SPDX：LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only；本项目选 GPL-3.0-only 分支 |
 | Tabler Icons / Paweł Kuna | `Controls/icons` 中的 Tabler SVG，以及内联的主题插图路径；来源 `@iconify/icons-tabler` 1.2.95、图标集 2.40.0 | Copyright (c) 2020-2023 Paweł Kuna；[MIT 原文](licenses/tabler-icons-MIT.txt)、[上游版本](https://github.com/tabler/tabler-icons/tree/v2.40.0)；各资源保留来源注释 |
@@ -38,6 +38,6 @@ macOS 菜单栏歌词的原生状态栏布局与悬停交互参考 [echo-menu-ly
 
 歌词 KRC 解压使用 zlib：Windows 复用上述固定 revision 的 Chromium zlib 静态依赖与[许可](licenses/crashpad/chromium-zlib.txt)，macOS/Linux 使用系统 zlib；不新增另一份下载或运行库。
 
-发行安装包的 Qt 详细材料见随包 `licenses/deployment/Qt/NOTICE.txt`、模块 SPDX、源码版权通知和完整标准许可文本（各平台许可证目录根略有差异）；`modules.json` 记录 Qt 模块版本、可取得的精确提交或发行标签及上游源码链接。实际部署库和原生插件须通过模块许可材料覆盖检查，包含 Qt WebSockets。Qt 自定义许可证正文保留在对应 SPDX 文档的 extracted licensing info 中，原组件版权与许可不因本项目采用 GPL-3.0-only 而被替换。
+发行安装包的 Qt 详细材料见随包 `licenses/deployment/Qt/NOTICE.txt`、模块 SPDX、源码版权通知和完整标准许可文本（各平台许可证目录根略有差异）；`modules.json` 保留 SPDX 中的构建 revision、上游源码链接及官方同版本源码包地址。部分 SDK 构建 revision 可能未公开，发行源码包单独标明版本，不声称与该构建 revision 相同。实际部署库和原生插件须通过模块许可材料覆盖检查，包含 Qt WebSockets。Qt 自定义许可证正文保留在对应 SPDX 文档的 extracted licensing info 中，原组件版权与许可不因本项目采用 GPL-3.0-only 而被替换。
 
-Qt 6.12.0 的 QtQml 使用[固定版本补丁](../tools/qt/patches/qtdeclarative-6.12.0-qv4-generator-gc.patch)，基础源码 revision 为 `4332fbbb4c340463dc8cee36dda0c85d932122d8`，回移上游 `7d5e24963a82dd6dc7419fc2f943042db2598bde` 与 `9eca4322acef46f67405e891d9a61661a4fc26ee`，并保留旧 `Value::mark` 非 const 签名。原 Qt 源码版权和 SPDX 许可表达式保留；独立 GC 回归来自同两项上游提交的 `tst_qv4mm.cpp`，保留 basysKom GmbH. 与 The Qt Company Ltd. 的版权。发行材料包含本地补丁及对应基础源码地址，详见[构建指南](build.md)。
+QtQml 使用 Qt 6.12.1 官方模块；独立 GC 回归改编自上游 `7d5e24963a82dd6dc7419fc2f943042db2598bde` 与 `9eca4322acef46f67405e891d9a61661a4fc26ee` 的 `tst_qv4mm.cpp`，保留 basysKom GmbH. 与 The Qt Company Ltd. 的版权及原 SPDX 许可表达式。回归运行方式见[构建指南](build.md)。

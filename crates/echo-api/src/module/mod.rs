@@ -164,3 +164,7 @@ pub mod user_follow_message;
 pub mod user_follow_chat;
 
 pub mod user_avatar_upload;
+
+pub mod discovery_card_recommend;
+pub mod discovery_card_single;
+pub mod discovery_card_tag;

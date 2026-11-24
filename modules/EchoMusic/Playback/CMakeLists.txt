@@ -60,6 +60,8 @@ qt_add_qml_module(
     PlaybackQueueRow.qml
     PlaybackQueueReorder.qml
     PlaybackOptionsPopup.qml
+    PlaybackVolumePanel.qml
+    PlaybackVolumeBoostMark.qml
     PlaybackCastPopup.qml
     CastDeviceGroup.qml
     SleepTimerPopup.qml

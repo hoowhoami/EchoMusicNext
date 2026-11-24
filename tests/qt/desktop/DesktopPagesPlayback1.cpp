@@ -26,9 +26,10 @@ void DesktopPagesTest::miniScaleAndMenuUseProductionSurfaces()
     const auto cleanup = qScopeGuard([&session] {
         session.router.shutdown();
         session.commands.shutdown();
-        session.windows.shutdown();
+        session.auxiliary.reset();
         session.root.reset();
         session.window = nullptr;
+        session.windows.shutdown();
     });
     auto *floating = session.windows.floating();
     floating->showMini();
@@ -177,7 +178,7 @@ void DesktopPagesTest::miniScaleAndMenuUseProductionSurfaces()
                 QPointer<QObject> volumePopup;
                 QTRY_VERIFY((volumePopup = volumeOwner->property("item").value<QObject *>()));
                 QTRY_VERIFY(volumePopup->property("opened").toBool());
-                QCOMPARE(volumePopup->property("width").toReal(), 224 * scale);
+                QCOMPARE(volumePopup->property("width").toReal(), 320 * scale);
                 auto *volumeContent = volumePopup->property("contentItem").value<QQuickItem *>();
                 auto *slider = visual(volumeContent, "playbackVolumeSlider");
                 QVERIFY(slider);
@@ -1394,8 +1395,8 @@ void DesktopPagesTest::miniProgressVolumeBackdropFavoriteAndDesktopBadge()
     QTRY_VERIFY(volumeOpened());
     QCOMPARE(playback.volume(), 50.);
     QCOMPARE(mini->height(), 64);
-    QCOMPARE(popup->property("height").toReal(), 57.);
-    QCOMPARE(popup->property("width").toReal(), 224.);
+    QVERIFY(popup->property("height").toReal() > 150.);
+    QCOMPARE(popup->property("width").toReal(), 320.);
 
     QVERIFY(volumeSlider && mute);
     QCOMPARE(volumeSlider->property("orientation").toInt(), int(Qt::Horizontal));

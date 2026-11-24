@@ -44,8 +44,6 @@ __pycache__/
 !/scripts/icu_windows.py
 !/scripts/qt_download.py
 !/scripts/qt_sdk.py
-!/scripts/qt_qv4_patch.py
-!/scripts/patch-qt-qml.py
 !/scripts/start.py
 /tools/theme/
 /tools/verification/*.mjs

@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { createHash } from 'node:crypto';
 import {
   collectQtLicenses,
   prepareQtLicenseTexts,
@@ -18,34 +17,14 @@ function fixture() {
     stage = path.join(repository, 'stage');
   fs.mkdirSync(path.join(qt, 'sbom'), { recursive: true });
   fs.mkdirSync(stage);
-  const patchName = 'qtdeclarative-6.12.0-qv4-generator-gc.patch';
-  const patchDirectory = path.join(repository, 'tools/qt/patches');
-  fs.mkdirSync(patchDirectory, { recursive: true });
-  fs.writeFileSync(path.join(patchDirectory, patchName), 'fixture source patch');
-  fs.writeFileSync(path.join(qt, 'Qt6Qml.dll'), 'fixture patched QtQml');
-  const hash = (text) => createHash('sha256').update(text).digest('hex');
-  fs.writeFileSync(
-    path.join(qt, '.echo-qv4-gc.json'),
-    JSON.stringify({
-      schema: 1,
-      version: '6.12.0',
-      binary: 'Qt6Qml.dll',
-      patch_sha256: hash('fixture source patch'),
-      binary_sha256: hash('fixture patched QtQml'),
-      commits: [
-        '7d5e24963a82dd6dc7419fc2f943042db2598bde',
-        '9eca4322acef46f67405e891d9a61661a4fc26ee',
-      ],
-    }),
-  );
-  fs.writeFileSync(path.join(qt, '.echo-sdk.json'), JSON.stringify({ version: '6.12.0' }));
+  fs.writeFileSync(path.join(qt, '.echo-sdk.json'), JSON.stringify({ version: '6.12.1' }));
   const texts = path.join(repository, 'build/release-tools/qt-license-texts');
   fs.mkdirSync(texts, { recursive: true });
   for (const id of ['GPL-2.0-only', 'GPL-3.0-only', 'LGPL-3.0-only', 'Qt-GPL-exception-1.0'])
     fs.writeFileSync(path.join(texts, id + '.txt'), 'Fixture license text');
   const metadata = (module, files, license = 'LGPL-3.0-only') =>
     fs.writeFileSync(
-      path.join(qt, 'sbom', module + '-6.12.0.spdx.json'),
+      path.join(qt, 'sbom', module + '-6.12.1.spdx.json'),
       JSON.stringify({
         spdxVersion: 'SPDX-2.3',
         packages: [
@@ -80,19 +59,23 @@ test('WebSockets notices and exact source locations cover Mac, Windows and Linux
     );
     assert.equal(inventory.modules[1].ref, 'a'.repeat(40));
     assert.match(inventory.modules[1].source, /github.com\/qt\/qtwebsockets\/tree\/a{40}$/);
-    assert.ok(fs.existsSync(path.join(f.output, 'Qt/qtwebsockets-6.12.0.spdx.json')));
+    assert.equal(
+      inventory.modules[1].releaseArchive,
+      'https://download.qt.io/official_releases/qt/6.12/6.12.1/submodules/qtwebsockets-everywhere-src-6.12.1.tar.xz',
+    );
+    assert.ok(fs.existsSync(path.join(f.output, 'Qt/qtwebsockets-6.12.1.spdx.json')));
     for (const files of [
       [
         'Contents/Frameworks/QtCore.framework/Versions/A/QtCore',
         'Contents/Frameworks/QtWebSockets.framework/Versions/A/QtWebSockets',
       ],
       ['bin/Qt6Core.dll', 'bin/Qt6WebSockets.dll'],
-      ['lib/libQt6Core.so.6.12.0', 'lib/libQt6WebSockets.so.6'],
+      ['lib/libQt6Core.so.6.12.1', 'lib/libQt6WebSockets.so.6'],
     ])
       assert.deepEqual(verifyQtFiles(files, inventory), ['qtbase', 'qtwebsockets']);
     fs.writeFileSync(path.join(f.stage, 'Qt6WebSockets.dll'), 'fixture binary');
     verifyQtDeployment(f.stage, path.dirname(f.output));
-    fs.rmSync(path.join(f.output, 'Qt/qtwebsockets-6.12.0.spdx.json'));
+    fs.rmSync(path.join(f.output, 'Qt/qtwebsockets-6.12.1.spdx.json'));
     assert.throws(() => verifyQtDeployment(f.stage, path.dirname(f.output)), /qtwebsockets/);
     assert.throws(() => verifyQtFiles(['libQt6Graphs.so.6'], inventory), /Unmapped/);
   } finally {
@@ -109,12 +92,12 @@ test('empty inventories and missing per-module or referenced license texts canno
     f.metadata('qtbase', ['./lib/libQt6Core.so.6']);
     const inventory = collectQtLicenses(f.output, f.qt, { repository: f.repository });
     assert.throws(() => verifyQtFiles(['Qt6WebSockets.dll'], inventory), /Missing qtwebsockets/);
-    fs.writeFileSync(path.join(f.qt, 'sbom/qtwebsockets-6.12.0.spdx.json'), '{}');
+    fs.writeFileSync(path.join(f.qt, 'sbom/qtwebsockets-6.12.1.spdx.json'), '{}');
     assert.throws(
       () => collectQtLicenses(f.output, f.qt, { repository: f.repository }),
       /Invalid Qt SPDX/,
     );
-    fs.rmSync(path.join(f.qt, 'sbom/qtwebsockets-6.12.0.spdx.json'));
+    fs.rmSync(path.join(f.qt, 'sbom/qtwebsockets-6.12.1.spdx.json'));
     f.metadata('qtbase', ['./lib/libQt6Core.so.6'], 'BSD-3-Clause');
     assert.throws(
       () => collectQtLicenses(f.output, f.qt, { repository: f.repository }),
@@ -131,9 +114,9 @@ test('source SDK notices cover runtime plugins without requiring SPDX or shippin
     fs.mkdirSync(path.join(f.qt, 'lib/cmake/Qt6'), { recursive: true });
     fs.writeFileSync(
       path.join(f.qt, 'lib/cmake/Qt6/Qt6ConfigVersionImpl.cmake'),
-      'set(PACKAGE_VERSION "6.12.0")',
+      'set(PACKAGE_VERSION "6.12.1")',
     );
-    const source = path.join(f.repository, 'build/qt-sources/6.12.0/qtwebsockets');
+    const source = path.join(f.repository, 'build/qt-sources/6.12.1/qtwebsockets');
     fs.mkdirSync(source, { recursive: true });
     fs.writeFileSync(path.join(source, 'LICENSE.txt'), 'Module copyright and license');
     fs.writeFileSync(path.join(source, 'qt_attribution.json'), '{"Copyright":"Qt contributors"}');
@@ -195,26 +178,22 @@ test('standard license texts are fetched once and validated, including exception
   }
 });
 
-test('QtQml backport materials accompany the base inventory and reject missing or modified runtimes', () => {
+test('official QtQml inventory replaces stale materials from a previous SDK', () => {
   const f = fixture();
   try {
+    const previous = path.join(f.output, 'Qt');
+    fs.mkdirSync(path.join(previous, 'patches'), { recursive: true });
+    fs.writeFileSync(path.join(previous, 'patches/old-runtime-patch.json'), '{}');
+    fs.writeFileSync(path.join(previous, 'qtdeclarative-6.12.0.spdx.json'), '{}');
     f.metadata('qtdeclarative', ['./bin/Qt6Qml.dll']);
     const inventory = collectQtLicenses(f.output, f.qt, { repository: f.repository });
-    assert.equal(inventory.modules[0].runtimePatch.commits.length, 2);
-    assert.ok(fs.existsSync(path.join(f.output, 'Qt/patches/qv4-gc.json')));
-    assert.ok(
-      fs.existsSync(path.join(f.output, 'Qt/patches/qtdeclarative-6.12.0-qv4-generator-gc.patch')),
-    );
-    fs.appendFileSync(path.join(f.qt, 'Qt6Qml.dll'), 'tampered');
-    assert.throws(
-      () => collectQtLicenses(f.output, f.qt, { repository: f.repository }),
-      /binary does not match/,
-    );
-    fs.rmSync(path.join(f.qt, '.echo-qv4-gc.json'));
-    assert.throws(
-      () => collectQtLicenses(f.output, f.qt, { repository: f.repository }),
-      /requires the QtQml/,
-    );
+    assert.equal(inventory.version, '6.12.1');
+    assert.equal(inventory.modules[0].runtimePatch, undefined);
+    assert.ok(fs.existsSync(path.join(previous, 'qtdeclarative-6.12.1.spdx.json')));
+    assert.ok(!fs.existsSync(path.join(previous, 'patches')));
+    assert.ok(!fs.existsSync(path.join(previous, 'qtdeclarative-6.12.0.spdx.json')));
+    assert.doesNotMatch(fs.readFileSync(path.join(previous, 'NOTICE.txt'), 'utf8'), /backport/);
+    verifyQtFiles(['bin/Qt6Qml.dll'], inventory);
   } finally {
     f.close();
   }

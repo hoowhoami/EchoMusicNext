@@ -223,7 +223,8 @@ int SongCatalogModel::rowCount(const QModelIndex &parent) const
 }
 QHash<int, QByteArray> SongCatalogModel::roleNames() const
 {
-    return {{PresentationReady, "presentationReady"},
+    return {{Recommendation, "recommendation"},
+            {PresentationReady, "presentationReady"},
             {ArtistLinks, "artistLinks"},
             {AlbumId, "albumId"},
             {Title, "title"},
@@ -279,11 +280,19 @@ QVariant SongCatalogModel::sourceData(int source, int role) const
         case QualityTags:
         case ArtistLinks:
             return QVariantList{};
+        case Recommendation:
+            return QVariantMap{};
         default:
             return role >= Title && role <= AlbumId ? QVariant(QString()) : QVariant();
         }
     }
     switch (role) {
+    case Recommendation:
+        return view->domainSong.value("metadata")
+            .toObject()
+            .value("recommendation")
+            .toObject()
+            .toVariantMap();
     case Title:
         return view->title;
     case ArtistText:

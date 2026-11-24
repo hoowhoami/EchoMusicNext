@@ -1,5 +1,6 @@
 #include "SongCatalogModel.h"
 #include "SongMetadataService.h"
+#include "SongPresentation.h"
 #include <algorithm>
 #include <limits>
 #include <QUrl>
@@ -58,15 +59,7 @@ void SongCatalogModel::retireViews(const QSet<int> &sources)
             view.detach();
             // Public plugin data is read for the menu/action, never retained
             // as part of a scrolling row's presentation window.
-            const auto original = view->domainSong;
-            view->domainSong = SongMetadataService::observationInput(original);
-            if (original.contains("privilege"))
-                view->domainSong.insert("privilege", original.value("privilege"));
-            auto metadata = view->domainSong.value("metadata").toObject();
-            const auto historyKey = original.value("metadata").toObject().value("history_key");
-            if (!historyKey.isUndefined())
-                metadata.insert("history_key", historyKey);
-            view->domainSong.insert("metadata", metadata);
+            view->domainSong = SongPresentation::projection(view->domainSong);
             const auto cost = SongDatasetStore::estimateCost(view->domainSong) + 1024;
             // One oversized presentation can still make progress. It occupies
             // the entire declared window budget instead of causing read loops.
@@ -304,7 +297,15 @@ void SongCatalogModel::flushMetadata()
             changed.insert(source);
         }
         notifyPresentations(changed, orderMayChange);
+        // A metadata read can satisfy a pending cold view without changing
+        // the song. Retiring it consumes that demand, so publish readiness here
+        // rather than relying on a later view-read callback to find it again.
+        QSet<int> displayReady;
+        for (const auto source : loaded)
+            if (!changed.contains(source) && m_viewDemand.lookup(source))
+                displayReady.insert(source);
         retireViews(loaded);
+        notifyViewRows(displayReady);
         flushMetadata();
         flushQuery();
         emit presentationProgress();

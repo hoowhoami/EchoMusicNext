@@ -4646,6 +4646,61 @@ Window {
         QCOMPARE(warnings.count(), 0);
     }
 
+    void contentCardCreatesOnlyApplicableDetails()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ThemeStore theme(prefs);
+        theme.setMotionEnabled(false);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Music
+Window {
+ visible: true; width: 400; height: 400
+ ContentCard {
+  objectName: "probe"; width: 200; height: 260
+  title: "音乐"; artistText: "歌手"; extraText: "推荐"; coverUrl: ""
+  durationText: "03:20"; resourceId: "1"
+ }
+})",
+                          QUrl());
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *card = root->findChild<QQuickItem *>("probe");
+        QVERIFY(card);
+        const auto find = [](auto &&self, QQuickItem *item, const QString &name) -> QQuickItem * {
+            if (item->objectName() == name)
+                return item;
+            for (auto *child : item->childItems())
+                if (auto *hit = self(self, child, name))
+                    return hit;
+            return nullptr;
+        };
+        const auto detail = [&](const QString &name) { return find(find, card, name); };
+        QVERIFY(!detail("contentCardVideoDetails"));
+        QVERIFY(!detail("contentCardFocusFrame"));
+        card->setProperty("video", true);
+        QTRY_VERIFY(detail("contentCardVideoDetails"));
+        QPointer<QQuickItem> details = detail("contentCardVideoDetails");
+        card->setProperty("resourceActive", false);
+        QTRY_VERIFY(details.isNull());
+        card->setProperty("resourceActive", true);
+        QTRY_VERIFY(detail("contentCardVideoDetails"));
+        card->forceActiveFocus(Qt::TabFocusReason);
+        QTRY_VERIFY(detail("contentCardFocusFrame"));
+        QPointer<QQuickItem> focus = detail("contentCardFocusFrame");
+        card->setProperty("resourceActive", false);
+        QTRY_VERIFY(focus.isNull());
+        card->setProperty("video", false);
+        card->setProperty("resourceActive", true);
+        QVERIFY(!detail("contentCardVideoDetails"));
+        QCOMPARE(warnings.size(), 0);
+    }
+
     void fixedSongListModelReplacementKeepsRoles()
     {
         QTemporaryDir dir;
@@ -4882,7 +4937,7 @@ Window {
         QProcess snapshot;
         auto environment = QProcessEnvironment::systemEnvironment();
         environment.insert("QT_PLUGIN_PATH",
-                           QDir::currentPath() + "/build/qt-official/6.12.0/macos/plugins");
+                           QDir::currentPath() + "/build/qt-official/6.12.1/macos/plugins");
         snapshot.setProcessEnvironment(environment);
         snapshot.start(helper, {});
         QVERIFY(snapshot.waitForFinished(5000));

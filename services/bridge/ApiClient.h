@@ -137,6 +137,7 @@ public:
     quint64 styleRecommendations(const QStringList &tagIds = {});
     quint64 dailyRecommendations();
     /// A fixed 30-song batch without pagination.
+    quint64 discoveryCard(quint32 cardId, const QString &sourceMixsong = {});
     quint64 freeListenSongs();
     /// Discovery feed using a device snapshot without account credentials.
     quint64 discoverRecommendations(quint32 pageSize = 4);

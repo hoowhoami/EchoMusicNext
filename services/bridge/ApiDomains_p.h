@@ -40,6 +40,7 @@ struct ApiClient::CatalogClient
     quint64 editorPlaylists();
     quint64 styleRecommendations(const QStringList &tagIds);
     quint64 dailyRecommendations();
+    quint64 discoveryCard(quint32 cardId, const QString &sourceMixsong = {});
     quint64 freeListenSongs();
     quint64 discoverRecommendations(quint32 pageSize);
     quint64 newSongCatalog();

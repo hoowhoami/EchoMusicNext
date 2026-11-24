@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import EchoMusic.Music
 import EchoMusic.Theme
 import EchoMusic.Controls
 
@@ -10,6 +11,8 @@ ItemDelegate {
     objectName: "homeSongCard"
     required property var entry
     required property DiscoveryService service
+    property SongCatalogModel collection: service.styleSongs
+    property SongCatalogActions commands: service.actions(collection)
     property bool resourceActive: true
     readonly property bool currentSong: service.playback.trackId === entry.resourceId
     readonly property bool pendingPlay: currentSong && service.playback.loading
@@ -39,6 +42,7 @@ ItemDelegate {
     contentItem: RowLayout {
         spacing: 10
         Item {
+            objectName: "recommendationSongArtwork"
             Layout.preferredWidth: 46
             Layout.preferredHeight: 46
             EchoCover {
@@ -84,16 +88,18 @@ ItemDelegate {
                         else
                             card.service.playback.play();
                     } else
-                        card.service.play(card.service.styleSongs, card.entry.resourceId, false);
+                        card.commands.play(card.entry.resourceId, false);
                 }
             }
         }
         ColumnLayout {
+            objectName: "recommendationSongInfo"
             opacity: card.entry.catalogPlayable === false ? .45 : 1
             Layout.fillWidth: true
             Layout.minimumWidth: 0
             spacing: 2
             EchoTextTagRow {
+                objectName: "recommendationSongTitle"
                 Layout.fillWidth: true
                 Layout.minimumWidth: 0
                 text: card.entry.title
@@ -103,6 +109,7 @@ ItemDelegate {
                 Repeater {
                     model: card.entry.privilegeTags || []
                     delegate: EchoTag {
+                        objectName: "recommendationSongTag"
                         required property var modelData
                         text: modelData.label
                         tone: EchoTag.Custom
@@ -110,6 +117,7 @@ ItemDelegate {
                     }
                 }
                 EchoTag {
+                    objectName: "recommendationSongTag"
                     visible: (card.entry.qualityLabel || "").length > 0
                     text: (card.entry.qualityLabel || "")
                     tone: EchoTag.Custom
@@ -127,6 +135,6 @@ ItemDelegate {
     }
     TapHandler {
         onDoubleTapped: if (!card.pendingPlay)
-            card.service.play(card.service.styleSongs, card.entry.resourceId, false)
+            card.commands.play(card.entry.resourceId, false)
     }
 }

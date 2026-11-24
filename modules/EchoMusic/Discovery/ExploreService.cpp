@@ -1,22 +1,16 @@
 #include "ExploreService.h"
+#include "DiscoveryService.h"
 #include "PlaybackService.h"
 #include <QJsonDocument>
 #include <QQmlEngine>
 namespace EchoMusic
 {
-namespace
-{
-const QStringList tabs{"playlists", "ranks", "albums", "songs", "artists"};
-}
 ExploreService::ExploreService(ApiClient &api, PlaybackService &playback, RouteController &router,
                                bool network, QObject *parent)
-    : QObject(parent), m_api(api), m_playback(playback), m_router(router),
-      m_newActions(m_newSongs, playback, this), m_rankActions(m_rankSongs, playback, this),
-      m_network(network)
+    : QObject(parent), m_api(api), m_playback(playback), m_router(router), m_network(network)
 {
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
     m_categoryLabel = tr("全部");
-    m_newActions.setQueueContext(tr("新歌速递"), "queue:explore:new-songs");
     connect(&router, &RouteController::pageActivated, this, &ExploreService::activate);
     connect(&api, &ApiClient::succeeded, this, &ExploreService::accept);
     connect(&api, &ApiClient::failed, this,
@@ -30,8 +24,6 @@ ExploreService::~ExploreService()
 }
 void ExploreService::shutdown()
 {
-    m_newSongs.setMetadataActive(false);
-    m_rankSongs.setMetadataActive(false);
     if (m_closed)
         return;
     m_closed = true;
@@ -54,24 +46,15 @@ void ExploreService::cancelAll()
 }
 ExploreService::Part ExploreService::activePart() const
 {
-    return m_tab == 0   ? Playlists
-           : m_tab == 1 ? RankSongs
-           : m_tab == 2 ? Albums
-           : m_tab == 3 ? NewSongs
-                        : Artists;
+    return m_tab == 4 ? Artists : Playlists;
 }
 bool ExploreService::loading() const
 {
-    if (m_tab == 1 && !m_rank)
-        return m_states[RankCatalog] == Idle || m_states[RankCatalog] == Loading ||
-               m_states[RankFallback] == Loading;
-    const auto s = m_states[activePart()];
-    return s == Idle || s == Loading;
+    const auto state = m_states[activePart()];
+    return state == Idle || state == Loading;
 }
 QString ExploreService::errorMessage() const
 {
-    if (m_tab == 1 && !m_rank)
-        return m_states[RankFallback] == Error ? m_errors[RankFallback] : QString{};
     return m_states[activePart()] == Error ? m_errors[activePart()] : QString{};
 }
 QStringList ExploreService::artistLetters() const
@@ -81,35 +64,44 @@ QStringList ExploreService::artistLetters() const
         values.append(g.toObject()["label"].toString());
     return values;
 }
-QString ExploreService::rankLabel() const
-{
-    for (const auto &r : m_ranks)
-        if (quint64(r.toObject()["id"].toInteger()) == m_rank)
-            return r.toObject()["title"].toString();
-    return tr("排行榜");
-}
+
 void ExploreService::activate(RouteContext *context)
 {
-    const bool active = !m_closed && m_network && context && context->name() == "explore";
-    m_newSongs.setMetadataActive(active);
-    m_rankSongs.setMetadataActive(active);
     if (m_closed)
         return;
-    if (!context || context->name() != "explore") {
+    if (!context || (context->name() != "explore" && context->name() != "artist-recommendations")) {
         m_active = false;
         cancelAll();
         return;
     }
     m_active = true;
-    if (m_instance != context->instanceId()) {
-        m_active = false;
-        reset();
-        m_instance = context->instanceId();
-        m_active = true;
+    if (m_instances.value(context->name()) != context->instanceId()) {
+        m_instances.insert(context->name(), context->instanceId());
+        if (context->name() == "explore") {
+            for (auto part : {Categories, Playlists, Albums}) {
+                cancel(part);
+                m_states[part] = Idle;
+                m_errors[part].clear();
+            }
+            m_categories = {};
+            m_playlistCards = {};
+            m_albumRegions = {};
+            m_albums.clear();
+            m_category = "0";
+            m_categoryLabel = tr("全部");
+        } else {
+            cancel(Artists);
+            m_states[Artists] = Idle;
+            m_errors[Artists].clear();
+            m_artistGroups = {};
+            m_sexFilters = {};
+            m_typeFilters = {};
+            m_letter.clear();
+        }
     }
-    const int next = tabs.indexOf(context->query().value("tab", "playlists").toString());
+    const int next = context->name() == "artist-recommendations" ? 4 : 0;
     if (next >= 0 && next != m_tab) {
-        cancel(activePart());
+        cancelAll();
         m_tab = next;
     }
     projectCards();
@@ -123,50 +115,35 @@ void ExploreService::reset()
     m_errors.fill({});
     m_categories = {};
     m_playlistCards = {};
-    m_ranks = {};
     m_artistGroups = {};
     m_sexFilters = {};
     m_typeFilters = {};
     m_albumRegions = {};
+    m_albums.clear();
     m_cards.clear();
-    m_newSongs.clear();
-    m_rankSongs.clear();
     m_category = "0";
     m_categoryLabel = tr("全部");
     m_region = "all";
     m_sex = "0";
     m_artistType = "0:0";
     m_letter.clear();
-    m_rank = 0;
-    if (m_active && m_router.current() && m_router.current()->name() == "explore")
+    if (m_active && m_router.current() &&
+        (m_router.current()->name() == "explore" ||
+         m_router.current()->name() == "artist-recommendations"))
         loadCurrent();
     emit changed();
 }
-void ExploreService::selectTab(int tab)
-{
-    if (tab < 0 || tab >= tabs.size() || !m_active)
-        return;
-    auto query = m_router.current()->query();
-    query["tab"] = tabs[tab];
-    m_router.replaceQuery(query);
-}
+
 void ExploreService::loadCurrent()
 {
     if (!m_active || !m_network || m_closed)
         return;
     if (m_tab == 0) {
-        if (m_states[Categories] == Idle)
-            request(Categories);
-        if (m_states[Playlists] == Idle)
-            request(Playlists);
-    } else if (m_tab == 1) {
-        if (!m_rank) {
-            if (m_states[RankCatalog] == Idle)
-                request(RankCatalog);
-        } else if (m_states[RankSongs] == Idle)
-            request(RankSongs);
-    } else if (m_states[activePart()] == Idle)
-        request(activePart());
+        for (auto part : {Categories, Playlists, Albums})
+            if (m_states[part] == Idle)
+                request(part);
+    } else if (m_states[Artists] == Idle)
+        request(Artists);
 }
 void ExploreService::request(Part p)
 {
@@ -183,23 +160,8 @@ void ExploreService::request(Part p)
     case Playlists:
         id = m_api.recommendedPlaylists(m_category);
         break;
-    case RankCatalog:
-        cancel(RankFallback);
-        m_states[RankFallback] = Idle;
-        m_errors[RankFallback].clear();
-        id = m_api.rankCatalog();
-        break;
-    case RankFallback:
-        id = m_api.recommendedRanks();
-        break;
-    case RankSongs:
-        id = m_api.rankSongs(m_rank);
-        break;
     case Albums:
         id = m_api.newAlbumCatalog();
-        break;
-    case NewSongs:
-        id = m_api.newSongCatalog();
         break;
     case Artists: {
         const auto parts = m_artistType.split(':');
@@ -241,22 +203,8 @@ void ExploreService::accept(quint64 id, const QByteArray &bytes)
     case Playlists:
         m_playlistCards = d.array();
         break;
-    case RankCatalog:
-    case RankFallback:
-        m_ranks = d.array();
-        if (!m_ranks.isEmpty())
-            selectRank(QString::number(m_ranks.first().toObject()["id"].toInteger()));
-        break;
-    case RankSongs:
-        m_rankSongs.replaceSongs(o["songs"].toArray());
-        m_rankSongs.setQuery({});
-        break;
     case Albums:
         m_albumRegions = o["regions"].toObject();
-        break;
-    case NewSongs:
-        m_newSongs.replaceSongs(o["songs"].toArray());
-        m_newSongs.setQuery({});
         break;
     case Artists:
         m_artistGroups = o["groups"].toArray();
@@ -288,10 +236,6 @@ void ExploreService::fail(quint64 id, const QByteArray &bytes)
         return;
     m_states[p.part] = Error;
     m_errors[p.part] = ApiClient::errorMessage(bytes, tr("内容加载失败"));
-    if (p.part == RankCatalog)
-        request(RankFallback);
-    else if (p.part == Categories || p.part == RankFallback || p.part == RankSongs)
-        emit notice(m_errors[p.part], true);
     emit changed();
 }
 void ExploreService::selectCategory(const QString &id)
@@ -314,23 +258,7 @@ void ExploreService::selectCategory(const QString &id)
         }
     }
 }
-void ExploreService::selectRank(const QString &id)
-{
-    for (const auto &r : m_ranks) {
-        const auto rank = r.toObject();
-        if (QString::number(rank["id"].toInteger()) == id) {
-            const auto selected = quint64(rank["id"].toInteger());
-            if (selected == m_rank)
-                return;
-            m_rank = selected;
-            m_rankSongs.clear();
-            m_rankActions.setQueueContext(rank["title"].toString(), "queue:explore:rank:" + id);
-            request(RankSongs);
-            emit changed();
-            return;
-        }
-    }
-}
+
 void ExploreService::selectRegion(const QString &id)
 {
     if (!QStringList{"all", "chn", "eur", "jpn", "kor"}.contains(id) || m_region == id)
@@ -372,28 +300,14 @@ void ExploreService::selectLetter(const QString &letter)
 }
 void ExploreService::retry()
 {
-    if (m_tab == 1 && !m_rank)
-        request(RankCatalog);
-    else
-        request(activePart());
+    request(activePart());
 }
 void ExploreService::projectCards()
 {
     QJsonArray values;
     if (m_tab == 0)
         values = m_playlistCards;
-    else if (m_tab == 2) {
-        for (const auto &region : QStringList{"chn", "eur", "jpn", "kor"})
-            if (m_region == "all" || m_region == region)
-                for (const auto &v : m_albumRegions[region].toArray()) {
-                    auto album = v.toObject();
-                    const auto artist = album["creator"].toString();
-                    const auto date = album["published_at"].toString();
-                    album["extra_text"] =
-                        artist + (!artist.isEmpty() && !date.isEmpty() ? " • " : "") + date;
-                    values.append(album);
-                }
-    } else if (m_tab == 4) {
+    else if (m_tab == 4) {
         for (const auto &g : m_artistGroups)
             if (m_letter == "全部" || g.toObject()["label"] == m_letter)
                 for (const auto &v : g.toObject()["artists"].toArray()) {
@@ -416,8 +330,13 @@ void ExploreService::projectCards()
                     values.append(a);
                 }
     }
-    if (m_tab != 1 && m_tab != 3)
-        m_cards.replaceCards(values);
+    m_cards.replaceCards(values);
+    QJsonArray albums;
+    for (const auto &region : QStringList{"chn", "eur", "jpn", "kor"})
+        if (m_region == "all" || m_region == region)
+            for (const auto &v : m_albumRegions[region].toArray())
+                albums.append(v);
+    m_albums.replaceCards(albums);
 }
 } // namespace EchoMusic
 
@@ -425,13 +344,22 @@ namespace EchoMusic
 {
 void ExploreService::registerRoutes(RouteController &router)
 {
-    router.registerPage({"explore",
-                         "/main/explore",
-                         QUrl("qrc:/qt/qml/EchoMusic/Discovery/ExplorePage.qml"),
-                         {"tab"},
+    router.registerPage({"artist-recommendations",
+                         "/main/artists",
+                         QUrl("qrc:/qt/qml/EchoMusic/Discovery/ArtistRecommendationsPage.qml"),
+                         {},
                          true,
                          true,
                          false,
                          {{"service", QVariant::fromValue(this)}}});
+    router.registerPage({"explore",
+                         "/main/explore",
+                         QUrl("qrc:/qt/qml/EchoMusic/Discovery/ExplorePage.qml"),
+                         {},
+                         true,
+                         true,
+                         false,
+                         {{"service", QVariant::fromValue(this)},
+                          {"discovery", QVariant::fromValue(m_discovery)}}});
 }
 } // namespace EchoMusic

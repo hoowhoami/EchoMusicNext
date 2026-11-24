@@ -191,12 +191,14 @@ void AppContext::createPages()
              router.navigate("playlist-detail", {}, resourceId);
          });
     m_discovery = std::make_unique<DiscoveryService>(api, playback, account);
+    m_discovery->setPreferences(preferences.get());
     auto &discovery = *m_discovery;
     m_recognitionCapture = std::make_unique<NativeRecognitionCapture>(playback.nativeBridge());
     auto &recognitionCapture = *m_recognitionCapture;
     m_recognition =
         std::make_unique<RecognitionService>(api, playback, recognitionCapture, settings, router);
     m_explore = std::make_unique<ExploreService>(api, playback, router, !smoke);
+    m_explore->setDiscovery(&discovery);
     bind(m_explore.get(), &ExploreService::notice, &shellController, showNotice);
     m_discoveryRoutes = std::make_unique<DiscoveryRouteCoordinator>(discovery, router, !smoke);
     m_togetherUi = std::make_unique<ListenTogetherUi>(api, playback, userPlaylists, songMetadata,

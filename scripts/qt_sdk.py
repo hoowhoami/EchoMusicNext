@@ -7,7 +7,7 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parent.parent
-VERSION = "6.12.0"
+VERSION = "6.12.1"
 COMPONENTS = (
     "Core",
     "Gui",
@@ -72,7 +72,7 @@ def preferred_prefix():
     return source_prefix()
 
 
-def validate_sdk(prefix, *, runtime_patch=True):
+def validate_sdk(prefix):
     """Reject partial installs and version drift before configuring the app."""
     require_python()
     prefix = Path(prefix).resolve()
@@ -95,22 +95,21 @@ def validate_sdk(prefix, *, runtime_patch=True):
                 raise RuntimeError(
                     f"Incomplete Qt SDK at {prefix}: {relative} is missing ({target.name})"
                 )
-    if sys.platform == "win32" and prefix == official_prefix().resolve():
-        # Qt core bundles only gif/ico/jpeg/svg; WebP comes from the optional
-        # qtimageformats module. The music service serves covers as WebP, so a
-        # kit without this plugin renders empty artwork instead of failing loudly.
-        if not (prefix / "plugins/imageformats/qwebp.dll").is_file():
-            raise RuntimeError(
-                f"Incomplete Qt SDK at {prefix}: plugins/imageformats/qwebp.dll is missing"
-            )
+    # Covers from the recommendation service include real WebP payloads.
+    # Validate the optional codec for both cached and freshly installed kits.
+    webp_name = (
+        "qwebp.dll"
+        if sys.platform == "win32"
+        else "libqwebp.dylib" if sys.platform == "darwin" else "libqwebp.so"
+    )
+    if not (prefix / "plugins/imageformats" / webp_name).is_file():
+        raise RuntimeError(
+            f"Incomplete Qt SDK at {prefix}: plugins/imageformats/{webp_name} is missing"
+        )
     qmake = prefix / "bin" / ("qmake.exe" if sys.platform == "win32" else "qmake")
     reported = subprocess.check_output([str(qmake), "-query", "QT_VERSION"], text=True).strip()
     if reported != VERSION:
         raise RuntimeError(f"Expected Qt {VERSION}, found {reported} at {prefix}")
-    if runtime_patch:
-        from qt_qv4_patch import validate_runtime_patch
-
-        validate_runtime_patch(prefix)
     return prefix
 
 

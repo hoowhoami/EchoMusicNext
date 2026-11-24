@@ -45,7 +45,7 @@ const licenses = path.join(directory, 'qt-license-texts');
 fs.mkdirSync(licenses, { recursive: true });
 for (const name of ['GPL-2.0-only', 'GPL-3.0-only', 'LGPL-3.0-only', 'Qt-GPL-exception-1.0'])
   await download(
-    `https://raw.githubusercontent.com/qt/qtbase/v6.12.0/LICENSES/${name}.txt`,
+    `https://raw.githubusercontent.com/qt/qtbase/v6.12.1/LICENSES/${name}.txt`,
     path.join(licenses, `${name}.txt`),
   );
 const configuredQt = /(?:^|\n)Qt6_DIR:[^=]+=([^\r\n]+)/.exec(

@@ -12,7 +12,9 @@ QJsonObject projection(const QJsonObject &song)
         result.insert("privilege", song.value("privilege"));
     auto metadata = result.value("metadata").toObject();
     const auto original = song.value("metadata").toObject();
-    for (const auto *key : {"history_key"})
+    // Recommendation context belongs to this source row, not the shared
+    // metadata observation cache for the audio identity.
+    for (const auto *key : {"history_key", "recommendation"})
         if (original.contains(key))
             metadata.insert(key, original.value(key));
     result.insert("metadata", metadata);

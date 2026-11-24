@@ -88,6 +88,7 @@ Item {
             opacity: surface.settings.backdropOpacity / 100 * (1 - Theme.store.transparency / 100)
             EchoImageMetrics {
                 id: metrics
+                deferRequests: true
                 item: surface
                 active: surface.available
                 source: image.requestedUrl

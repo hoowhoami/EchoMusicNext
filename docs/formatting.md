@@ -5,7 +5,7 @@
 | 内容 | 工具 | 配置 |
 | --- | --- | --- |
 | C++ / Objective-C++ / GLSL | clang-format 23.1.3 | `.clang-format`，4 空格、100 列，保留 include 顺序 |
-| QML / 内嵌 JS | Qt SDK qmlformat 6.12.0 | `.qmlformat.ini`，保留 import 和声明顺序 |
+| QML / 内嵌 JS | Qt SDK qmlformat 6.12.1 | `.qmlformat.ini`，保留 import 和声明顺序 |
 | Rust | Rust 1.99.0 rustfmt | `rustfmt.toml` |
 | CMake | cmake-format 0.6.13 | `.cmake-format.json` |
 | Python | Black 26.10.1 | `pyproject.toml` |

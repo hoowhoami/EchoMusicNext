@@ -17,9 +17,6 @@ import start
 spec = importlib.util.spec_from_file_location("echo_install_qt", ROOT / "scripts/install-qt.py")
 installer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(installer)
-spec = importlib.util.spec_from_file_location("echo_patch_qml", ROOT / "scripts/patch-qt-qml.py")
-patcher = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(patcher)
 
 
 class QtSdkTest(unittest.TestCase):
@@ -66,37 +63,32 @@ class QtSdkTest(unittest.TestCase):
             build_app.assert_not_called()
             launch.assert_not_called()
 
-    def test_old_python_cannot_check_patch_rebuild_or_restore_sdk(self):
-        for args in ([], ["--check"], ["--restore"]):
-            with (
-                self.subTest(args=args),
-                patch.object(patcher.sys, "version_info", (3, 9, 6)),
-                patch.object(patcher.sys, "argv", ["patch-qt-qml.py", *args]),
-                patch.object(patcher, "validate_runtime_patch") as validate,
-                patch.object(patcher, "ensure_qml_patch") as rebuild,
-                patch.object(patcher, "restore") as restore,
-            ):
-                with self.assertRaisesRegex(RuntimeError, "Python 3.12"):
-                    patcher.main()
-                validate.assert_not_called()
-                rebuild.assert_not_called()
-                restore.assert_not_called()
-
     def setUp(self):
-        self.patch_runtime = patch("qt_qv4_patch.validate_runtime_patch")
-        self.patch_runtime.start()
-        self.addCleanup(self.patch_runtime.stop)
-        self.patch_installer = patch.object(installer, "ensure_qml_patch")
-        self.ensure_patch = self.patch_installer.start()
-        self.addCleanup(self.patch_installer.stop)
         directory = tempfile.TemporaryDirectory(prefix="echo-sdk-test-")
         self.addCleanup(directory.cleanup)
         self.root = Path(directory.name)
         self.prefix = self.root / "kit"
+        plugins = self.prefix / "plugins/imageformats"
+        plugins.mkdir(parents=True)
+        for filename in ("qwebp.dll", "libqwebp.dylib", "libqwebp.so"):
+            (plugins / filename).touch()
         for name in qt_sdk.COMPONENTS + ("WaylandClient",):
             config = self.prefix / f"lib/cmake/Qt6{name}/Qt6{name}Config.cmake"
             config.parent.mkdir(parents=True)
             config.touch()
+
+    def test_missing_webp_codec_is_rejected_on_every_platform(self):
+        for system, filename in (
+            ("win32", "qwebp.dll"),
+            ("darwin", "libqwebp.dylib"),
+            ("linux", "libqwebp.so"),
+        ):
+            with self.subTest(platform=system), patch.object(qt_sdk.sys, "platform", system):
+                plugin = self.prefix / "plugins/imageformats" / filename
+                plugin.unlink()
+                with self.assertRaisesRegex(RuntimeError, "is missing"):
+                    qt_sdk.validate_sdk(self.prefix)
+                plugin.touch()
 
     def test_official_kits_cover_all_desktop_targets(self):
         for system, machine, expected in (
@@ -149,7 +141,7 @@ class QtSdkTest(unittest.TestCase):
                         installer.main()
                     commands.assert_called_once()
                     command = commands.call_args.args[0]
-                    self.assertEqual(command[2:7], ["install-qt", host, "desktop", "6.12.0", arch])
+                    self.assertEqual(command[2:7], ["install-qt", host, "desktop", "6.12.1", arch])
                     start = command.index("--archives") + 1
                     end = command.index("-k")
                     self.assertEqual(
@@ -181,13 +173,15 @@ class QtSdkTest(unittest.TestCase):
             query.assert_not_called()
 
     def test_wrong_qt_version_cannot_configure_application(self):
-        with (
-            patch.object(qt_sdk.subprocess, "check_output", return_value="6.8.3\n"),
-            patch.object(build.subprocess, "run") as commands,
-        ):
-            with self.assertRaisesRegex(RuntimeError, "Expected Qt 6.12.0, found 6.8.3"):
-                build.build_app("release", self.prefix)
-            commands.assert_not_called()
+        for version in ("6.8.3", "6.12.0"):
+            with (
+                self.subTest(version=version),
+                patch.object(qt_sdk.subprocess, "check_output", return_value=version + "\n"),
+                patch.object(build.subprocess, "run") as commands,
+            ):
+                with self.assertRaisesRegex(RuntimeError, f"Expected Qt 6.12.1, found {version}"):
+                    build.build_app("release", self.prefix)
+                commands.assert_not_called()
 
     def test_switching_sdk_clears_all_cached_module_paths(self):
         directory = self.root / "build/release"
@@ -197,7 +191,7 @@ class QtSdkTest(unittest.TestCase):
         )
         with (
             patch.object(build, "ROOT", self.root),
-            patch.object(qt_sdk.subprocess, "check_output", return_value="6.12.0\n"),
+            patch.object(qt_sdk.subprocess, "check_output", return_value="6.12.1\n"),
             patch.object(build.subprocess, "run") as commands,
         ):
             build.build_app("release", self.prefix, jobs=2)
@@ -218,7 +212,7 @@ class QtSdkTest(unittest.TestCase):
     def test_distribution_actions_require_explicit_build_option(self):
         with (
             patch.object(build, "ROOT", self.root),
-            patch.object(qt_sdk.subprocess, "check_output", return_value="6.12.0\n"),
+            patch.object(qt_sdk.subprocess, "check_output", return_value="6.12.1\n"),
             patch.object(build.subprocess, "run") as commands,
         ):
             build.build_app("release", self.prefix, configure_only=True, distribution=True)
@@ -229,7 +223,7 @@ class QtSdkTest(unittest.TestCase):
     def test_ffi_check_can_be_disabled_for_packaging_and_restored_for_development(self):
         with (
             patch.object(build, "ROOT", self.root),
-            patch.object(qt_sdk.subprocess, "check_output", return_value="6.12.0\n"),
+            patch.object(qt_sdk.subprocess, "check_output", return_value="6.12.1\n"),
             patch.object(build.subprocess, "run") as commands,
         ):
             build.build_app("release", self.prefix, configure_only=True, no_ffi_check=True)
@@ -240,7 +234,7 @@ class QtSdkTest(unittest.TestCase):
     def test_test_targets_are_disabled_only_when_explicitly_requested(self):
         with (
             patch.object(build, "ROOT", self.root),
-            patch.object(qt_sdk.subprocess, "check_output", return_value="6.12.0\n"),
+            patch.object(qt_sdk.subprocess, "check_output", return_value="6.12.1\n"),
             patch.object(build.subprocess, "run") as commands,
         ):
             build.build_app("release", self.prefix, configure_only=True, no_tests=True)
@@ -256,14 +250,13 @@ class QtSdkTest(unittest.TestCase):
             patch.object(installer, "ROOT", self.root),
             patch.object(installer.sys, "platform", "darwin"),
             patch.object(installer.sys, "argv", ["install-qt.py"]),
-            patch.object(qt_sdk.subprocess, "check_output", return_value="6.12.0\n"),
+            patch.object(qt_sdk.subprocess, "check_output", return_value="6.12.1\n"),
             patch.object(installer, "installer_python") as bootstrap,
             patch.object(installer, "run") as commands,
         ):
             installer.main()
             bootstrap.assert_not_called()
             commands.assert_not_called()
-            self.ensure_patch.assert_called_once()
             self.assertTrue((self.prefix / ".echo-sdk.json").is_file())
 
 

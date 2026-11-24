@@ -45,3 +45,5 @@ pub mod listen_together_song;
 pub mod relation;
 
 pub mod interception;
+
+pub mod discovery_cards;

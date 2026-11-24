@@ -14,6 +14,8 @@
 #include "RenderedInk.h"
 #include "ThemeStore.h"
 #include "NetworkPreferences.h"
+#include "SessionDatabase.h"
+#include "SongMetadataService.h"
 #include "NativeWindow.h"
 #include <iostream>
 #include <memory>
@@ -25,6 +27,7 @@
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonArray>
+#include <QJSValue>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQmlContext>
@@ -44,6 +47,41 @@
 using namespace EchoMusic;
 namespace EchoMusic
 {
+class ApiClientTestAccess
+{
+public:
+    static QJsonObject query(const ApiClient &api, quint64 id)
+    {
+        return api.m_pending.value(id).request["query"].toObject();
+    }
+};
+class PlaybackServiceTestAccess
+{
+public:
+    static void currentTrack(PlaybackService &playback, const PlaybackTrack &track)
+    {
+        playback.m_track = track;
+    }
+};
+class SongCatalogStorageTestAccess
+{
+public:
+    static bool hasStore(const SongCatalogModel &model)
+    {
+        return bool(model.m_store);
+    }
+    static auto statistics(const SongCatalogModel &model)
+    {
+        return model.m_hotViews.statistics();
+    }
+    static void raceUnchangedMetadataWithViewRead(SongCatalogModel &model)
+    {
+        model.m_pendingMetadata.insert(0);
+        model.flushMetadata();
+        model.data(model.index(0), SongCatalogModel::Title);
+        model.flushViewReads();
+    }
+};
 class ExploreServiceTestAccess
 {
 public:
@@ -82,6 +120,41 @@ public:
 class DiscoveryServiceTestAccess
 {
 public:
+    static quint64 cardRequest(const DiscoveryService &s, const QString &key)
+    {
+        for (auto it = s.m_cardPending.cbegin(); it != s.m_cardPending.cend(); ++it)
+            if (it->first && it->first->key() == key)
+                return it.key();
+        return 0;
+    }
+    static void completeCard(DiscoveryService &s, quint64 id, const QJsonObject &data)
+    {
+        QVERIFY(s.acceptCard(id, QJsonDocument(data).toJson()));
+    }
+    static void occupyCardRequests(DiscoveryService &s)
+    {
+        s.m_networkEnabled = true;
+        s.m_activePage = "home";
+        s.m_styleGroups = QJsonArray{QJsonObject{{"child", QJsonArray{QJsonObject{{"id", "tag"}}}}}}
+                              .toVariantList();
+        for (int i = 0; i < 3; ++i)
+            s.m_cardPending.insert(90000 + i,
+                                   {s.m_recommendationCards.find(QString::number(3004 + i)),
+                                    s.m_api.sessionRevision()});
+    }
+    static auto itemStatistics(const RecommendationItemsModel &model)
+    {
+        return model.m_hot.statistics();
+    }
+    static bool itemCached(const RecommendationItemsModel &model, int row)
+    {
+        return bool(model.m_hot.peek(row));
+    }
+    static bool itemPersisted(const RecommendationItemsModel &model)
+    {
+        return model.m_store && model.m_store->persisted(model.m_source);
+    }
+
     static void complete(DiscoveryService &s, DiscoveryService::Part part, const QJsonValue &data,
                          quint64 id = 12345)
     {
@@ -192,6 +265,36 @@ QQuickItem *findVisual(QQuickItem *root, const QString &name)
         if (auto *found = findVisual(child, name))
             return found;
     return nullptr;
+}
+QString previewPresentationError(QQuickItem *root)
+{
+    QList<QQuickItem *> pending{root};
+    while (!pending.isEmpty()) {
+        auto *item = pending.takeLast();
+        pending.append(item->childItems());
+        if (item->objectName() != "homeSongCard" || !item->property("resourceActive").toBool())
+            continue;
+        auto *model = item->property("collection").value<SongCatalogModel *>();
+        const auto row = item->property("index").toInt();
+        const auto expected = model->data(model->index(row), SongCatalogModel::Title).toString();
+        const auto roleTitle = item->property("title").toString();
+        const auto value = item->property("entry");
+        const auto entry = value.metaType() == QMetaType::fromType<QJSValue>()
+                               ? value.value<QJSValue>().toVariant().toMap()
+                               : value.toMap();
+        if (expected.isEmpty() || roleTitle != expected ||
+            entry.value("title").toString() != expected)
+            return QString("row %1: sourceReady=%2 roleMatches=%3 entryMatches=%4 title=%5 "
+                           "expected=%6 idMatches=%7")
+                .arg(row)
+                .arg(!expected.isEmpty())
+                .arg(roleTitle == expected)
+                .arg(entry.value("title").toString() == expected)
+                .arg(roleTitle, expected)
+                .arg(item->property("resourceId").toString() ==
+                     model->data(model->index(row), SongCatalogModel::ResourceId).toString());
+    }
+    return {};
 }
 QObject *findVisualOwnerObject(QQuickItem *root, const QString &name)
 {
@@ -907,6 +1010,747 @@ Window {
         QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
         api.shutdown();
     }
+
+    void catalogInsertionCallbackRetiresWithItsView()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        AccountService account(api);
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        ThemeStore theme(prefs);
+        DiscoveryService service(api, playback, account);
+        service.dailySongs()->replaceSongs({domainSong(1)});
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QStringList warnings;
+        QObject observer;
+        connect(&engine, &QQmlEngine::warnings, &observer, [&](const auto &messages) {
+            for (const auto &m : messages)
+                warnings.append(m.toString());
+        });
+        QQmlComponent component(&engine);
+        component.setData(R"(import QtQuick
+import EchoMusic.Controls
+import EchoMusic.Music
+Window {
+ id:host;required property SongCatalogModel collection;required property SongCatalogActions commands;property bool loaded:false;property bool showBody:true;visible:true;width:600;height:400
+ EchoPageScrollContainer {id:viewport;anchors.fill:parent;scrollView:null;pageActive:true}
+ Loader {anchors.fill:parent;active:host.showBody;sourceComponent:CatalogSongList {collection:host.collection;actions:host.commands;pageContainer:viewport;loading:!host.loaded}}
+})",
+                          QUrl("qrc:/catalog-insertion-retirement.qml"));
+        QScopedPointer<QObject> root(component.createWithInitialProperties(
+            {{"collection", QVariant::fromValue(service.dailySongs())},
+             {"commands", QVariant::fromValue(service.actions(service.dailySongs()))}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        for (int i = 0; i < 20; ++i) {
+            root->setProperty("showBody", true);
+            root->setProperty("loaded", false);
+            root->setProperty("loaded", true);
+            root->setProperty("showBody", false);
+            QCoreApplication::processEvents();
+        }
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+        root.reset();
+        service.shutdown();
+        QSignalSpy drain(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(drain.size(), 1, 15000);
+        api.shutdown();
+    }
+    void recommendationItemsUseSharedColdSourceAndRetireOldReads()
+    {
+        QTemporaryDir dir;
+        SessionDatabase database(dir.filePath("session"));
+        RecommendationItemsModel model;
+        model.attach(&database);
+        QJsonArray rows;
+        for (int i = 0; i < 1000; ++i)
+            rows.append(QJsonObject{
+                {"title", QString::number(i)},
+                {"url", "https://example.invalid/" + QString::number(i)},
+                {"provider_extension", QJsonObject{{"full_fact", QString(4096, 'x')}}}});
+        model.replace(rows);
+        QCOMPARE(model.count(), 1000);
+        QTRY_VERIFY_WITH_TIMEOUT(DiscoveryServiceTestAccess::itemPersisted(model), 15000);
+        for (int i = 0; i < 1000; i += 7) {
+            model.data(model.index(i), Qt::UserRole + 1);
+            QTRY_COMPARE(
+                model.data(model.index(i), Qt::UserRole + 1).toMap().value("title").toString(),
+                QString::number(i));
+        }
+        const auto stats = DiscoveryServiceTestAccess::itemStatistics(model);
+        QVERIFY(stats.entries <= 32);
+        QVERIFY(stats.cost <= 1024 * 1024);
+        bool complete = false;
+        QObject consumer;
+        model.requestItem(999, &consumer, [&](QJsonObject row) {
+            QCOMPARE(row["provider_extension"].toObject()["full_fact"].toString().size(), 4096);
+            complete = true;
+        });
+        QTRY_VERIFY(complete);
+        bool stale = false;
+        model.requestItem(500, &consumer, [&](QJsonObject) { stale = true; });
+        model.replace({QJsonObject{{"title", "replacement"}}});
+        QTest::qWait(50);
+        QVERIFY(!stale);
+        QCOMPARE(model.count(), 1);
+        QSignalSpy closed(&database, &SessionDatabase::closed);
+        database.shutdown();
+        QTRY_COMPARE(closed.size(), 1);
+    }
+    void recommendationConfigurationPersistsAndKeepsOneCard()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        AccountService account(api);
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        DiscoveryService service(api, playback, account);
+        service.setPreferences(&prefs);
+        auto *layout = service.recommendationCards();
+        QVERIFY(!layout->find("3104"));
+        QVERIFY(!layout->find("3106"));
+        QCOMPARE(layout->catalog().size(), 12);
+        QVERIFY(!layout->find("3007"));
+        QVERIFY(!layout->find("3032"));
+        QAbstractItemModelTester check(layout,
+                                       QAbstractItemModelTester::FailureReportingMode::QtTest);
+        const int original = layout->count();
+        QCOMPARE(original, 4);
+        QCOMPARE(layout->at(3)->key(), "new");
+        const QStringList previousDefaults{"daily", "style", "3001", "3004", "3005", "3006", "3014",
+                                           "3101",  "3102",  "3103", "3105", "3106", "new"};
+        prefs.setValue("discovery/cards", previousDefaults);
+        prefs.setValue("discovery/cardsDefaultsVersion", 0);
+        layout->setPreferences(&prefs);
+        QCOMPARE(layout->count(), 4);
+        QCOMPARE(prefs.value("discovery/cardsDefaultsVersion").toInt(), 1);
+        // A later explicit full selection remains the user's choice.
+        prefs.setValue("discovery/cards", previousDefaults);
+        layout->setPreferences(&prefs);
+        QCOMPARE(layout->count(), previousDefaults.size() - 2);
+        QVERIFY(!prefs.value("discovery/cards").toStringList().contains("3106"));
+        prefs.setValue("discovery/cards",
+                       QStringList{"3104", "3007", "style", "3106", "3105", "3032", "new"});
+        layout->setPreferences(&prefs);
+        QCOMPARE(prefs.value("discovery/cards").toStringList(), QStringList({"style", "new"}));
+        prefs.setValue("discovery/cards", QStringList{"3104", "3105", "3106", "3007", "3032"});
+        layout->setPreferences(&prefs);
+        QCOMPARE(layout->count(), 4);
+        layout->toggle("3104");
+        layout->toggle("3106");
+        QCOMPARE(layout->count(), 4);
+        layout->restoreDefaults();
+        const auto second = layout->at(1)->key();
+        layout->move(1, 0);
+        QCOMPARE(layout->at(0)->key(), second);
+        QCOMPARE(prefs.value("discovery/cards").toStringList().first(), second);
+        while (layout->count() > 1)
+            layout->toggle(layout->at(layout->count() - 1)->key());
+        layout->toggle(layout->at(0)->key());
+        QCOMPARE(layout->count(), 1);
+        layout->toggle("new");
+        QCOMPARE(layout->count(), 2);
+        layout->setPreferences(&prefs);
+        QCOMPARE(layout->count(), 2);
+        layout->restoreDefaults();
+        QCOMPARE(layout->count(), original);
+        QCOMPARE(layout->at(0)->key(), "daily");
+        // A style-filter click also joins the shared card scheduler.
+        DiscoveryServiceTestAccess::occupyCardRequests(service);
+        service.toggleTag("tag");
+        QCOMPARE(service.selectedTags(), QStringList{"tag"});
+        QCOMPARE(service.state(DiscoveryService::Style), int(DiscoveryService::Idle));
+        QVERIFY(!DiscoveryServiceTestAccess::hasPending(service));
+        service.shutdown();
+        QSignalSpy drain(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(drain.size(), 1, 15000);
+        api.shutdown();
+    }
+    void recommendationContextStaysWithEachColdSource()
+    {
+        QTemporaryDir dir;
+        ApiClient api(DeviceIdentity::temporary());
+        SessionDatabase database(dir.filePath("recommendations"));
+        SongMetadataService metadata(api);
+        metadata.enableSqlIndex(database);
+        SongCatalogModel first, second;
+        for (auto *model : {&first, &second}) {
+            model->attachMetadata(&metadata);
+            model->setMetadataActive(false);
+            model->enableSessionStorage(database);
+        }
+        auto song = domainSong(1);
+        auto facts = song["metadata"].toObject();
+        facts["recommendation"] =
+            QJsonObject{{"detail", "来源甲的推荐语"},
+                        {"curator", QJsonObject{{"name", "甲"}, {"avatar_url", "image://home/1"}}}};
+        song["metadata"] = facts;
+        first.replaceSongs({song});
+        facts["recommendation"] = QJsonObject{{"detail", "来源乙的推荐语"}};
+        song["metadata"] = facts;
+        second.replaceSongs({song});
+        QTRY_VERIFY(first.storageReady() && second.storageReady());
+        QTRY_COMPARE(first.data(first.index(0), SongCatalogModel::Recommendation)
+                         .toMap()["detail"]
+                         .toString(),
+                     QString("来源甲的推荐语"));
+        QTRY_COMPARE(second.data(second.index(0), SongCatalogModel::Recommendation)
+                         .toMap()["detail"]
+                         .toString(),
+                     QString("来源乙的推荐语"));
+        QVERIFY(!SongMetadataService::observationInput(song)["metadata"].toObject().contains(
+            "recommendation"));
+        QVERIFY(SongCatalogStorageTestAccess::statistics(first).entries <= 256);
+        QSignalSpy closed(&database, &SessionDatabase::closed);
+        database.shutdown();
+        QTRY_COMPARE(closed.size(), 1);
+        api.shutdown();
+    }
+    void recommendationContentLayoutsUseCanonicalModels_data()
+    {
+        QTest::addColumn<int>("viewWidth");
+        QTest::newRow("wide") << 1560;
+        QTest::newRow("narrow") << 960;
+    }
+    void recommendationContentLayoutsUseCanonicalModels()
+    {
+        if (QGuiApplication::platformName() != "offscreen")
+            QSKIP("Nonintrusive content layout regression");
+        QFETCH(int, viewWidth);
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        prefs.setValue("playback/volume", 0.);
+        ApiClient api(DeviceIdentity::temporary());
+        AccountService account(api);
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        SessionDatabase database(dir.filePath("session"));
+        SongMetadataService metadata(api);
+        metadata.enableSqlIndex(database);
+        playback.attachMetadata(metadata);
+        DiscoveryService service(api, playback, account);
+        service.setPage("home", "content-layout", false);
+        ThemeStore theme(prefs);
+        theme.setMotionEnabled(false);
+        theme.setFloatingFrosted(false);
+        RouteController router;
+        EchoPageStateStore state;
+        QJsonArray songs;
+        for (int i = 1; i <= 30; ++i) {
+            auto song = domainSong(i, i % 2 ? "Good Time" : "听见新的故事");
+            song["cover_url"] = QString("image://home/%1").arg(i);
+            auto facts = song["metadata"].toObject();
+            facts["recommendation"] =
+                QJsonObject{{"detail", i % 2 ? "音乐把今天变得不一样，分享这一刻的心动。"
+                                             : "留给自己的一首歌，慢慢听。"},
+                            {"curator", QJsonObject{{"name", "推荐人" + QString::number(i)},
+                                                    {"avatar_url", "image://home/2"}}},
+                            {"artwork_url", QString("image://home/%1").arg(i)}};
+            song["metadata"] = facts;
+            songs.append(song);
+        }
+        QJsonArray groups;
+        for (const auto &name : {"摇滚", "电子", "欧美"})
+            groups.append(QJsonObject{
+                {"title", name},
+                {"description", "只有音乐才是解药"},
+                {"cover_url", "image://home/3"},
+                {"color", "#478C96"},
+                {"preview",
+                 QJsonArray{
+                     QJsonObject{{"id", "1"}, {"title", "Good Time"}, {"artist", "Owl City"}},
+                     QJsonObject{{"id", "2"}, {"title", "听见新的故事"}, {"artist", "推荐歌手"}},
+                     QJsonObject{{"id", "3"}, {"title", "Memories"}, {"artist", "Maroon 5"}}}}});
+        for (int i = 3; i < 12; ++i) {
+            auto group = groups[0].toObject();
+            group["title"] = QString("主题 %1").arg(i + 1);
+            groups.append(group);
+        }
+        for (int i = 0; i < groups.size(); ++i) {
+            auto group = groups[i].toObject();
+            group["cover_url"] = QString("image://home/theme-%1").arg(i);
+            groups[i] = group;
+        }
+        for (const auto &key : {"3006", "3004", "3102", "3103"})
+            service.recommendationCard(key)->accept(
+                {{"songs", songs},
+                 {"groups", QString::fromLatin1(key) == "3102"   ? QJsonArray{groups[0]}
+                            : QString::fromLatin1(key) == "3103" ? groups
+                                                                 : QJsonArray{}}});
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        auto *images = new ArtistImageRequests;
+        engine.addImageProvider("home", images);
+        QStringList warnings;
+        QObject observer;
+        connect(&engine, &QQmlEngine::warnings, &observer, [&](const auto &messages) {
+            for (const auto &m : messages)
+                warnings.append(m.toString());
+        });
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import QtQuick.Controls.Basic
+import QtQuick.Layouts
+import EchoMusic.Controls
+import EchoMusic.Discovery
+import EchoMusic.Shell
+import EchoMusic.Theme
+ApplicationWindow {
+ id: host
+ required property DiscoveryService service
+ required property RouteController router
+ required property var stateStore
+ property bool showPanels: true
+ visible: true; width: 1440; height: 840; color: Theme.main
+ Item {
+  anchors.fill: parent
+  EchoPageState.scope: host.stateStore
+  GridLayout {
+   anchors.fill: parent; anchors.margins: 40; columns: 2; rowSpacing: 20; columnSpacing: 80
+   Repeater {
+    model: ["3006", "3004", "3102", "3103"]
+    RecommendationPanel {
+     required property string modelData
+     Layout.fillWidth: true; Layout.fillHeight: true
+     Layout.minimumWidth: 0; Layout.minimumHeight: 0
+     card: host.service.recommendationCard(modelData)
+     service: host.service; router: host.router; resourceActive: host.showPanels
+    }
+   }
+  }
+ }
+})",
+                          QUrl("qrc:/recommendation-content-test.qml"));
+        QScopedPointer<QObject> root(
+            component.createWithInitialProperties({{"service", QVariant::fromValue(&service)},
+                                                   {"router", QVariant::fromValue(&router)},
+                                                   {"stateStore", QVariant::fromValue(&state)},
+                                                   {"width", viewWidth}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window);
+        QVERIFY(Test::prepareNativeInput(window));
+        QPointer<QQuickItem> features;
+        QTRY_VERIFY(
+            (features = findVisual(window->contentItem(), "recommendationFeatureCarousel-3006")));
+        QCOMPARE(features->property("model").value<SongCatalogModel *>(),
+                 service.recommendationCard("3006")->collection());
+        QCOMPARE(features->x(), 0.);
+        QCOMPARE(features->width(), features->parentItem()->width());
+        auto *stories = findVisual(window->contentItem(), "recommendationFeatureCarousel-3004");
+        auto *themes = findVisual(window->contentItem(), "recommendationGroupCarousel-3103");
+        QTRY_VERIFY(stories && themes);
+        auto *storyArtist = findVisual(stories, "recommendationFeatureArtist");
+        auto *storyReason = findVisual(stories, "recommendationFeatureReason");
+        QTRY_VERIFY(storyArtist && storyReason);
+        QTRY_VERIFY(storyReason->mapToScene(QPointF()).y() >
+                    storyArtist->mapToScene(QPointF(0, storyArtist->height())).y() + 12);
+        for (auto *view : {stories, themes}) {
+            QCOMPARE(view->property("compositionColumns").toInt(), viewWidth > 1000 ? 2 : 1);
+            QQuickItem *second = nullptr;
+            if (viewWidth > 1000) {
+                QTRY_VERIFY(QMetaObject::invokeMethod(view, "itemAtIndex",
+                                                      Q_RETURN_ARG(QQuickItem *, second),
+                                                      Q_ARG(int, 1)) &&
+                            second);
+                QTRY_VERIFY(second->mapToItem(view, QPointF()).x() < view->width());
+            }
+        }
+        const auto neighborIndex = themes->property("compositionColumns").toInt();
+        auto *groupSource = service.recommendationCard("3103")->groups();
+        QTRY_VERIFY(DiscoveryServiceTestAccess::itemCached(*groupSource, neighborIndex));
+        QVERIFY(!DiscoveryServiceTestAccess::itemCached(*groupSource, 11));
+        QTRY_VERIFY(images->requested().contains(QString("theme-%1").arg(neighborIndex)));
+        QVERIFY(!images->requested().contains("theme-11"));
+        QQuickItem *neighbor = nullptr;
+        QTRY_VERIFY(QMetaObject::invokeMethod(themes, "itemAtIndex",
+                                              Q_RETURN_ARG(QQuickItem *, neighbor),
+                                              Q_ARG(int, neighborIndex)) &&
+                    neighbor);
+        auto *groupArtwork = findVisual(neighbor, "recommendationGroupArtwork");
+        auto *groupInformation = findVisual(neighbor, "recommendationGroupInformation");
+        QVERIFY(groupArtwork && groupInformation);
+        QTRY_COMPARE(groupArtwork->property("status").toInt(), 1);
+        QTRY_VERIFY(std::abs(groupArtwork->height() - groupInformation->height()) < 1);
+        QCOMPARE(groupArtwork->y(), groupInformation->y());
+        QVERIFY(countVisual(window->contentItem(), "recommendationGroupCard") <= 8);
+        theme.setMotionEnabled(true);
+        auto *groupNext = findVisual(window->contentItem(), "recommendationCarouselNext-3103");
+        QVERIFY(groupNext);
+        QTest::mouseMove(
+            window, groupNext->mapToScene(QPointF(groupNext->width() / 2, groupNext->height() / 2))
+                        .toPoint());
+        QTRY_VERIFY(groupNext->isVisible());
+        Test::FrameSpy firstGroupFrame(window);
+        QElapsedTimer firstGroupSlide;
+        firstGroupSlide.start();
+        QTest::mouseClick(
+            window, Qt::LeftButton, Qt::NoModifier,
+            groupNext->mapToScene(QPointF(groupNext->width() / 2, groupNext->height() / 2))
+                .toPoint());
+        QVERIFY(firstGroupFrame.wait(1000));
+        qInfo() << "first prepared group slide to observed frame us"
+                << firstGroupSlide.nsecsElapsed() / 1000 << "group hot entries"
+                << DiscoveryServiceTestAccess::itemStatistics(*groupSource).entries;
+        QTRY_COMPARE(themes->property("currentIndex").toInt(), 1);
+        auto *groupSlide =
+            findVisualOwnerObject(window->contentItem(), "recommendationCarouselSlide-3103");
+        QVERIFY(groupSlide);
+        QTRY_VERIFY(!groupSlide->property("running").toBool());
+        theme.setMotionEnabled(false);
+        QVERIFY(QMetaObject::invokeMethod(themes, "step", Q_ARG(int, -1)));
+        QCOMPARE(themes->property("currentIndex").toInt(), 0);
+        QVERIFY(!DiscoveryServiceTestAccess::itemCached(*groupSource, 11));
+        auto *favorite = findVisual(window->contentItem(), "recommendationSongFavorite");
+        QVERIFY(favorite);
+        QCOMPARE(favorite->size(), QSizeF(32, 32));
+        QCOMPARE(favorite->property("padding").toReal(), 5.);
+        QTRY_VERIFY(findVisual(window->contentItem(), "recommendationFeatureReason") &&
+                    !findVisual(window->contentItem(), "recommendationFeatureReason")
+                         ->property("text")
+                         .toString()
+                         .isEmpty());
+        QTRY_VERIFY(findVisual(window->contentItem(), "recommendationGroupCarousel-3103"));
+        QTRY_VERIFY(findVisual(window->contentItem(), "recommendationGroupDescription") &&
+                    !findVisual(window->contentItem(), "recommendationGroupDescription")
+                         ->property("text")
+                         .toString()
+                         .isEmpty());
+        QTRY_VERIFY(findVisual(window->contentItem(), "recommendationGroupSong") &&
+                    !findVisual(window->contentItem(), "recommendationGroupSong")
+                         ->property("text")
+                         .toString()
+                         .isEmpty());
+        QVERIFY(countVisual(window->contentItem(), "homeSongCard") <= 16);
+        auto *next = findVisual(window->contentItem(), "recommendationCarouselNext-3006");
+        QVERIFY(next);
+        auto *previous = findVisual(window->contentItem(), "recommendationCarouselPrevious-3006");
+        QVERIFY(previous);
+        QTest::mouseMove(window, QPoint(4, 4));
+        QTRY_VERIFY(!next->isVisible() && !previous->isVisible());
+        auto *play = findVisual(features, "recommendationFeaturePlay");
+        QVERIFY(play);
+        QTRY_VERIFY(!play->isVisible());
+        QTest::mouseMove(
+            window, play->mapToScene(QPointF(play->width() / 2, play->height() / 2)).toPoint());
+        QTRY_VERIFY(play->isVisible());
+        QTest::mouseMove(window, QPoint(4, 4));
+        QTRY_VERIFY(!play->isVisible());
+        QTest::mouseMove(
+            window,
+            features->mapToScene(QPointF(features->width() / 2, features->height() / 2)).toPoint());
+        QTRY_VERIFY(next->isVisible());
+        QVERIFY(!previous->isVisible());
+        QCOMPARE(next->size(), QSizeF(36, 36));
+        QCOMPARE(next->parentItem(), features->parentItem());
+        QCOMPARE(next->mapToItem(features, QPointF()).x(), features->width());
+        QCOMPARE(next->mapToItem(features, QPointF(0, next->height() / 2)).y(),
+                 features->height() / 2);
+        QVERIFY(!next->property("background").value<QQuickItem *>());
+        QTest::mouseMove(
+            window, next->mapToScene(QPointF(next->width() / 2, next->height() / 2)).toPoint());
+        QTRY_VERIFY(next->isVisible() && next->property("hovered").toBool());
+        QTest::mouseClick(
+            window, Qt::LeftButton, Qt::NoModifier,
+            next->mapToScene(QPointF(next->width() / 2, next->height() / 2)).toPoint());
+        QTRY_COMPARE(features->property("currentIndex").toInt(), 1);
+        QTRY_VERIFY(previous->isVisible());
+        QCOMPARE(previous->mapToItem(features, QPointF(previous->width(), 0)).x(), 0.);
+        QVERIFY(!previous->property("background").value<QQuickItem *>());
+        QTest::mouseMove(window, QPoint(4, 4));
+        QTRY_VERIFY(!next->isVisible() && !previous->isVisible());
+        QVERIFY(countVisual(window->contentItem(), "homeSongCard") <= 16);
+        QCOMPARE(state.load("recommendation-preview-3006")["index"].toInt(), 1);
+        features->forceActiveFocus(Qt::TabFocusReason);
+        QTest::keyClick(window, Qt::Key_Right);
+        QTRY_VERIFY(next->isVisible() && previous->isVisible());
+        QTRY_COMPARE(features->property("currentIndex").toInt(), 2);
+        QTest::keyClick(window, Qt::Key_Left);
+        QTRY_COMPARE(features->property("currentIndex").toInt(), 1);
+        QTRY_VERIFY(features->property("contentX").toReal() > 0);
+        const auto previewPosition = features->property("contentX").toReal();
+        root->setProperty("showPanels", false);
+        QTRY_VERIFY(features.isNull());
+        root->setProperty("showPanels", true);
+        QTRY_VERIFY(
+            (features = findVisual(window->contentItem(), "recommendationFeatureCarousel-3006")));
+        QTRY_COMPARE(features->property("currentIndex").toInt(), 1);
+        QTRY_COMPARE(features->property("contentX").toReal(), previewPosition);
+        theme.setMotionEnabled(true);
+        QPointer<QObject> slide =
+            findVisualOwnerObject(window->contentItem(), "recommendationCarouselSlide-3006");
+        QVERIFY(slide);
+        const auto before = window->grabWindow();
+        const auto start = features->property("contentX").toReal();
+        Test::FrameSpy movingFrames(window);
+        QVERIFY(QMetaObject::invokeMethod(features, "step", Q_ARG(int, 1)));
+        QTRY_VERIFY(slide->property("running").toBool());
+        QTRY_VERIFY(features->property("contentX").toReal() > start &&
+                    features->property("contentX").toReal() < slide->property("to").toReal());
+        QTRY_VERIFY(!movingFrames.isEmpty());
+        const auto middle = window->grabWindow();
+        QVERIFY(middle != before);
+        QVERIFY(countVisual(window->contentItem(), "homeSongCard") <= 16);
+        QTRY_VERIFY(!slide->property("running").toBool());
+        QCOMPARE(features->property("contentX").toReal(), slide->property("to").toReal());
+        Test::FrameSpy finalMotionFrame(window);
+        window->update();
+        QTRY_VERIFY(!finalMotionFrame.isEmpty());
+        QVERIFY(middle != window->grabWindow());
+        QVERIFY(QMetaObject::invokeMethod(features, "step", Q_ARG(int, 1)));
+        QTRY_VERIFY(slide->property("running").toBool());
+        theme.setMotionEnabled(false);
+        QVERIFY(!slide->property("running").toBool());
+        QCOMPARE(features->property("contentX").toReal(), slide->property("to").toReal());
+        theme.setMotionEnabled(true);
+        const auto reverseTarget = features->property("contentX").toReal();
+        QVERIFY(QMetaObject::invokeMethod(features, "step", Q_ARG(int, 1)));
+        QTRY_VERIFY(features->property("contentX").toReal() > reverseTarget);
+        const auto reverseStart = features->property("contentX").toReal();
+        QVERIFY(QMetaObject::invokeMethod(features, "step", Q_ARG(int, -1)));
+        QCOMPARE(features->property("contentX").toReal(), reverseStart);
+        QTRY_VERIFY(!slide->property("running").toBool());
+        QCOMPARE(features->property("contentX").toReal(), reverseTarget);
+        QVERIFY(QMetaObject::invokeMethod(features, "step", Q_ARG(int, 1)));
+        QTRY_VERIFY(slide->property("running").toBool());
+        window->hide();
+        QVERIFY(!slide->property("running").toBool());
+        QCOMPARE(features->property("contentX").toReal(), slide->property("to").toReal());
+        window->show();
+        QVERIFY(Test::prepareNativeInput(window));
+        QVERIFY(QMetaObject::invokeMethod(features, "step", Q_ARG(int, 1)));
+        QTRY_VERIFY(slide->property("running").toBool());
+        const auto resumeIndex = features->property("currentIndex").toInt();
+        const auto resumePosition = slide->property("to").toReal();
+        root->setProperty("showPanels", false);
+        QTRY_VERIFY(features.isNull() && slide.isNull());
+        root->setProperty("showPanels", true);
+        QTRY_VERIFY(
+            (features = findVisual(window->contentItem(), "recommendationFeatureCarousel-3006")));
+        QTRY_COMPARE(features->property("currentIndex").toInt(), resumeIndex);
+        QTRY_COMPARE(features->property("contentX").toReal(), resumePosition);
+        const auto artifacts = qEnvironmentVariable("ECHO_CONTENT_UI_ARTIFACTS");
+        if (!artifacts.isEmpty()) {
+            QDir().mkpath(artifacts);
+            middle.save(artifacts + "/motion-" + QTest::currentDataTag() + ".png");
+            for (auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+                Test::FrameSpy frames(window);
+                theme.setMode(mode);
+                window->update();
+                QTRY_VERIFY(!frames.isEmpty());
+                window->grabWindow().save(artifacts + "/content-" + QTest::currentDataTag() +
+                                          (mode == ThemeStore::Light ? "-light.png" : "-dark.png"));
+                frames.clear();
+                QTest::mouseMove(
+                    window,
+                    features->mapToScene(QPointF(features->width() / 2, features->height() / 2))
+                        .toPoint());
+                window->update();
+                QTRY_VERIFY(!frames.isEmpty());
+                window->grabWindow().save(artifacts + "/hover-" + QTest::currentDataTag() +
+                                          (mode == ThemeStore::Light ? "-light.png" : "-dark.png"));
+                QTest::mouseMove(window, QPoint(4, 4));
+            }
+        }
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+        root.reset();
+        service.shutdown();
+        QSignalSpy drain(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(drain.size(), 1, 15000);
+        api.shutdown();
+    }
+    void recommendationSourcesFollowCardSemantics()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        AccountService account(api);
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        PlaybackServiceTestAccess::currentTrack(playback,
+                                                PlaybackTrack::fromDomain(domainSong(999)));
+        DiscoveryService service(api, playback, account);
+        service.setPage("home", "sources", true);
+        for (const auto &key : {"3014", "3001"}) {
+            service.activateCard(key, true);
+            const auto id = DiscoveryServiceTestAccess::cardRequest(service, key);
+            QVERIFY(id);
+            QCOMPARE(ApiClientTestAccess::query(api, id)["source_mixsong"].toString(), QString());
+            api.cancel(id);
+            service.activateCard(key, false);
+            DiscoveryServiceTestAccess::completeCard(service, id, {{"songs", QJsonArray{}}});
+        }
+        PlaybackServiceTestAccess::currentTrack(playback, {});
+        service.refreshCard("3007");
+        QCOMPARE(DiscoveryServiceTestAccess::cardRequest(service, "3007"), quint64(0));
+        QVERIFY(!service.recommendationCard("3007"));
+        QVERIFY(!service.recommendationCard("3032"));
+        service.shutdown();
+        QSignalSpy drain(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(drain.size(), 1, 15000);
+        api.shutdown();
+    }
+    void recommendationInformationUsesResponseFacts()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        AccountService account(api);
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        DiscoveryService service(api, playback, account);
+        auto *related = service.recommendationCard("3014");
+        related->accept({{"title", "喜欢这首歌的TA也喜欢"}, {"description", "晴天 - 周杰伦"}});
+        QCOMPARE(related->title(), QString("喜欢这首歌的TA也喜欢"));
+        QCOMPARE(related->subtitle(), QString("晴天 - 周杰伦"));
+        related->clear();
+        QCOMPARE(related->title(), QString("喜欢这首歌的 TA 也喜欢"));
+        auto *tagCard = service.recommendationCards()->find("3102");
+        tagCard->accept({{"title", "喜欢「粤语」的TA也喜欢"}, {"description", "接口标签说明"}});
+        QCOMPARE(tagCard->title(), QString("喜欢「粤语」的TA也喜欢"));
+        QCOMPARE(tagCard->subtitle(), QString("接口标签说明"));
+        tagCard->clear();
+        QCOMPARE(tagCard->title(), QString("喜欢「…」的 TA 也喜欢"));
+        auto song = domainSong(1);
+        song["artists"] = QJsonArray{QJsonObject{{"name", "Alpha"}}, QJsonObject{{"name", "Alpha"}},
+                                     QJsonObject{{"name", "Beta"}}};
+        auto next = domainSong(2);
+        next["artists"] = QJsonArray{QJsonObject{{"name", "Gamma"}}};
+        for (const auto &key : {"3001", "3004", "3005", "3006", "3107"}) {
+            auto *card = service.recommendationCards()->find(key);
+            card->accept({{"songs", QJsonArray{song, next}}});
+            QCOMPARE(card->subtitle(), QString("歌手：Alpha / Beta / Gamma"));
+            card->accept({{"songs", QJsonArray{song}}, {"description", "提供方推荐说明"}});
+            QCOMPARE(card->subtitle(), QString("提供方推荐说明"));
+            card->clear();
+            QVERIFY(card->subtitle().isEmpty());
+        }
+        auto metadata = next["metadata"].toObject();
+        metadata["recommendation"] = QJsonObject{{"headline", "新歌推荐理由"}};
+        next["metadata"] = metadata;
+        auto *newSongs = service.recommendationCards()->find("new");
+        newSongs->accept({{"songs", QJsonArray{next}}});
+        QCOMPARE(newSongs->subtitle(), QString("新歌推荐理由"));
+        QJsonArray prefix;
+        for (int i = 0; i < 6; ++i)
+            prefix.append(QJsonObject{});
+        prefix.append(song);
+        auto *privateSongs = service.recommendationCards()->find("3001");
+        privateSongs->accept({{"songs", prefix}});
+        QVERIFY(privateSongs->subtitle().isEmpty());
+        service.shutdown();
+        QSignalSpy drain(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(drain.size(), 1, 15000);
+        api.shutdown();
+    }
+    void recommendationDetailsFollowEachMoreButton()
+    {
+        if (QGuiApplication::platformName() != "offscreen")
+            QSKIP("Nonintrusive offscreen route regression");
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        AccountService account(api);
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        ThemeStore theme(prefs);
+        theme.setMotionEnabled(false);
+        ShellSettings settings(prefs);
+        settings.acceptUserAgreement();
+        RouteController router;
+        DiscoveryService service(api, playback, account);
+        service.setPreferences(&prefs);
+        DiscoveryRouteCoordinator routes(service, router, false);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QStringList warnings;
+        QObject observer;
+        connect(&engine, &QQmlEngine::warnings, &observer, [&](const auto &messages) {
+            for (const auto &message : messages)
+                warnings.append(message.toString());
+        });
+        QQmlComponent component(&engine);
+        component.setData(R"(import QtQuick
+import QtQuick.Controls.Basic
+import EchoMusic.Shell
+ApplicationWindow { id:host; required property RouteController router; required property ShellSettings settings; visible:true; width:1400; height:800
+ RouteHost { anchors.fill:parent; router:host.router; settings:host.settings }
+})",
+                          QUrl("qrc:/recommendation-detail-identity.qml"));
+        QScopedPointer<QObject> root(
+            component.createWithInitialProperties({{"router", QVariant::fromValue(&router)},
+                                                   {"settings", QVariant::fromValue(&settings)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window);
+        QVERIFY(router.navigate("home"));
+        DiscoveryServiceTestAccess::complete(
+            service, DiscoveryService::Daily,
+            QJsonObject{{"songs", QJsonArray{domainSong(1, "daily song")}}});
+        DiscoveryServiceTestAccess::complete(
+            service, DiscoveryService::Style,
+            QJsonObject{{"songs", QJsonArray{domainSong(2, "style song")}}});
+        service.recommendationCards()->find("3001")->accept(
+            {{"songs", QJsonArray{domainSong(3, "3001 song")}}});
+        service.recommendationCards()->find("new")->accept(
+            {{"songs", QJsonArray{domainSong(4, "new song")}}});
+        QSet<QString> identities;
+        for (const auto &key :
+             {QString("daily"), QString("style"), QString("3001"), QString("new")}) {
+            QQuickItem *panel = nullptr;
+            QTRY_VERIFY((panel = findVisual(window->contentItem(), "recommendationPanel-" + key)));
+            auto *more = findVisual(panel, "recommendationViewAll");
+            QVERIFY(more);
+            QTest::mouseClick(
+                window, Qt::LeftButton, Qt::NoModifier,
+                more->mapToScene(QPointF(more->width() / 2, more->height() / 2)).toPoint());
+            QTRY_COMPARE(router.current()->resourceId(), key);
+            identities.insert(router.current()->key());
+            QQuickItem *detail = nullptr;
+            QTRY_VERIFY((detail = findVisual(window->contentItem(), "freeListenPage")));
+            auto *expected = service.recommendationCards()->find(key);
+            QCOMPARE(service.actions(expected->collection()), expected->actions());
+            QTRY_COMPARE(detail->property("card").value<RecommendationCard *>(), expected);
+            QCOMPARE(detail->property("collection").value<SongCatalogModel *>(),
+                     expected->collection());
+            QCOMPARE(expected->collection()
+                         ->data(expected->collection()->index(0), SongCatalogModel::Title)
+                         .toString(),
+                     key + " song");
+            router.back();
+            QTRY_VERIFY(findVisual(window->contentItem(), "homePage"));
+        }
+        QCOMPARE(identities.size(), 4);
+        // A card that has never entered the viewport must request its own data.
+        QVERIFY(router.navigate("recommendation-detail", {}, "3004"));
+        service.setPage("recommendation-detail", router.current()->instanceId(), true);
+        auto *cold = service.recommendationCards()->find("3004");
+        QCOMPARE(cold->status(), int(DiscoveryService::Loading));
+        const auto request = DiscoveryServiceTestAccess::cardRequest(service, "3004");
+        QVERIFY(request);
+        api.cancel(request);
+        DiscoveryServiceTestAccess::completeCard(
+            service, request, {{"songs", QJsonArray{domainSong(5, "fresh card result")}}});
+        QQuickItem *detail = nullptr;
+        QTRY_VERIFY((detail = findVisual(window->contentItem(), "freeListenPage")));
+        QTRY_COMPARE(detail->property("card").value<RecommendationCard *>(), cold);
+        QCOMPARE(cold->status(), int(DiscoveryService::Ready));
+        QCOMPARE(cold->collection()
+                     ->data(cold->collection()->index(0), SongCatalogModel::Title)
+                     .toString(),
+                 "fresh card result");
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+        root.reset();
+        service.shutdown();
+        QSignalSpy drained(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE(drained.size(), 1);
+        api.shutdown();
+    }
+
     void homeScrollGeometryRemainsStable_data()
     {
         QTest::addColumn<bool>("dark");
@@ -918,360 +1762,364 @@ Window {
         QTest::newRow("dark-125") << true << 5 << 1150;
         QTest::newRow("narrow-light-100") << false << 0 << 780;
         QTest::newRow("narrow-dark-125") << true << 5 << 780;
+        QTest::newRow("wide-light-100") << false << 0 << 1400;
     }
+
+    void unchangedMetadataReadNotifiesColdPresentationDemand()
+    {
+        QTemporaryDir dir;
+        SessionDatabase cache(dir.filePath("session"));
+        SongCatalogModel model;
+        model.enableSessionStorage(cache);
+        model.replaceSongs({domainSong(1)});
+        QTRY_VERIFY(model.storageReady());
+        QCOMPARE(SongCatalogStorageTestAccess::statistics(model).entries, 0);
+        QSignalSpy changed(&model, &QAbstractItemModel::dataChanged);
+        SongCatalogStorageTestAccess::raceUnchangedMetadataWithViewRead(model);
+        QTRY_VERIFY(model.data(model.index(0), SongCatalogModel::PresentationReady).toBool());
+        QVERIFY(!changed.isEmpty());
+        QSignalSpy drained(&cache, &SessionDatabase::closed);
+        cache.shutdown();
+        QTRY_COMPARE(drained.size(), 1);
+    }
+
     void homeScrollGeometryRemainsStable()
     {
         QFETCH(bool, dark);
         QFETCH(int, zoomSteps);
         QFETCH(int, windowWidth);
         QTemporaryDir dir;
-        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
-        prefs.setValue("playback/volume", 0.);
+        SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         AccountService account(api);
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        SessionDatabase cache(dir.filePath("session"));
+        SongMetadataService metadata(api);
+        metadata.enableSqlIndex(cache);
+        playback.attachMetadata(metadata);
         ThemeStore theme(prefs);
-        ShellSettings shell(prefs);
-        shell.acceptUserAgreement(); // These scenarios start after first-run consent.
         theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
+        theme.setMotionEnabled(false);
+        theme.setFloatingFrosted(false);
+        ShellSettings settings(prefs);
+        settings.acceptUserAgreement();
         for (int i = 0; i < zoomSteps; ++i)
-            shell.zoomIn();
+            settings.zoomIn();
         RouteController router;
         DiscoveryService service(api, playback, account);
+        const QStringList stressCards{"daily", "style", "3001", "3004", "3005", "3006",
+                                      "3014",  "3101",  "3102", "3103", "new"};
+        prefs.setValue("discovery/cards", stressCards);
+        prefs.setValue("discovery/cardsDefaultsVersion", 1);
+        service.setPreferences(&prefs);
         DiscoveryRouteCoordinator routes(service, router, false);
         QQmlEngine engine;
         theme.attachToEngine(engine);
         engine.addImageProvider("home", new ArtistImageRequests);
         QStringList warnings;
-        connect(&engine, &QQmlEngine::warnings, this, [&](const auto &messages) {
-            for (const auto &message : messages)
-                warnings.append(message.toString());
+        QObject observer;
+        connect(&engine, &QQmlEngine::warnings, &observer, [&](const auto &messages) {
+            for (const auto &m : messages)
+                warnings.append(m.toString());
         });
         QQmlComponent component(&engine);
         component.setData(R"(
             import QtQuick
-            import QtQuick.Window
+            import QtQuick.Controls.Basic
             import EchoMusic.Shell
             import EchoMusic.Theme
-            Window {
-                id: testWindow
+            ApplicationWindow {
+                id: host
                 required property RouteController router
                 required property ShellSettings settings
                 required property int testWidth
-                visible: true; width: testWidth; height: 800
-                Rectangle { anchors.fill: parent; color: Theme.main }
-                Item {
-                    width: parent.width / testWindow.settings.uiScale
-                    height: parent.height / testWindow.settings.uiScale
-                    scale: testWindow.settings.uiScale; transformOrigin: Item.TopLeft
-                    RouteHost { anchors.fill: parent; router: testWindow.router; settings: testWindow.settings }
+                visible: true; width: testWidth; height: 800; color: Theme.main
+                Item { width: parent.width / host.settings.uiScale; height: parent.height / host.settings.uiScale; scale: host.settings.uiScale; transformOrigin: Item.TopLeft
+                    RouteHost { anchors.fill: parent; router: host.router; settings: host.settings }
                 }
             })",
-                          QUrl("qrc:/home-scroll-geometry-test.qml"));
+                          QUrl("qrc:/recommendation-ui-test.qml"));
         QScopedPointer<QObject> root(
             component.createWithInitialProperties({{"router", QVariant::fromValue(&router)},
-                                                   {"settings", QVariant::fromValue(&shell)},
+                                                   {"settings", QVariant::fromValue(&settings)},
                                                    {"testWidth", windowWidth}}));
         QVERIFY2(root, qPrintable(component.errorString()));
         auto *window = qobject_cast<QQuickWindow *>(root.data());
         QVERIFY(window);
-        if (QGuiApplication::platformName() != "offscreen")
-            QVERIFY(QTest::qWaitForWindowExposed(window));
+        QVERIFY(Test::prepareNativeInput(window));
         QVERIFY(router.navigate("home"));
-        QJsonArray songs, cards;
-        const QJsonArray groups{
+        QJsonArray songs;
+        QJsonArray compositionSongs;
+        const auto compositionSource = qEnvironmentVariable("ECHO_HOME_COMPOSITION_SOURCE");
+        if (!compositionSource.isEmpty()) {
+            QFile fixture(compositionSource);
+            QVERIFY(fixture.open(QIODevice::ReadOnly));
+            compositionSongs =
+                QJsonDocument::fromJson(fixture.readAll()).object()["songs"].toArray();
+            QVERIFY(compositionSongs.size() >= 6);
+        }
+        for (int i = 1; i <= 1000; ++i) {
+            auto song = domainSong(i, "这是一首用于核对歌名空间的中文长歌名");
+            if (i <= std::min(6, int(compositionSongs.size())))
+                song = compositionSongs[i - 1].toObject();
+            else
+                song["cover_url"] = QString("image://home/%1").arg(i);
+            songs.append(song);
+        }
+        DiscoveryServiceTestAccess::complete(service, DiscoveryService::Daily,
+                                             QJsonObject{{"songs", songs}, {"date", "20261124"}});
+        DiscoveryServiceTestAccess::complete(
+            service, DiscoveryService::Style,
             QJsonObject{
-                {"name", "场景"},
-                {"child", QJsonArray{QJsonObject{{"id", "S1"}, {"name", "学习"}, {"default", 1}},
-                                     QJsonObject{{"id", "S2"}, {"name", "工作"}}}}},
-            QJsonObject{{"name", "风格"}, {"child", QJsonArray{}}},
-            QJsonObject{{"name", "心情"}, {"child", QJsonArray{}}}};
-        for (int i = 1; i <= 60; ++i) {
-            const auto cover = QString("image://home/%1").arg(i);
-            if (i <= 18) {
-                auto song = domainSong(i);
-                song["cover_url"] = cover;
-                songs.append(song);
+                {"songs", songs},
+                {"groups",
+                 QJsonArray{QJsonObject{
+                     {"name", "风格"},
+                     {"child", QJsonArray{QJsonObject{{"id", "test-pop"}, {"name", "流行"}},
+                                          QJsonObject{{"id", "test-rock"}, {"name", "摇滚"}}}}}}}});
+        auto *card = service.recommendationCards()->find("3001");
+        card->accept({{"songs", songs}});
+        if (!compositionSource.isEmpty())
+            service.recommendationCards()->find("new")->accept({{"songs", songs}});
+        QTRY_VERIFY(findVisual(window->contentItem(), "recommendationCardsView"));
+        QPointer<QQuickItem> view = findVisual(window->contentItem(), "recommendationCardsView");
+        QTRY_VERIFY(findVisual(window->contentItem(), "recommendationPreview"));
+        auto *dailyInformation =
+            findVisual(window->contentItem(), "recommendationInformation-daily");
+        QVERIFY(dailyInformation);
+        QTRY_COMPARE(dailyInformation->property("text").toString(), QString("11月24日"));
+        QQuickItem *stylePreview = nullptr, *styleFilters = nullptr;
+        QTRY_VERIFY(
+            (stylePreview = findVisual(window->contentItem(), "styleRecommendationPreview")) &&
+            (styleFilters = findVisual(window->contentItem(), "styleRecommendationFilters")));
+        QTRY_VERIFY(stylePreview->height() >= 186);
+        QVERIFY(stylePreview->mapToScene(QPointF(0, 0)).y() >=
+                styleFilters->mapToScene(QPointF(0, styleFilters->height())).y());
+
+        const auto countVisual = [&](const QString &name) {
+            int count = 0;
+            QList<QQuickItem *> pending{window->contentItem()};
+            while (!pending.isEmpty()) {
+                auto *item = pending.takeLast();
+                pending.append(item->childItems());
+                if (item->objectName() == name)
+                    ++count;
             }
-            cards.append(QJsonObject{{"id", QString::number(i)},
-                                     {"title", "歌单 Playlist " + QString::number(i)},
-                                     {"cover_url", cover}});
+            return count;
+        };
+        QCOMPARE(view->property("spacing").toReal(), 32.);
+        auto *dailyPanel = findVisual(window->contentItem(), "recommendationPanel-daily");
+        auto *stylePanel = findVisual(window->contentItem(), "recommendationPanel-style");
+        QVERIFY(dailyPanel && stylePanel);
+        QCOMPARE(dailyPanel->x(), 32.);
+        QCOMPARE(dailyPanel->width(), view->width() - 64);
+        QCOMPARE(stylePanel->mapToItem(view, QPointF()).y() -
+                     dailyPanel->mapToItem(view, QPointF()).y() - dailyPanel->height(),
+                 32.);
+        QVERIFY(countVisual("homeSongCard") <= 40);
+        QVERIFY(countVisual("homeSongCard") > 0);
+        QTRY_COMPARE(previewPresentationError(window->contentItem()), QString());
+        auto *songRow = findVisual(window->contentItem(), "homeSongCard");
+        auto *songTitle = findVisual(songRow, "recommendationSongTitle");
+        auto *songTags = findVisual(songRow, "recommendationSongTag");
+        auto *songArtist = findVisual(songRow, "recommendationSongArtist");
+        auto *artwork = findVisual(songRow, "recommendationSongArtwork");
+        auto *info = findVisual(songRow, "recommendationSongInfo");
+        auto *favorite = findVisual(songRow, "recommendationSongFavorite");
+        QVERIFY(songTitle && songTags && songArtist);
+        QVERIFY(artwork && info);
+        QVERIFY(favorite);
+        QCOMPARE(favorite->size(), QSizeF(32, 32));
+        QCOMPARE(favorite->property("padding").toReal(), 5.);
+        QCOMPARE(artwork->height(), 54.);
+        QVERIFY(std::abs(artwork->mapToScene(QPointF(0, artwork->height() / 2)).y() -
+                         info->mapToScene(QPointF(0, info->height() / 2)).y()) < 1);
+        auto *nameBox = songTitle->property("textBox").value<QQuickItem *>();
+        // Short titles retain their natural width; long titles must still have
+        // enough room beside the inline badges.
+        QVERIFY(nameBox && (nameBox->width() >= 90 || !songTitle->property("truncated").toBool()));
+        QVERIFY(
+            songTags->mapToScene(QPointF(0, 0)).x() >=
+            songArtist->property("textBox").value<QQuickItem *>()->mapToScene(QPointF(0, 0)).x());
+        QVERIFY(std::abs(songTags->mapToScene(QPointF(0, songTags->height() / 2)).y() -
+                         songArtist->mapToScene(QPointF(0, songArtist->height() / 2)).y()) < 1);
+        // The style picker is created only when requested and supports multiple
+        // selections without recreating the popup after each choice.
+        QVERIFY(!findVisualOwnerObject(window->contentItem(), "styleRecommendationPicker"));
+        QTest::mouseClick(
+            window, Qt::LeftButton, Qt::NoModifier,
+            styleFilters->mapToScene(QPointF(styleFilters->width() / 2, styleFilters->height() / 2))
+                .toPoint());
+        QPointer<QObject> picker;
+        QTRY_VERIFY(
+            (picker = findVisualOwnerObject(window->contentItem(), "styleRecommendationPicker")));
+        QTRY_VERIFY(picker->property("opened").toBool());
+        for (const auto &id : {"test-pop", "test-rock"}) {
+            auto *option = findVisual(window->contentItem(), "option-" + QString::fromLatin1(id));
+            QVERIFY(option);
+            QTest::mouseClick(
+                window, Qt::LeftButton, Qt::NoModifier,
+                option->mapToScene(QPointF(option->width() / 2, option->height() / 2)).toPoint());
+            QTRY_VERIFY(service.selectedTags().contains(QString::fromLatin1(id)));
+            QVERIFY(picker && picker->property("opened").toBool());
         }
-        DiscoveryServiceTestAccess::complete(service, DiscoveryService::Style,
-                                             QJsonObject{{"songs", songs}, {"groups", groups}});
-        DiscoveryServiceTestAccess::complete(service, DiscoveryService::Playlists, cards);
-        DiscoveryServiceTestAccess::complete(service, DiscoveryService::Editors, cards);
-        QTRY_VERIFY(findVisual(window->contentItem(), "homeView"));
-        QPointer<QQuickItem> view = findVisual(window->contentItem(), "homeView");
-        QTest::qWait(150);
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_VERIFY(picker.isNull());
+        QVERIFY(Test::prepareNativeInput(window));
+        QList<qint64> presentLatencies;
+        for (int step = 1; step <= 20; ++step) {
+            Test::FrameSpy frame(window);
+            QElapsedTimer elapsed;
+            elapsed.start();
+            view->setProperty("contentY", -108. + step * 48);
+            window->update();
+            QVERIFY(frame.wait(1000));
+            presentLatencies.append(elapsed.nsecsElapsed() / 1000);
+            QVERIFY(countVisual("homeSongCard") <= 40);
+        }
+        std::sort(presentLatencies.begin(), presentLatencies.end());
+        qInfo() << "home scroll to presented frame us p50/p95/max" << presentLatencies[10]
+                << presentLatencies[18] << presentLatencies.last();
+        view->setProperty("contentY", -108.);
         const auto artifacts = qEnvironmentVariable("ECHO_HOME_SCROLL_ARTIFACTS");
+        if (!artifacts.isEmpty()) {
+            QDir().mkpath(artifacts);
+            window->grabWindow().save(artifacts + "/" +
+                                      QString::fromLatin1(QTest::currentDataTag()) + ".png");
+        }
+        // Config creates only on demand and destroys the complete Popup at close.
+        service.recommendationCards()->restoreDefaults();
+        if (!artifacts.isEmpty()) {
+            QTRY_COMPARE(view->property("count").toInt(), 4);
+            QTRY_COMPARE(previewPresentationError(window->contentItem()), QString());
+            window->grabWindow().save(artifacts + "/home-defaults-" +
+                                      QString::fromLatin1(QTest::currentDataTag()) + ".png");
+        }
+        QVERIFY(!findVisualOwnerObject(window->contentItem(), "recommendationConfigPopup"));
+        auto *add = findVisual(window->contentItem(), "recommendationAddCard");
+        QVERIFY(add);
+        QVERIFY(std::abs(add->mapToScene(QPointF(add->width(), 0)).x() -
+                         view->mapToScene(QPointF(view->width() - 32, 0)).x()) < 1);
+        Test::FrameSpy popupFrame(window);
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          add->mapToScene(QPointF(add->width() / 2, add->height() / 2)).toPoint());
+        QPointer<QObject> popup;
+        QTRY_VERIFY(
+            (popup = findVisualOwnerObject(window->contentItem(), "recommendationConfigPopup")));
+        QTRY_VERIFY(popup->property("opened").toBool());
+        QTRY_VERIFY(!findVisual(window->contentItem(), "recommendationPageScrollBar")->isVisible());
+        auto *configList = findVisual(window->contentItem(), "recommendationConfigList");
+        QVERIFY(configList);
+        QCOMPARE(countVisual("popupScrollBar"), 1);
+        auto *configIcon = findVisual(window->contentItem(), "recommendationConfigIcon-daily");
+        QVERIFY(configIcon);
+        QTRY_COMPARE(configIcon->property("status").toInt(), 1);
+        auto *remove = findVisual(window->contentItem(), "recommendationRemove-daily");
+        QVERIFY(remove);
+        auto *rowBody = remove->parentItem()->parentItem();
+        QVERIFY(rowBody->mapToScene(QPointF(rowBody->width(), 0)).x() -
+                    remove->mapToScene(QPointF(remove->width(), 0)).x() >=
+                11 * settings.uiScale());
+        auto *reorder = findVisual(window->contentItem(), "recommendationCardReorder");
+        QVERIFY(reorder);
+        QTRY_VERIFY(reorder->property("usable").toBool());
+        QTRY_VERIFY(!popupFrame.isEmpty());
         if (!artifacts.isEmpty())
-            QVERIFY(QDir().mkpath(artifacts));
-        const auto verifyReadySection = [&]() {
-            QQuickItem *section = nullptr, *grid = nullptr, *editors = nullptr;
-            QTRY_VERIFY((section = findVisual(window->contentItem(), "homePlaylistSection")) &&
-                        (grid = findVisual(window->contentItem(), "homePlaylistGrid")) &&
-                        (editors = findVisual(window->contentItem(), "homeEditorSection")));
-            QTRY_COMPARE(section->height(), grid->y() + grid->height());
-            QTRY_COMPARE(editors->y(), section->y() + section->height());
-        };
-        verifyReadySection();
-        auto *homeRoute = router.current();
-        QList<QPointer<QQuickItem>> oldLoaders;
-        for (const auto *name :
-             {"homeStyleEmptyLoader", "homePlaylistEmptyLoader", "homeEditorEmptyLoader"}) {
-            auto *loader = findVisual(window->contentItem(), name);
-            QVERIFY(loader);
-            oldLoaders.append(loader);
-        }
-        QVERIFY(router.navigate("ranking"));
-        QTRY_VERIFY(view.isNull());
-        for (const auto &loader : oldLoaders)
-            QTRY_VERIFY(loader.isNull());
-        router.back();
-        QCOMPARE(router.current(), homeRoute);
-        QTRY_VERIFY((view = findVisual(window->contentItem(), "homeView")));
-        verifyReadySection();
-        for (int count : {8, 2, 0, 5, 6, 10, 60}) {
-            QJsonArray sample;
-            for (int i = 0; i < count; ++i)
-                sample.append(cards[i]);
-            DiscoveryServiceTestAccess::complete(service, DiscoveryService::Playlists, sample);
-            QTest::qWait(40);
-            auto *section = findVisual(window->contentItem(), "homePlaylistSection");
-            auto *grid = findVisual(window->contentItem(), "homePlaylistGrid");
-            auto *editors = findVisual(window->contentItem(), "homeEditorSection");
-            qInfo() << "Home changed count" << count << "section" << section->height() << "grid"
-                    << grid->y() << grid->height() << grid->property("itemCount") << "editor"
-                    << editors->y();
-            if (count > 0)
-                verifyReadySection();
-            else {
-                auto *loader = findVisual(window->contentItem(), "homePlaylistEmptyLoader");
-                QVERIFY(loader && loader->property("active").toBool());
-                QVERIFY(loader->property("item").value<QObject *>());
-                QCOMPARE(section->height(), loader->y() + loader->height());
-            }
-            if (count == 5 && !artifacts.isEmpty()) {
-                view->setProperty("contentY",
-                                  grid->property("contentTop").toReal() + grid->height() - 180);
-                Test::FrameSpy frames(window);
-                window->update();
-                QTRY_VERIFY(!frames.isEmpty());
-                QVERIFY(window->grabWindow().save(artifacts + "/home-boundary-" +
-                                                  QString::fromLatin1(QTest::currentDataTag()) +
-                                                  ".png"));
-                view->setProperty("contentY", 0.);
-            }
-        }
-        const qreal initialHeight = view->property("contentHeight").toReal();
-        qreal minHeight = initialHeight, maxHeight = initialHeight;
-        int checkedCells = 0, maxCards = 0;
-        const auto verifyViewport = [&]() {
-            const qreal offset = view->property("contentY").toReal();
-            const qreal extent = view->property("contentHeight").toReal();
-            minHeight = std::min(minHeight, extent);
-            maxHeight = std::max(maxHeight, extent);
-            for (const auto *name : {"homeStyleGrid", "homePlaylistGrid", "homeEditorGrid"}) {
-                auto *section = findVisual(window->contentItem(), name);
-                QVERIFY(section);
-                const qreal top = section->property("contentTop").toReal();
-                const qreal firstY = std::max(0., offset - top);
-                const qreal lastY = std::min(section->height(), offset + view->height() - top);
-                if (lastY <= firstY)
-                    continue;
-                auto *grid = section->property("view").value<QQuickItem *>();
-                QVERIFY2(grid, name);
-                QVERIFY(grid->height() <= view->height());
-                QVERIFY(!grid->property("interactive").toBool());
-                QCOMPARE(grid->property("contentY").toReal(), grid->parentItem()->y());
-                const int columns = section->property("columns").toInt();
-                const qreal rowHeight = section->property("cellHeight").toReal();
-                const int count = section->property("itemCount").toInt();
-                auto *content = grid->property("contentItem").value<QQuickItem *>();
-                QVERIFY(content);
-                const int allocationBudget =
-                    (int(std::ceil(grid->height() / rowHeight)) + 6) * columns * 2;
-                QVERIFY(countVisual(grid, "contentDelegate") + countVisual(grid, "homeSongCard") <=
-                        allocationBudget);
-                // Check every intersecting native cell, including section edges.
-                for (int row = int(firstY / rowHeight); row < std::ceil(lastY / rowHeight); ++row)
-                    for (int col = 0; col < columns && row * columns + col < count; ++col) {
-                        const int index = row * columns + col;
-                        QQuickItem *cell = nullptr;
-                        QVERIFY(QMetaObject::invokeMethod(grid, "itemAtIndex",
-                                                          Q_RETURN_ARG(QQuickItem *, cell),
-                                                          Q_ARG(int, index)));
-                        QVERIFY2(cell, qPrintable(QString("%1: missing visible cell %2 at %3")
-                                                      .arg(name)
-                                                      .arg(index)
-                                                      .arg(offset)));
-                        QCOMPARE(cell->y(), row * rowHeight);
-                        auto *card = cell;
-                        if (card->objectName() == "contentDelegate")
-                            QCOMPARE(card->property("resourceId").toString(),
-                                     QString::number(index + 1));
-                        ++checkedCells;
-                    }
-            }
-            maxCards = std::max(maxCards, countVisual(window->contentItem(), "contentDelegate") +
-                                              countVisual(window->contentItem(), "homeSongCard"));
-        };
-        // Reproduce fast scrolling and scrollbar jumps independently of input.
-        const qreal lastOffset = initialHeight - view->height();
-        for (int step = 0; step < 110; ++step) {
-            view->setProperty("contentY", lastOffset * (step < 55 ? step : 109 - step) / 54.);
-            QTest::qWait(16);
-            verifyViewport();
-        }
-        for (qreal offset : {lastOffset, 0., lastOffset * .53, lastOffset * .19}) {
-            view->setProperty("contentY", offset);
-            QTest::qWait(20);
-            verifyViewport();
-            if (!artifacts.isEmpty())
-                QVERIFY(window->grabWindow().save(
-                    artifacts + QString("/%1-%2.png")
-                                    .arg(QString::fromLatin1(QTest::currentDataTag()))
-                                    .arg(qRound(offset))));
-        }
-        // Native pixel-delta phases exercise the real Flickable input timeline.
-        ulong timestamp = 10000;
-        const auto wheel = [&](QPoint pixel, Qt::ScrollPhase phase) {
-            const auto point = view->mapToScene(QPointF(view->width() / 2, view->height() / 2));
-            QWheelEvent event(point, window->mapToGlobal(point.toPoint()), pixel,
-                              pixel.isNull() ? QPoint{} : pixel * 2, Qt::NoButton, Qt::NoModifier,
-                              phase, false, Qt::MouseEventSynthesizedBySystem);
-            event.setTimestamp(timestamp += 16);
-            QCoreApplication::sendEvent(window, &event);
-        };
-        view->setProperty("contentY", 1000.);
-        QTest::qWait(20);
-        const qreal beforeWheel = view->property("contentY").toReal();
-        QSignalSpy movement(view, SIGNAL(movementStarted()));
-        wheel({}, Qt::ScrollBegin);
-        for (int step = 0; step < 45; ++step) {
-            wheel(QPoint(0, -75), Qt::ScrollUpdate);
-            QTest::qWait(16);
-            verifyViewport();
-        }
-        wheel({}, Qt::ScrollEnd);
-        QVERIFY(movement.count() > 0);
-        QVERIFY(view->property("contentY").toReal() > beforeWheel + 2000);
-        QMetaObject::invokeMethod(view, "cancelFlick");
-        view->setProperty("contentY", 1000.);
-        const auto mousePoint = view->mapToScene(QPointF(view->width() / 2, view->height() / 2));
-        QWheelEvent mouseWheel(mousePoint, window->mapToGlobal(mousePoint.toPoint()), {},
-                               QPoint(0, -120), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase,
-                               false);
-        mouseWheel.setTimestamp(timestamp += 20);
-        QCoreApplication::sendEvent(window, &mouseWheel);
-        QTRY_VERIFY(view->property("contentY").toReal() > 1000.);
-        verifyViewport();
-        qInfo() << "Home geometry extent" << minHeight << maxHeight << "checked visible cells"
-                << checkedCells << "maximum cards" << maxCards;
-        QVERIFY2(maxHeight - minHeight < 1,
-                 "Scrolling changed the height of unchanged home content");
-        QVERIFY(maxCards < 160);
-        // Isolate late data completion from the preceding wheel gesture.
-        // cancelFlick alone does not wait for the shared wheel animation.
-        QMetaObject::invokeMethod(view, "cancelFlick");
-        const QQmlProperty wheelRunning(view, "EchoWheelScroll.running", qmlContext(view));
-        QVERIFY(wheelRunning.isValid());
-        QTRY_VERIFY(!wheelRunning.read().toBool());
-        QTRY_VERIFY(!view->property("moving").toBool());
-        view->setProperty("contentY", 1500.);
+            window->grabWindow().save(artifacts + "/config-top-" +
+                                      QString::fromLatin1(QTest::currentDataTag()) + ".png");
+        const auto startY = configList->property("contentY").toReal();
+        configList->setProperty("contentY", configList->property("originY").toReal() +
+                                                configList->property("contentHeight").toReal() -
+                                                configList->height());
+        auto *candidate = findVisual(window->contentItem(), "recommendationAdd-3107");
+        QVERIFY(candidate);
+        const auto beforeAdd = service.recommendationCards()->count();
+        QTest::mouseClick(
+            window, Qt::LeftButton, Qt::NoModifier,
+            candidate->mapToScene(QPointF(candidate->width() / 2, candidate->height() / 2))
+                .toPoint());
+        QTRY_COMPARE(service.recommendationCards()->count(), beforeAdd + 1);
+        service.recommendationCards()->toggle("3107");
+        QCOMPARE(service.recommendationCards()->count(), beforeAdd);
+        if (!artifacts.isEmpty())
+            window->grabWindow().save(artifacts + "/config-" +
+                                      QString::fromLatin1(QTest::currentDataTag()) + ".png");
+        configList->setProperty("contentY", startY);
+        const auto firstKey = service.recommendationCards()->at(0)->key();
+        const auto secondKey = service.recommendationCards()->at(1)->key();
+        QQuickItem *firstRow = nullptr;
+        // Find index zero rather than assuming a viewport without a header.
+        QTRY_VERIFY(QMetaObject::invokeMethod(configList, "itemAtIndex",
+                                              Q_RETURN_ARG(QQuickItem *, firstRow),
+                                              Q_ARG(int, 0)) &&
+                    firstRow);
+        const auto press = firstRow->mapToScene(QPointF(16, 26)).toPoint();
+        const auto release = press + QPoint(0, qRound(58 * settings.uiScale()));
+        QTest::mouseMove(window, press);
+        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, press);
+        QTest::mouseMove(window, press + QPoint(0, 16), 30);
+        QTRY_COMPARE(reorder->property("phase").toString(), "dragging");
+        QTest::mouseMove(window, release, 50);
+        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, release);
+        QTRY_COMPARE(service.recommendationCards()->at(0)->key(), secondKey);
+        QCOMPARE(service.recommendationCards()->at(1)->key(), firstKey);
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_VERIFY(popup.isNull());
+        QTRY_VERIFY(findVisual(window->contentItem(), "recommendationPageScrollBar")->isVisible());
+        for (const auto &key : stressCards)
+            if (!service.recommendationCards()->contains(key))
+                service.recommendationCards()->toggle(key);
+        QTRY_COMPARE(view->property("count").toInt(), stressCards.size());
+        QTRY_VERIFY(view->property("contentHeight").toReal() > view->height());
+        const qreal target = 700;
+        auto *pageViewport = findVisual(window->contentItem(), "recommendationViewport");
+        QVERIFY(pageViewport);
+        QVERIFY(QMetaObject::invokeMethod(pageViewport, "scrollTo", Q_ARG(double, target + 108)));
         QTest::qWait(30);
-        const auto position = view->property("contentY").toReal();
-        auto updatedCards = cards;
-        updatedCards.append(QJsonObject{{"id", "61"}, {"title", "晚到的歌单"}});
-        DiscoveryServiceTestAccess::complete(service, DiscoveryService::Editors, updatedCards);
-        QTest::qWait(50);
-        QCOMPARE(view->property("contentY").toReal(), position);
-        QJsonArray large;
-        for (int i = 1; i <= 10000; ++i)
-            large.append(domainSong(i));
-        service.styleSongs()->replaceSongs(large);
-        view->setProperty("contentY", 0.);
-        QTest::qWait(50);
-        minHeight = maxHeight = view->property("contentHeight").toReal();
-        const auto largeEnd = maxHeight - view->height();
-        for (qreal offset : {largeEnd * .1, largeEnd * .9, largeEnd, 0.}) {
-            view->setProperty("contentY", offset);
-            QTest::qWait(25);
-            verifyViewport();
+        QVERIFY(view->property("contentY").toReal() - view->property("originY").toReal() > 0);
+        auto *savedPanel = findVisual(window->contentItem(), "recommendationPanel-3001");
+        QVERIFY(savedPanel);
+        const auto savedPanelY = savedPanel->mapToScene(QPointF()).y();
+        auto *source = card->collection();
+        QVERIFY(SongCatalogStorageTestAccess::hasStore(*source));
+        const auto hot = SongCatalogStorageTestAccess::statistics(*source);
+        QVERIFY(hot.entries <= 256);
+        QVERIFY(hot.cost <= 4 * 1024 * 1024);
+        QVERIFY(router.navigate("recommendation-detail", {}, "3001"));
+        QTRY_VERIFY(view.isNull());
+        QCOMPARE(service.detailCard()->collection(), source);
+        QCOMPARE(source->totalCount(), 1000);
+        router.back();
+        QTRY_VERIFY((view = findVisual(window->contentItem(), "recommendationCardsView")));
+        QQuickItem *restoredPanel = nullptr;
+        QTRY_VERIFY(
+            (restoredPanel = findVisual(window->contentItem(), "recommendationPanel-3001")));
+        QTRY_VERIFY(std::abs(restoredPanel->mapToScene(QPointF()).y() - savedPanelY) < 1);
+        QCOMPARE(card->collection(), source);
+        QCOMPARE(source->totalCount(), 1000);
+        QVERIFY(countVisual("homeSongCard") <= 40);
+        for (int round = 0; round < 3; ++round) {
+            QPointer<QQuickItem> old = view;
+            QVERIFY(router.navigate("recommendation-detail", {}, "3001"));
+            QTRY_VERIFY(old.isNull());
+            router.back();
+            QTRY_VERIFY((view = findVisual(window->contentItem(), "recommendationCardsView")));
         }
-        QCOMPARE(minHeight, maxHeight);
-        qInfo() << "Home10000 maximum cards" << maxCards;
-        QVERIFY(maxCards < 160);
-        // Each region must preserve loading/error/retry even with stale data.
-        quint64 request = 80000;
-        for (auto part :
-             {DiscoveryService::Style, DiscoveryService::Playlists, DiscoveryService::Editors}) {
-            const auto *name = part == DiscoveryService::Style       ? "homeStyleGrid"
-                               : part == DiscoveryService::Playlists ? "homePlaylistGrid"
-                                                                     : "homeEditorGrid";
-            auto *section = findVisual(window->contentItem(), name);
-            QVERIFY(section);
-            view->setProperty(
-                "contentY",
-                std::min(section->property("contentTop").toReal(),
-                         std::max(0., view->property("contentHeight").toReal() - view->height())));
-            QTest::qWait(25);
-            DiscoveryServiceTestAccess::pending(service, part, ++request, true);
-            QTest::qWait(25);
-            DiscoveryServiceTestAccess::complete(
-                service, part,
-                part == DiscoveryService::Style
-                    ? QJsonValue(QJsonObject{{"songs", songs}, {"groups", groups}})
-                    : QJsonValue(cards),
-                request);
-            QTest::qWait(25);
-            // Several filter/response transitions can land before the next
-            // frame. Only the final model/delegate pair may materialize.
-            for (int burst = 0; burst < 3; ++burst) {
-                DiscoveryServiceTestAccess::pending(service, part, ++request, true);
-                DiscoveryServiceTestAccess::complete(
-                    service, part,
-                    part == DiscoveryService::Style
-                        ? QJsonValue(QJsonObject{{"songs", songs}, {"groups", groups}})
-                        : QJsonValue(cards),
-                    request);
-            }
-            QTest::qWait(25);
-            DiscoveryServiceTestAccess::fail(service, part, ++request);
-            QTRY_VERIFY(!section->isVisible());
-            QTRY_VERIFY(!section->property("view").value<QQuickItem *>());
-            DiscoveryServiceTestAccess::pending(service, part, ++request, true);
-            QTRY_VERIFY(section->isVisible());
-            QTest::qWait(20);
-            const auto target =
-                std::min(section->property("contentTop").toReal(),
-                         std::max(0., view->property("contentHeight").toReal() - view->height()));
-            view->setProperty("contentY", target);
-            QTRY_VERIFY(section->property("view").value<QQuickItem *>());
-            auto *grid = section->property("view").value<QQuickItem *>();
-            QTRY_COMPARE(grid->property("count").toInt(), section->property("columns").toInt() * 2);
-            DiscoveryServiceTestAccess::complete(
-                service, part,
-                part == DiscoveryService::Style
-                    ? QJsonValue(QJsonObject{{"songs", songs}, {"groups", groups}})
-                    : QJsonValue(cards),
-                request);
-            QTRY_COMPARE(section->property("itemCount").toInt(),
-                         part == DiscoveryService::Style ? 18 : 60);
-            QTest::qWait(20);
-        }
-        QVERIFY(router.navigate("ranking"));
-        QTRY_COMPARE(countVisual(window->contentItem(), "homeSongCard"), 0);
-        QTRY_COMPARE(countVisual(window->contentItem(), "contentDelegate"), 0);
         QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
-        service.shutdown();
         root.reset();
+        service.shutdown();
         QSignalSpy drained(&playback, &PlaybackService::closed);
         playback.shutdown();
         QTRY_COMPARE_WITH_TIMEOUT(drained.size(), 1, 15000);
+        QSignalSpy metadataDrained(&metadata, &SongMetadataService::closed);
+        metadata.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(metadataDrained.size(), 1, 15000);
+        QSignalSpy cacheDrained(&cache, &SessionDatabase::closed);
+        cache.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(cacheDrained.size(), 1, 15000);
         api.shutdown();
     }
+
     void artistDirectorySlicesRetainIdentityWithoutDuplicatingTheCatalog()
     {
         auto source = std::make_unique<SongCatalogModel>();
@@ -2149,7 +2997,9 @@ Window {
             QVERIFY(db.open());
             QSqlQuery query(db);
             for (const auto *sql :
-                 {"ALTER TABLE playback_tracks DROP COLUMN payload_key",
+                 {"DROP INDEX playback_queue_payload_ref",
+                  "DROP INDEX playback_history_payload_ref",
+                  "ALTER TABLE playback_tracks DROP COLUMN payload_key",
                   "ALTER TABLE playback_history DROP COLUMN payload_key",
                   "DROP TABLE playback_song_payloads", "DROP TABLE playback_history_payloads",
                   "ALTER TABLE playback_tracks DROP COLUMN catalog_metadata",
@@ -2239,337 +3089,232 @@ Window {
         QTRY_COMPARE_WITH_TIMEOUT(drained.size(), 1, 15000);
         api.shutdown();
     }
+
     void exploreProjectionsTabIdentityAndRetiredRequests()
     {
         QTemporaryDir dir;
-        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
-        prefs.setValue("playback/volume", 0.);
+        SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
+        AccountService account(api);
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         RouteController router;
         ExploreService service(api, playback, router, false);
+        DiscoveryService discovery(api, playback, account);
+        service.setDiscovery(&discovery);
         service.registerRoutes(router);
         QVERIFY(router.navigate("explore"));
-        const auto instance = router.current()->instanceId();
+        QCOMPARE(service.tab(), 0);
         ExploreServiceTestAccess::complete(
-            service, ExploreService::Categories,
-            QJsonArray{QJsonObject{
-                {"id", "1"},
-                {"name", "场景"},
-                {"children", QJsonArray{QJsonObject{{"id", "587"}, {"name", "学习"}}}}}});
-        QCOMPARE(service.category(), QString("587"));
-        QCOMPARE(service.categoryLabel(), QString("场景 - 学习"));
-        ExploreServiceTestAccess::pending(service, ExploreService::Playlists, 711);
-        service.selectTab(2);
-        QCOMPARE(router.current()->instanceId(), instance);
-        QCOMPARE(service.tab(), 2);
-        ExploreServiceTestAccess::retired(service, 711, {{"id", "stale"}});
-        QCOMPARE(service.cards()->count(), 0);
+            service, ExploreService::Playlists,
+            QJsonArray{QJsonObject{{"id", "P"}, {"title", "Playlist"}}});
         ExploreServiceTestAccess::complete(
             service, ExploreService::Albums,
             QJsonObject{
                 {"regions",
-                 QJsonObject{{"chn", QJsonArray{QJsonObject{{"id", "12"},
-                                                            {"title", "中文 Album"},
-                                                            {"creator", "Artist"},
-                                                            {"published_at", "2026-10-16"},
-                                                            {"song_count", 10}}}},
-                             {"eur", QJsonArray{QJsonObject{{"id", "13"}, {"title", "Other"}}}}}}});
-        QCOMPARE(service.cards()->count(), 2);
-        QCOMPARE(service.cards()->item(0)["extraText"].toString(), QString("Artist • 2026-10-16"));
-        service.selectRegion("eur");
+                 QJsonObject{{"chn", QJsonArray{QJsonObject{{"id", "A"}, {"title", "Album"}}}}}}});
         QCOMPARE(service.cards()->count(), 1);
-        service.selectTab(4);
+        QCOMPARE(service.cards()->item(0)["resourceId"].toString(), "P");
+        QCOMPARE(service.albums()->count(), 1);
+        ExploreServiceTestAccess::pending(service, ExploreService::Playlists, 711);
+        QVERIFY(router.navigate("artist-recommendations"));
+        QCOMPARE(service.tab(), 4);
+        ExploreServiceTestAccess::retired(service, 711, {{"id", "stale"}});
         ExploreServiceTestAccess::complete(
             service, ExploreService::Artists,
             QJsonObject{
                 {"groups",
-                 QJsonArray{
-                     QJsonObject{{"label", "热门"},
-                                 {"artists", QJsonArray{QJsonObject{
-                                                 {"id", "20"},
-                                                 {"title", "歌手"},
-                                                 {"metadata", QJsonObject{{"song_count", 3},
-                                                                          {"album_count", 2}}}}}}},
-                     QJsonObject{
-                         {"label", "A"},
-                         {"artists", QJsonArray{QJsonObject{
-                                         {"id", "21"},
-                                         {"title", "Artist"},
-                                         {"metadata", QJsonObject{{"fans_count", 15000}}}}}}}}},
-                {"sex_filters", QJsonArray{QJsonObject{{"id", "0"}, {"label", "全部"}}}},
-                {"type_filters", QJsonArray{QJsonObject{{"id", "0:0"}, {"label", "全部"}}}}});
-        QCOMPARE(service.artistLetter(), QString("热门"));
+                 QJsonArray{QJsonObject{
+                     {"label", "热门"},
+                     {"artists", QJsonArray{QJsonObject{{"id", "20"}, {"title", "Artist"}}}}}}}});
         QCOMPARE(service.cards()->count(), 1);
-        QCOMPARE(service.cards()->item(0)["extraText"].toString(), QString("3 歌曲 • 2 专辑"));
-        service.selectLetter("A");
-        QCOMPARE(service.cards()->item(0)["extraText"].toString(), QString("1.5万 粉丝"));
-        service.selectLetter("全部");
-        QCOMPARE(service.cards()->count(), 2);
-        service.selectTab(3);
-        ExploreServiceTestAccess::complete(service, ExploreService::NewSongs,
-                                           QJsonObject{{"songs", QJsonArray{domainSong(51)}}});
-        QCOMPARE(service.newSongs()->count(), 1);
-        ExploreServiceTestAccess::pending(service, ExploreService::NewSongs, 712);
+        QCOMPARE(service.cards()->item(0)["resourceId"].toString(), "20");
+        router.back();
+        QCOMPARE(service.tab(), 0);
+        QCOMPARE(service.cards()->item(0)["resourceId"].toString(), "P");
         api.advanceSession();
-        ExploreServiceTestAccess::retired(service, 712, {{"songs", QJsonArray{domainSong(99)}}});
-        QCOMPARE(service.newSongs()->count(), 0);
         QCOMPARE(service.cards()->count(), 0);
+        QCOMPARE(service.albums()->count(), 0);
         service.shutdown();
-        QSignalSpy drained(&playback, &PlaybackService::closed);
+        discovery.shutdown();
+        QSignalSpy drain(&playback, &PlaybackService::closed);
         playback.shutdown();
-        QTRY_COMPARE_WITH_TIMEOUT(drained.size(), 1, 15000);
+        QTRY_COMPARE_WITH_TIMEOUT(drain.size(), 1, 15000);
         api.shutdown();
     }
+
+    void playlistGridStartsAtRestoredViewport()
+    {
+        if (QGuiApplication::platformName() != "offscreen")
+            QSKIP("Nonintrusive restored grid regression");
+        QTemporaryDir dir;
+        SettingsStore preferences(dir.filePath("prefs.ini"));
+        ThemeStore theme(preferences);
+        theme.setMotionEnabled(false);
+        SongCatalogModel cards;
+        QJsonArray entries;
+        for (int i = 0; i < 1000; ++i)
+            entries.append(QJsonObject{{"id", QString::number(i + 1)},
+                                       {"title", QString("Playlist %1").arg(i)},
+                                       {"cover_url", QString("image://home/item-%1").arg(i)}});
+        cards.replaceCards(entries);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        auto *images = new ArtistImageRequests;
+        engine.addImageProvider("home", images);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Controls
+import EchoMusic.Music
+Window {
+ id: host; visible: true; width: 1200; height: 700
+ required property SongCatalogModel source
+ property int creations: 0
+ property bool resources: true
+ property alias regionView: region.view
+ Flickable {
+  id: outer; objectName: "restoredGridScroll"; anchors.fill: parent; contentWidth: width; contentHeight: region.height
+  contentY: 12000
+  EchoVirtualGridSection {
+   id: region; anchors.left: parent.left; anchors.right: parent.right
+   model: host.source; itemCount: host.source.count; columns: 6; cellHeight: 240
+   scrollView: outer; contentTop: 0; resourceActive: host.resources
+   delegate: ContentCard {
+    width: region.cellWidth - 20; height: 220; durationText: ""
+    Component.onCompleted: host.creations++
+   }
+  }
+ }
+})",
+                          QUrl("qrc:/restored-playlist-grid.qml"));
+        QScopedPointer<QObject> root(
+            component.createWithInitialProperties({{"source", QVariant::fromValue(&cards)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        QTRY_VERIFY(images->requested().contains("item-300"));
+        int minimum = 1000;
+        for (const auto &name : images->requested())
+            minimum = std::min(minimum, name.mid(5).toInt());
+        qInfo() << "restored playlist grid first requested row" << minimum << "creations"
+                << root->property("creations").toInt() << "requested images"
+                << images->requested().size();
+        QVERIFY2(minimum >= 280, "Restored viewport must not decode the catalog beginning");
+        QVERIFY(root->property("creations").toInt() <= 90);
+        QPointer<QObject> previous = root->property("regionView").value<QObject *>();
+        QVERIFY(previous);
+        root->setProperty("resources", false);
+        QTRY_VERIFY(previous.isNull());
+        root->setProperty("resources", true);
+        QTRY_VERIFY(root->property("regionView").value<QObject *>());
+        auto *scroll = findVisual(qobject_cast<QQuickWindow *>(root.data())->contentItem(),
+                                  "restoredGridScroll");
+        QVERIFY(scroll);
+        scroll->setProperty("contentY", 0);
+        QTRY_VERIFY(images->requested().contains("item-0"));
+        scroll->setProperty("contentY", 24000);
+        QTRY_VERIFY(images->requested().contains("item-600"));
+        qInfo() << "playlist grid restore/top/deep creations"
+                << root->property("creations").toInt();
+        QVERIFY(root->property("creations").toInt() < 220);
+    }
+
     void exploreSpacingAndScrollingHeadersStayBelowPinnedContent()
     {
         QTemporaryDir dir;
-        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
-        prefs.setValue("playback/volume", 0.);
+        SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
+        AccountService account(api);
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
         ThemeStore theme(prefs);
         theme.setMotionEnabled(false);
-        ShellSettings shell(prefs);
-        shell.acceptUserAgreement(); // These scenarios start after first-run consent.
+        ShellSettings settings(prefs);
+        settings.acceptUserAgreement();
         RouteController router;
+        DiscoveryService discovery(api, playback, account);
+        DiscoveryRouteCoordinator routes(discovery, router, false);
         ExploreService service(api, playback, router, false);
+        service.setDiscovery(&discovery);
         service.registerRoutes(router);
         QQmlEngine engine;
         theme.attachToEngine(engine);
-        QStringList errors;
-        connect(&engine, &QQmlEngine::warnings, this, [&](const auto &warnings) {
-            for (const auto &warning : warnings)
-                errors.append(warning.toString());
-        });
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
         QQmlComponent component(&engine);
-        component.setData(R"(
-            import QtQuick
-            import QtQuick.Window
-            import EchoMusic.Shell
-            import EchoMusic.Theme
-            Window {
-                id: testWindow
-                required property RouteController router
-                required property ShellSettings settings
-                visible: true; width: 1150; height: 800
-                Rectangle { anchors.fill: parent; color: Theme.main }
-                Item {
-                    width: parent.width / testWindow.settings.uiScale
-                    height: parent.height / testWindow.settings.uiScale
-                    scale: testWindow.settings.uiScale; transformOrigin: Item.TopLeft
-                    RouteHost { anchors.fill: parent; router: testWindow.router; settings: testWindow.settings }
-                }
-            })",
-                          QUrl("qrc:/explore-spacing-clip-test.qml"));
-        QScopedPointer<QObject> root(component.createWithInitialProperties(
-            {{"router", QVariant::fromValue(&router)}, {"settings", QVariant::fromValue(&shell)}}));
+        component.setData(R"(import QtQuick
+import EchoMusic.Shell
+import EchoMusic.Theme
+Window {id:host;required property RouteController router;required property ShellSettings settings;visible:true;width:1150;height:800;Rectangle{anchors.fill:parent;color:Theme.main}RouteHost{anchors.fill:parent;router:host.router;settings:host.settings}})",
+                          QUrl("qrc:/playlist-square-test.qml"));
+        QScopedPointer<QObject> root(
+            component.createWithInitialProperties({{"router", QVariant::fromValue(&router)},
+                                                   {"settings", QVariant::fromValue(&settings)}}));
         QVERIFY2(root, qPrintable(component.errorString()));
         auto *window = qobject_cast<QQuickWindow *>(root.data());
         QVERIFY(window);
         QVERIFY(router.navigate("explore"));
-        QJsonArray cards, songs;
-        for (int i = 1; i <= 1000; ++i) {
-            cards.append(QJsonObject{{"id", QString::number(i)},
-                                     {"title", "卡片 Card " + QString::number(i)},
-                                     {"cover_url", ""},
-                                     {"creator", "Artist 歌手"}});
-            songs.append(domainSong(i));
-        }
-        // Typed domain presentation inputs; no invented upstream wire sample.
-        ExploreServiceTestAccess::complete(
-            service, ExploreService::Categories,
-            QJsonArray{QJsonObject{
-                {"id", "1"},
-                {"name", "分类"},
-                {"children", QJsonArray{QJsonObject{{"id", "587"}, {"name", "学习"}}}}}});
+        QJsonArray cards;
+        for (int i = 0; i < 60; ++i)
+            cards.append(QJsonObject{{"id", QString::number(i + 1)}, {"title", "Playlist"}});
+        DiscoveryServiceTestAccess::complete(discovery, DiscoveryService::Playlists, cards);
+        DiscoveryServiceTestAccess::complete(discovery, DiscoveryService::Editors, cards);
         ExploreServiceTestAccess::complete(service, ExploreService::Playlists, cards);
         ExploreServiceTestAccess::complete(service, ExploreService::Albums,
                                            QJsonObject{{"regions", QJsonObject{{"chn", cards}}}});
         ExploreServiceTestAccess::complete(
-            service, ExploreService::Artists,
-            QJsonObject{
-                {"groups", QJsonArray{QJsonObject{{"label", "热门"}, {"artists", cards}}}},
-                {"sex_filters", QJsonArray{QJsonObject{{"id", "0"}, {"label", "全部"}}}},
-                {"type_filters", QJsonArray{QJsonObject{{"id", "0:0"}, {"label", "全部"}}}}});
-        ExploreServiceTestAccess::complete(
-            service, ExploreService::RankCatalog,
-            QJsonArray{QJsonObject{{"id", 8888}, {"title", "TOP500"}}});
-        ExploreServiceTestAccess::complete(service, ExploreService::RankSongs,
-                                           QJsonObject{{"songs", songs}});
-        ExploreServiceTestAccess::complete(service, ExploreService::NewSongs,
-                                           QJsonObject{{"songs", songs}});
-        const auto artifacts = qEnvironmentVariable("ECHO_EXPLORE_ARTIFACTS");
-        if (!artifacts.isEmpty())
-            QVERIFY(QDir().mkpath(artifacts));
-        QTRY_VERIFY(findVisual(window->contentItem(), "explorePage"));
-        auto *page = findVisual(window->contentItem(), "explorePage");
-        QStringList emptyStateLeaks;
-        for (bool dark : {false, true})
-            for (double scale : {1., 1.25}) {
-                theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
-                shell.resetZoom();
-                if (scale > 1.)
-                    for (int i = 0; i < 5; ++i)
-                        shell.zoomIn();
-                for (int tab = 0; tab < 5; ++tab) {
-                    service.selectTab(tab);
-                    QTest::qWait(80);
-                    const bool song = tab == 1 || tab == 3;
-                    auto *scope = song ? findVisual(page, "songCatalogView")
-                                       : findVisual(page, "exploreCardsViewport");
-                    QVERIFY(scope);
-                    auto *view = findVisual(scope, song       ? "discoverySongs"
-                                                   : tab == 4 ? "exploreArtistDirectory"
-                                                              : "exploreCards");
-                    QVERIFY(view);
-                    const auto *empty =
-                        findVisual(view, song ? "songCatalogEmptyState" : "exploreEmptyState");
-                    if (empty && empty->isVisible())
-                        emptyStateLeaks.append(
-                            QString("tab %1: populated footer visible at height %2")
-                                .arg(tab)
-                                .arg(empty->height()));
-                    view->setProperty("contentY", view->property("originY").toReal() -
-                                                      view->property("topMargin").toReal());
-                    QTest::qWait(30);
-                    auto *filterScope = song ? scope : findVisual(scope, "exploreCardFilters");
-                    QVERIFY(filterScope);
-                    auto *filters = findVisual(filterScope, "exploreFilterRow");
-                    auto *control = findVisual(filterScope, song       ? "explorePlayAll"
-                                                            : tab == 4 ? "exploreSexSelector"
-                                                                       : "exploreCategorySelector");
-                    QVERIFY(filters && control && control->isVisible());
-                    const auto controlBox =
-                        control->mapRectToItem(filters, control->boundingRect());
-                    QCOMPARE(filters->height(), 60.);
-                    QCOMPARE(control->height(), 36.);
-                    QVERIFY(qAbs(controlBox.top() - 12) < .01);
-                    QVERIFY(qAbs(filters->height() - controlBox.bottom() - 12) < .01);
-                    auto *navigationScope = song ? scope : findVisual(scope, "exploreCardsHeader");
-                    QVERIFY(navigationScope);
-                    auto *tabs = findVisual(navigationScope, "exploreNavigationTabs");
-                    QVERIFY(tabs);
-                    const auto tabGap = control->mapToItem(page, QPointF{}).y() -
-                                        tabs->mapToItem(page, QPointF(0, tabs->height())).y();
-                    QVERIFY2(qAbs(tabGap - 12) < .01, qPrintable(QString::number(tabGap)));
-                    if (song) {
-                        auto *search = findVisual(scope, "discoverySongFilter");
-                        auto *row = findVisual(scope, "songCatalogToolbarRow");
-                        QVERIFY(search && row);
-                        QCOMPARE(row->height(), 46.);
-                        const auto gap =
-                            search->mapToItem(page, QPointF{}).y() -
-                            control->mapToItem(page, QPointF(0, control->height())).y();
-                        QVERIFY2(qAbs(gap - 12) < .01, qPrintable(QString::number(gap)));
-                    } else {
-                        auto *header = findVisual(scope, "exploreCardsHeader");
-                        auto *flowHeader = findVisual(scope, "exploreCardFilters");
-                        QVERIFY(header && flowHeader);
-                        if (tab == 4) {
-                            auto *letters = findVisual(view, "exploreArtistLetters");
-                            QVERIFY(letters && letters->isVisible());
-                            const auto gap =
-                                letters->mapToItem(page, QPointF{}).y() -
-                                control->mapToItem(page, QPointF(0, control->height())).y();
-                            QVERIFY(qAbs(gap - 12) < .01);
-                        }
-                        for (int offset : {16, 48, 96, 128, 240, 900}) {
-                            QVERIFY(QMetaObject::invokeMethod(scope, "scrollTo",
-                                                              Q_ARG(double, double(offset))));
-                            QTest::qWait(30);
-                            const auto frame = window->grabWindow();
-                            QVERIFY(!frame.isNull());
-                            auto *flowClip = findVisual(scope, "pageFlowHeaderClip");
-                            QVERIFY(flowClip && flowClip->clip());
-                            QCOMPARE(flowClip->y(), 96.);
-                            if (QGuiApplication::platformName() != "offscreen") {
-                                // Compare actual native/RHI pixels, keeping
-                                // inline-header origin and extent unchanged.
-                                // Offscreen software's fractional tab edge
-                                // changes when sibling paint is suppressed;
-                                // its geometry checks are not pixel acceptance.
-                                flowHeader->setOpacity(0);
-                                view->setOpacity(0);
-                                QTest::qWait(20);
-                                const auto clean = window->grabWindow();
-                                const auto rect = header->mapRectToScene(header->boundingRect());
-                                const auto ratio = frame.width() / qreal(window->width());
-                                // Scrollbar paint lies outside the header's 40px inset.
-                                const int inset = qCeil(40 * scale * ratio);
-                                const QRect region(inset, 0, frame.width() - inset * 2,
-                                                   qFloor(rect.bottom() * ratio));
-                                QCOMPARE(frame.copy(region), clean.copy(region));
-                                flowHeader->setOpacity(1);
-                                view->setOpacity(1);
-                            }
-                            if (!artifacts.isEmpty())
-                                QVERIFY(frame.save(artifacts + QString("/tab%1-%2-%3-scroll%4.png")
-                                                                   .arg(tab)
-                                                                   .arg(dark ? "dark" : "light")
-                                                                   .arg(scale)
-                                                                   .arg(offset)));
-                        }
-                        const auto delegates = tab == 4 ? countVisual(view, "artistAvatarCard") +
-                                                              countVisual(view, "artistNameEntry")
-                                                        : countVisual(view, "contentDelegate");
-                        QVERIFY(delegates > 0 && delegates < 140);
-                    }
-                }
-            }
-        QVERIFY2(emptyStateLeaks.isEmpty(), qPrintable(emptyStateLeaks.join('\n')));
-        // Exercise the actual page footer across model resets, including a
-        // featured-only artist result whose name-slice count is zero.
-        for (int tab : {0, 2, 4, 1, 3}) {
-            service.selectTab(tab);
-            const bool song = tab == 1 || tab == 3;
-            auto *collection =
-                song ? (tab == 1 ? service.rankSongs() : service.newSongs()) : service.cards();
-            collection->clear();
-            const auto name = song ? "songCatalogEmptyState" : "exploreEmptyState";
-            QTRY_VERIFY(findVisual(page, song       ? "discoverySongs"
-                                         : tab == 4 ? "exploreArtistDirectory"
-                                                    : "exploreCards"));
-            auto *stateView = findVisual(page, song       ? "discoverySongs"
-                                               : tab == 4 ? "exploreArtistDirectory"
-                                                          : "exploreCards");
-            QTRY_VERIFY(findVisual(stateView, name));
-            QTRY_VERIFY(findVisual(stateView, name)->isVisible());
-            QVERIFY(findVisual(stateView, name)->height() > 0);
-            if (song)
-                collection->replaceSongs({domainSong(1)});
-            else
-                collection->replaceCards({cards.first()});
-            QTRY_VERIFY(!findVisual(stateView, name) || !findVisual(stateView, name)->isVisible());
-            if (song) {
-                collection->setQuery("No matching song 不存在");
-                QTRY_VERIFY(findVisual(stateView, name)->isVisible());
-                collection->setQuery({});
-                QTRY_VERIFY(!findVisual(stateView, name)->isVisible());
-                auto *catalog = findVisual(page, "songCatalogView");
-                QVERIFY(catalog);
-                catalog->setProperty("errorMessage", "加载失败 Retry");
-                QTRY_VERIFY(findVisual(stateView, name)->isVisible());
-                catalog->setProperty("loading", true);
-                QTRY_VERIFY(!findVisual(stateView, name)->isVisible());
-                catalog->setProperty("loading", false);
-                QTRY_VERIFY(findVisual(stateView, name)->isVisible());
-                catalog->setProperty("errorMessage", "");
-                QTRY_VERIFY(!findVisual(stateView, name)->isVisible());
-            }
-        }
-        QVERIFY2(errors.isEmpty(), qPrintable(errors.join('\n')));
-        service.shutdown();
+            service, ExploreService::Categories,
+            QJsonArray{QJsonObject{
+                {"name", "分类"},
+                {"children", QJsonArray{QJsonObject{{"id", "sample-a"}, {"name", "分类一"}},
+                                        QJsonObject{{"id", "sample-b"}, {"name", "分类二"}}}}}});
+        QTRY_VERIFY(findVisual(window->contentItem(), "playlistSquareView"));
+        auto *scroll = findVisual(window->contentItem(), "playlistSquareView");
+        QTRY_VERIFY(scroll->property("contentHeight").toReal() > scroll->height());
+        QVERIFY(!findVisual(window->contentItem(), "exploreNavigationTabs"));
+        QVERIFY(!findVisual(window->contentItem(), "exploreNewSongsTitle"));
+        scroll->setProperty("contentY",
+                            scroll->property("contentHeight").toReal() - scroll->height());
+        QTest::qWait(50);
+        auto *categoryButton = findVisual(window->contentItem(), "playlistCategoryPickerButton");
+        QVERIFY(categoryButton);
+        scroll->setProperty("contentY", scroll->property("contentY").toReal() +
+                                            categoryButton->mapToScene(QPointF(0, 0)).y() - 80);
+        QVERIFY(Test::prepareNativeInput(window));
+        Test::FrameSpy pickerFrame(window);
+        QTest::mouseClick(
+            window, Qt::LeftButton, Qt::NoModifier,
+            categoryButton
+                ->mapToScene(QPointF(categoryButton->width() / 2, categoryButton->height() / 2))
+                .toPoint());
+        QPointer<QObject> picker;
+        QTRY_VERIFY(
+            (picker = findVisualOwnerObject(window->contentItem(), "playlistCategoryPicker")));
+        QTRY_VERIFY(picker->property("opened").toBool());
+        QTRY_VERIFY(!pickerFrame.isEmpty());
+        QVERIFY(!picker->property("multiple").toBool());
+        auto *choice = findVisual(window->contentItem(), "option-sample-b");
+        QVERIFY(choice);
+        QTest::mouseClick(
+            window, Qt::LeftButton, Qt::NoModifier,
+            choice->mapToScene(QPointF(choice->width() / 2, choice->height() / 2)).toPoint());
+        QTRY_COMPARE(service.category(), QString("sample-b"));
+        QTRY_VERIFY(picker.isNull());
+        QVERIFY(router.navigate("artist-recommendations"));
+        QTRY_VERIFY(findVisual(window->contentItem(), "artistRecommendationsPage"));
+        QVERIFY(!findVisual(window->contentItem(), "playlistSquareView"));
+        QVERIFY2(warnings.isEmpty(),
+                 qPrintable(warnings.isEmpty() ? QString{}
+                                               : warnings.first().toList().first().toString()));
         root.reset();
-        QSignalSpy drained(&playback, &PlaybackService::closed);
+        discovery.shutdown();
+        service.shutdown();
+        QSignalSpy drain(&playback, &PlaybackService::closed);
         playback.shutdown();
-        QTRY_COMPARE_WITH_TIMEOUT(drained.size(), 1, 15000);
+        QTRY_COMPARE_WITH_TIMEOUT(drain.size(), 1, 15000);
         api.shutdown();
     }
-    void nativeExplorePage()
+
+    void nativeRecommendationPages()
     {
-        if (!qEnvironmentVariableIsSet("ECHO_EXPLORE_LIVE_INPUT"))
-            QSKIP("Opt-in current-account read-only Explore wire/UI check");
+        if (!qEnvironmentVariableIsSet("ECHO_RECOMMENDATION_LIVE_INPUT"))
+            QSKIP("Opt-in current account read-only recommendation/UI capture");
         const std::string input((std::istreambuf_iterator<char>(std::cin)),
                                 std::istreambuf_iterator<char>());
         const auto identity = QJsonDocument::fromJson(QByteArray::fromStdString(input)).object();
@@ -2577,7 +3322,7 @@ Window {
                                      identity["guid"].toString(), identity["mac"].toString(),
                                      identity["device_name"].toString(), "-", "-"});
         QTemporaryDir dir;
-        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
+        SettingsStore prefs(dir.filePath("prefs.ini"));
         prefs.setValue("playback/volume", 0.);
         NetworkPreferences network(prefs, api);
         QVERIFY(network.transportAvailable());
@@ -2586,164 +3331,151 @@ Window {
         network.installApplicationTransport();
         QVERIFY(api.setAccount(quint64(identity["userid"].toInteger()),
                                identity["token"].toString(), identity["t1"].toString()));
+        AccountService account(api);
         PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"), &network);
+        SessionDatabase cache(dir.filePath("session"));
+        SongMetadataService metadata(api);
+        metadata.enableSqlIndex(cache);
+        playback.attachMetadata(metadata);
         ThemeStore theme(prefs);
-        ShellSettings shell(prefs);
-        shell.acceptUserAgreement(); // These scenarios start after first-run consent.
+        ShellSettings settings(prefs);
+        settings.acceptUserAgreement();
         RouteController router;
-        ExploreService service(api, playback, router, true);
-        service.registerRoutes(router);
+        DiscoveryService discovery(api, playback, account);
+        discovery.setPreferences(&prefs);
+        DiscoveryRouteCoordinator routes(discovery, router, true);
+        ExploreService explore(api, playback, router, true);
+        explore.setDiscovery(&discovery);
+        explore.registerRoutes(router);
         QQmlEngine engine;
         theme.attachToEngine(engine);
-        QStringList errors;
-        connect(&engine, &QQmlEngine::warnings, this, [&](const auto &warnings) {
-            for (const auto &w : warnings)
-                errors.append(w.toString());
+        QStringList warnings;
+        QObject observer;
+        connect(&engine, &QQmlEngine::warnings, &observer, [&](const auto &messages) {
+            for (const auto &m : messages)
+                warnings.append(m.toString());
         });
         QQmlComponent component(&engine);
-        component.setData(R"(
-            import QtQuick
-            import QtQuick.Window
-            import EchoMusic.Shell
-            import EchoMusic.Theme
-            import EchoMusic.Discovery
-            Window {
-                id: testWindow
-                required property RouteController router
-                required property ShellSettings settings
-                visible: true; width: 1150; height: 800
-                Rectangle { anchors.fill: parent; color: Theme.main }
-                Item {width: parent.width/settings.uiScale; height: parent.height/settings.uiScale; scale: settings.uiScale; transformOrigin: Item.TopLeft
-                    RouteHost { anchors.fill: parent; router: testWindow.router; settings: testWindow.settings }
-                }
-            })",
-                          QUrl("qrc:/explore-runtime-test.qml"));
-        QScopedPointer<QObject> root(component.createWithInitialProperties(
-            {{"router", QVariant::fromValue(&router)}, {"settings", QVariant::fromValue(&shell)}}));
+        component.setData(R"(import QtQuick
+import QtQuick.Controls.Basic
+import EchoMusic.Shell
+import EchoMusic.Theme
+ApplicationWindow { id:host;required property RouteController router;required property ShellSettings settings;visible:true;width:1150;height:800;color:Theme.main
+ Item {width:parent.width/host.settings.uiScale;height:parent.height/host.settings.uiScale;scale:host.settings.uiScale;transformOrigin:Item.TopLeft;RouteHost{anchors.fill:parent;router:host.router;settings:host.settings}}
+})",
+                          QUrl("qrc:/live-recommendation-test.qml"));
+        QScopedPointer<QObject> root(
+            component.createWithInitialProperties({{"router", QVariant::fromValue(&router)},
+                                                   {"settings", QVariant::fromValue(&settings)}}));
         QVERIFY2(root, qPrintable(component.errorString()));
         auto *window = qobject_cast<QQuickWindow *>(root.data());
         QVERIFY(window);
-        window->requestActivate();
-        if (QGuiApplication::platformName() != "offscreen")
-            QVERIFY(QTest::qWaitForWindowActive(window));
-        const auto artifacts = qEnvironmentVariable("ECHO_EXPLORE_ARTIFACTS");
+        QVERIFY(Test::prepareNativeInput(window));
+        const auto artifacts = qEnvironmentVariable("ECHO_RECOMMENDATION_ARTIFACTS");
         if (!artifacts.isEmpty())
-            QVERIFY(QDir().mkpath(artifacts));
-        QVERIFY(router.navigate("explore"));
-        QTRY_VERIFY_WITH_TIMEOUT(
-            ExploreServiceTestAccess::state(service, ExploreService::Categories) !=
-                ExploreService::Loading,
-            45000);
-        QVERIFY(!service.categories().isEmpty());
-        QVERIFY(service.category() != "0");
-        QTRY_VERIFY_WITH_TIMEOUT(!service.loading(), 45000);
-        QVERIFY2(service.errorMessage().isEmpty(), qPrintable(service.errorMessage()));
-        QVERIFY(service.cards()->count() > 0);
-        for (int tab = 0; tab < 5; ++tab) {
-            service.selectTab(tab);
-            QTRY_VERIFY_WITH_TIMEOUT(!service.loading(), 45000);
-            QVERIFY2(service.errorMessage().isEmpty(), qPrintable(service.errorMessage()));
-            QVERIFY(service.tab() == tab);
-            if (tab == 1)
-                QVERIFY(service.rankSongs()->count() > 0);
-            else if (tab == 3) {
-                QCOMPARE(service.newSongs()->count(), 30);
-                QVERIFY(!readCatalogTracks(service.newSongs()).first().catalogMetadata.isEmpty());
-            } else
-                QVERIFY(service.cards()->count() > 0);
-            QTRY_VERIFY(findVisual(window->contentItem(), "explorePage"));
-            for (bool dark : {false, true})
-                for (int zoom : {100, 125}) {
-                    theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
-                    shell.resetZoom();
-                    if (zoom == 125)
-                        for (int i = 0; i < 5; ++i)
-                            shell.zoomIn();
-                    QTest::qWait(150);
-                    if (!artifacts.isEmpty())
-                        QVERIFY(
-                            window->grabWindow().save(artifacts + QString("/tab-%1-%2-%3.png")
-                                                                      .arg(tab)
-                                                                      .arg(dark ? "dark" : "light")
-                                                                      .arg(zoom)));
-                }
-        }
-        auto *picker = findVisualOwnerObject(window->contentItem(), "explorePicker");
-        QVERIFY(picker);
-        picker->setProperty("kind", "sex");
-        QVERIFY(QMetaObject::invokeMethod(picker, "open"));
-        QTRY_VERIFY(picker->property("visible").toBool());
-        QTest::qWait(150);
-        if (!artifacts.isEmpty())
-            QVERIFY(window->grabWindow().save(artifacts + "/artist-picker.png"));
-        QVERIFY(QMetaObject::invokeMethod(picker, "close"));
-        service.selectTab(3);
-        QTest::qWait(150);
-        auto *explore = findVisual(window->contentItem(), "explorePage");
-        QVERIFY(explore);
-        QVERIFY(QMetaObject::invokeMethod(explore, "batchRequested"));
-        QPointer<QObject> batch =
-            findVisualOwnerObject(window->contentItem(), "discoveryBatchDrawer");
-        QVERIFY(batch);
-        QTRY_VERIFY(batch->property("visible").toBool());
-        service.selectTab(4);
-        QTRY_VERIFY(batch.isNull());
-        window->setWidth(650);
-        QTest::qWait(150);
-        if (!artifacts.isEmpty())
-            QVERIFY(window->grabWindow().save(artifacts + "/artist-narrow.png"));
-        QVector<QRectF> firstRow;
-        auto collect = [&](auto &&self, QQuickItem *item) -> void {
-            if (item->objectName() == "artistAvatarCard" && item->isVisible()) {
-                const auto bounds =
-                    item->mapRectToItem(window->contentItem(), item->boundingRect());
-                if (bounds.top() > 0 && bounds.top() < window->height())
-                    firstRow.append(bounds);
-            }
-            for (auto *child : item->childItems())
-                self(self, child);
+            QDir().mkpath(artifacts);
+        const auto capture = [&](const QString &file, const QString &pageName) {
+            QVERIFY(Test::prepareNativeInput(window));
+            QQuickItem *visiblePage = nullptr;
+            QTRY_VERIFY((visiblePage = findVisual(window->contentItem(), pageName)));
+            const auto presented = [&] {
+                for (auto *item = visiblePage; item; item = item->parentItem())
+                    if (!item->isVisible() || item->opacity() < .999)
+                        return false;
+                return true;
+            };
+            QTRY_VERIFY(presented());
+            Test::FrameSpy frames(window);
+            window->update();
+            QTRY_VERIFY(!frames.isEmpty());
+            const auto image = window->grabWindow();
+            QVERIFY(!image.isNull());
+            QSet<QRgb> colors;
+            for (int y = 0; y < image.height(); y += 16)
+                for (int x = 0; x < image.width(); x += 16)
+                    colors.insert(image.pixel(x, y));
+            QVERIFY(colors.size() > 8);
+            if (!artifacts.isEmpty())
+                image.save(artifacts + "/" + file);
         };
-        collect(collect, window->contentItem());
-        QVERIFY(!firstRow.isEmpty());
-        std::sort(firstRow.begin(), firstRow.end(),
-                  [](const auto &a, const auto &b) { return a.top() < b.top(); });
-        const auto rowY = firstRow.first().top();
-        int rowCount = 0;
-        qreal lastRight = 0;
-        for (const auto &bounds : firstRow)
-            if (qAbs(bounds.top() - rowY) < 2) {
-                ++rowCount;
-                lastRight = qMax(lastRight, bounds.right());
+        for (bool dark : {false, true})
+            for (int zoom : {100, 125}) {
+                theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
+                settings.resetZoom();
+                if (zoom == 125)
+                    for (int i = 0; i < 5; ++i)
+                        settings.zoomIn();
+                QVERIFY(router.navigate("home"));
+                QTRY_VERIFY(findVisual(window->contentItem(), "recommendationCardsView"));
+                auto *view = findVisual(window->contentItem(), "recommendationCardsView");
+                view->setProperty("contentY", -108.);
+                QTRY_COMPARE_WITH_TIMEOUT(discovery.recommendationCards()->find("daily")->status(),
+                                          int(DiscoveryService::Ready), 45000);
+                QTRY_COMPARE_WITH_TIMEOUT(discovery.recommendationCards()->find("style")->status(),
+                                          int(DiscoveryService::Ready), 45000);
+                for (int i = 0; i < 2; ++i) {
+                    auto *card = discovery.recommendationCards()->at(i);
+                    QTRY_COMPARE_WITH_TIMEOUT(card->status(), int(DiscoveryService::Ready), 45000);
+                    for (int row = 0; row < std::min(6, card->collection()->count()); ++row)
+                        QTRY_VERIFY(
+                            !card->collection()
+                                 ->data(card->collection()->index(row), SongCatalogModel::Title)
+                                 .toString()
+                                 .isEmpty());
+                }
+                QTRY_COMPARE(previewPresentationError(window->contentItem()), QString());
+                capture(QString("/songs-%1-%2.png").arg(dark ? "dark" : "light").arg(zoom).mid(1),
+                        "homePage");
+                for (int row = 2; row < discovery.recommendationCards()->count(); ++row) {
+                    QVERIFY(QMetaObject::invokeMethod(view, "positionViewAtIndex", Q_ARG(int, row),
+                                                      Q_ARG(int, 0)));
+                    {
+                        auto *card = discovery.recommendationCards()->at(row);
+                        QTRY_VERIFY_WITH_TIMEOUT(card->status() >= 2, 45000);
+                        QVERIFY2(card->status() == 2,
+                                 qPrintable(card->title() + ": " + card->errorMessage()));
+                    }
+                }
+                capture(
+                    QString("/songs-tail-%1-%2.png").arg(dark ? "dark" : "light").arg(zoom).mid(1),
+                    "homePage");
+                QVERIFY(router.navigate("recommendation-detail", {}, "3001"));
+                QTRY_VERIFY(findVisual(window->contentItem(), "freeListenPage"));
+                QVERIFY(discovery.detailCard()->collection()->count() > 0);
+                capture(QString("/detail-%1-%2.png").arg(dark ? "dark" : "light").arg(zoom).mid(1),
+                        "freeListenPage");
+                QVERIFY(router.navigate("explore"));
+                QTRY_COMPARE_WITH_TIMEOUT(discovery.state(DiscoveryService::Playlists),
+                                          int(DiscoveryService::Ready), 45000);
+                QTRY_COMPARE_WITH_TIMEOUT(discovery.state(DiscoveryService::Editors),
+                                          int(DiscoveryService::Ready), 45000);
+                QTRY_VERIFY_WITH_TIMEOUT(!explore.loading(), 45000);
+                QTRY_VERIFY(findVisual(window->contentItem(), "playlistSquareView"));
+                capture(
+                    QString("/playlists-%1-%2.png").arg(dark ? "dark" : "light").arg(zoom).mid(1),
+                    "explorePage");
+                QVERIFY(router.navigate("ranking"));
+                QTRY_COMPARE_WITH_TIMEOUT(discovery.state(DiscoveryService::RankSongs),
+                                          int(DiscoveryService::Ready), 45000);
+                QVERIFY(router.navigate("artist-recommendations"));
+                QTRY_VERIFY_WITH_TIMEOUT(!explore.loading(), 45000);
+                QVERIFY(explore.cards()->count() > 0);
+                capture(QString("/artists-%1-%2.png").arg(dark ? "dark" : "light").arg(zoom).mid(1),
+                        "artistRecommendationsPage");
             }
-        QCOMPARE(rowCount, 2);
-        QVERIFY(qAbs(lastRight - (window->width() - 40 * shell.uiScale())) < 2);
-        window->setWidth(1150);
-        service.selectLetter("全部");
-        QVERIFY(service.cards()->count() > 1000);
-        QTest::qWait(150);
-        auto *grid = findVisual(window->contentItem(), "exploreArtistDirectory");
-        QVERIFY(grid);
-        const auto delegates =
-            countVisual(grid, "artistAvatarCard") + countVisual(grid, "artistNameEntry");
-        QVERIFY2(delegates > 0 && delegates < 120, qPrintable(QString::number(delegates)));
-        qInfo("Explore artist directory: %d rows, %d materialized cards", service.cards()->count(),
-              delegates);
-        service.selectSex("1");
-        service.selectArtistType("1:0");
-        QTRY_VERIFY_WITH_TIMEOUT(!service.loading(), 45000);
-        QVERIFY2(service.errorMessage().isEmpty(), qPrintable(service.errorMessage()));
-        service.selectTab(2);
-        service.selectRegion("eur");
-        QTRY_VERIFY_WITH_TIMEOUT(!service.loading(), 45000);
-        QVERIFY2(service.errorMessage().isEmpty(), qPrintable(service.errorMessage()));
-        QCOMPARE(service.cards()->count(), 3);
-        // Hidden/active route toggles and selectors must not retain old popups or callbacks.
-        QVERIFY2(errors.isEmpty(), qPrintable(errors.join('\n')));
-        service.shutdown();
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
         root.reset();
-        QSignalSpy drained(&playback, &PlaybackService::closed);
+        discovery.shutdown();
+        explore.shutdown();
+        QSignalSpy drain(&playback, &PlaybackService::closed);
         playback.shutdown();
-        QTRY_COMPARE_WITH_TIMEOUT(drained.size(), 1, 15000);
+        QTRY_COMPARE_WITH_TIMEOUT(drain.size(), 1, 15000);
+        QSignalSpy metadataDrained(&metadata, &SongMetadataService::closed);
+        metadata.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(metadataDrained.size(), 1, 15000);
+        QSignalSpy cacheDrained(&cache, &SessionDatabase::closed);
+        cache.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(cacheDrained.size(), 1, 15000);
         api.shutdown();
     }
     void themedDateInkCentersInNativePixels()
@@ -2974,148 +3706,6 @@ Window {
                             QTRY_COMPARE(header->property("progress").toReal(), 0.);
                         }
                     }
-        QVERIFY2(errors.isEmpty(), qPrintable(errors.join('\n')));
-        service.shutdown();
-        root.reset();
-        QSignalSpy drained(&playback, &PlaybackService::closed);
-        playback.shutdown();
-        QTRY_COMPARE_WITH_TIMEOUT(drained.size(), 1, 15000);
-        api.shutdown();
-    }
-    void nativeDiscoveryPages()
-    {
-        if (!qEnvironmentVariableIsSet("ECHO_DISCOVERY_LIVE_UI"))
-            QSKIP("Opt-in real native discovery requests and Cocoa capture");
-        QTemporaryDir dir;
-        EchoMusic::SettingsStore prefs(dir.filePath("prefs.ini"));
-        prefs.setValue("playback/volume", 0.);
-        ApiClient api(DeviceIdentity::temporary());
-        AccountService account(api);
-        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
-        ThemeStore theme(prefs);
-        ShellSettings shell(prefs);
-        shell.acceptUserAgreement(); // These scenarios start after first-run consent.
-        RouteController router;
-        DiscoveryService service(api, playback, account);
-        DiscoveryRouteCoordinator routes(service, router, true);
-        QQmlEngine engine;
-        theme.attachToEngine(engine);
-        QStringList errors;
-        connect(&engine, &QQmlEngine::warnings, this, [&](const auto &warnings) {
-            for (const auto &w : warnings)
-                errors.append(w.toString());
-        });
-        QQmlComponent component(&engine);
-        component.setData(R"(
-            import QtQuick
-            import QtQuick.Window
-            import EchoMusic.Shell
-            import EchoMusic.Theme
-            import EchoMusic.Discovery
-            Window {
-                id: testWindow
-                required property RouteController router
-                required property ShellSettings settings
-                property real uiScale: settings.uiScale
-                visible:true;width:1150;height:800
-                Rectangle {anchors.fill:parent;color:Theme.main}
-                Item {width:parent.width/settings.uiScale;height:parent.height/settings.uiScale;scale:settings.uiScale;transformOrigin:Item.TopLeft
-                    RouteHost {anchors.fill:parent;router:testWindow.router;settings:testWindow.settings}
-                }
-            })",
-                          QUrl("qrc:/discovery-runtime-test.qml"));
-        QScopedPointer<QObject> root(component.createWithInitialProperties(
-            {{"router", QVariant::fromValue(&router)}, {"settings", QVariant::fromValue(&shell)}}));
-        QVERIFY2(root, qPrintable(component.errorString()));
-        auto *window = qobject_cast<QQuickWindow *>(root.data());
-        QVERIFY(window);
-        window->requestActivate();
-        if (QGuiApplication::platformName() != "offscreen")
-            QVERIFY(QTest::qWaitForWindowActive(window));
-        const auto artifacts = qEnvironmentVariable("ECHO_DISCOVERY_ARTIFACTS");
-        if (!artifacts.isEmpty())
-            QVERIFY(QDir().mkpath(artifacts));
-        QVERIFY(router.navigate("home"));
-        QTRY_VERIFY_WITH_TIMEOUT(
-            service.state(DiscoveryService::Style) != DiscoveryService::Loading, 45000);
-        QVERIFY2(service.state(DiscoveryService::Style) == DiscoveryService::Ready,
-                 qPrintable(service.error(DiscoveryService::Style)));
-        QTRY_COMPARE_WITH_TIMEOUT(service.state(DiscoveryService::Playlists),
-                                  int(DiscoveryService::Ready), 45000);
-        QTRY_COMPARE_WITH_TIMEOUT(service.state(DiscoveryService::Editors),
-                                  int(DiscoveryService::Ready), 45000);
-        QVERIFY(service.styleSongs()->count() > 0);
-        QVERIFY(service.playlists()->count() > 0);
-        QVERIFY(!readCatalogTracks(service.styleSongs()).first().catalogMetadata.isEmpty());
-        service.selectCategory("11292");
-        QTRY_COMPARE_WITH_TIMEOUT(service.state(DiscoveryService::Playlists),
-                                  int(DiscoveryService::Ready), 45000);
-        QVERIFY(service.playlists()->count() > 0);
-        service.selectCategory("0");
-        QTRY_COMPARE_WITH_TIMEOUT(service.state(DiscoveryService::Playlists),
-                                  int(DiscoveryService::Ready), 45000);
-        service.toggleTag("S15");
-        QTRY_VERIFY_WITH_TIMEOUT(
-            service.state(DiscoveryService::Style) != DiscoveryService::Loading, 45000);
-        QVERIFY2(service.state(DiscoveryService::Style) == DiscoveryService::Ready,
-                 qPrintable(service.error(DiscoveryService::Style)));
-        QVERIFY(service.styleSongs()->count() > 0);
-        for (bool dark : {false, true})
-            for (int zoom : {100, 125}) {
-                theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
-                shell.resetZoom();
-                if (zoom == 125)
-                    for (int i = 0; i < 5; ++i)
-                        shell.zoomIn();
-                for (const auto *page : {"home", "recommend-songs", "ranking"}) {
-                    QVERIFY(router.navigate(page));
-                    if (QString(page) == "recommend-songs")
-                        QTRY_COMPARE_WITH_TIMEOUT(service.state(DiscoveryService::Daily),
-                                                  int(DiscoveryService::Ready), 45000);
-                    if (QString(page) == "ranking")
-                        QTRY_COMPARE_WITH_TIMEOUT(service.state(DiscoveryService::RankSongs),
-                                                  int(DiscoveryService::Ready), 45000);
-                    QTRY_VERIFY(findVisual(window->contentItem(),
-                                           QString(page) == "home"      ? "homePage"
-                                           : QString(page) == "ranking" ? "rankingPage"
-                                                                        : "dailyRecommendPage"));
-                    if (QString(page) != "home") {
-                        auto *catalog = QString(page) == "ranking" ? service.rankingSongs()
-                                                                   : service.dailySongs();
-                        const auto total = catalog->count();
-                        catalog->setQuery("NO-MATCH-不可能出现的筛选词");
-                        QCOMPARE(catalog->count(), 0);
-                        catalog->setQuery({});
-                        QCOMPARE(catalog->count(), total);
-                        for (int i = 0; i < 3; ++i)
-                            catalog->toggleSort(2);
-                        QCOMPARE(catalog->sortDirection(), 0);
-                        catalog->selectAll(true);
-                        QCOMPARE(catalog->selectedCount(), catalog->totalCount());
-                        catalog->clearSelection();
-                    }
-                    QTest::qWait(200);
-                    QCOMPARE(countVisual(window->contentItem(), "songOriginalTag"), 0);
-                    if (!artifacts.isEmpty())
-                        QVERIFY(
-                            window->grabWindow().save(artifacts + QString("/%1-%2-%3.png")
-                                                                      .arg(page)
-                                                                      .arg(dark ? "dark" : "light")
-                                                                      .arg(zoom)));
-                }
-            }
-        // A large domain catalog is deliberate view stress, never a fake HTTP
-        // response. Only viewport rows plus bounded prefetch may instantiate.
-        QVERIFY(router.navigate("home"));
-        QTRY_VERIFY(findVisual(window->contentItem(), "homeView"));
-        QJsonArray large;
-        for (int i = 1; i <= 10000; ++i)
-            large.append(domainSong(i));
-        service.styleSongs()->replaceSongs(large);
-        QTest::qWait(200);
-        const auto delegates = countVisual(window->contentItem(), "homeSongCard");
-        QVERIFY(delegates > 0 && delegates < 150);
-        qInfo("Home10000 catalog: %d materialized song cards", delegates);
         QVERIFY2(errors.isEmpty(), qPrintable(errors.join('\n')));
         service.shutdown();
         root.reset();

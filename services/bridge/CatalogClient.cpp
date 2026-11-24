@@ -78,6 +78,12 @@ quint64 ApiClient::CatalogClient::dailyRecommendations()
     return api.submit({{"operation", "everyday_recommend"}});
 }
 
+quint64 ApiClient::CatalogClient::discoveryCard(quint32 cardId, const QString &sourceMixsong)
+{
+    return api.submit(
+        {{"operation", "discovery_card_single"},
+         {"query", QJsonObject{{"card_id", int(cardId)}, {"source_mixsong", sourceMixsong}}}});
+}
 quint64 ApiClient::CatalogClient::freeListenSongs()
 {
     return api.submit({{"operation", "ai_recommend_song"}});

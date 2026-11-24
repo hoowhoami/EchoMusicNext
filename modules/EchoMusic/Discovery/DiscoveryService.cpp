@@ -16,6 +16,7 @@ DiscoveryService::DiscoveryService(ApiClient &api, PlaybackService &playback,
       m_rankActions(m_rankSongs, playback, this), m_freeActions(m_freeListen, playback, this),
       m_discoverActions(m_discoverFlow, playback, this)
 {
+    initializeCards();
     for (auto *catalog : {&m_styleSongs, &m_dailySongs, &m_rankSongs, &m_freeListen})
         catalog->enableSessionStorage();
     const QList<QPair<SongCatalogModel *, Part>> recoverable{{&m_styleSongs, Style},
@@ -94,6 +95,10 @@ SongCatalogActions *DiscoveryService::actions(SongCatalogModel *model)
                    : model == &m_freeListen   ? &m_freeActions
                    : model == &m_discoverFlow ? &m_discoverActions
                                               : nullptr;
+    if (!result)
+        for (auto *card : m_recommendationCards.all())
+            if (card->collection() == model)
+                return card->actions();
     if (result)
         result->setQueueContext(queueTitle(model), queueKey(model));
     return result;
@@ -180,6 +185,7 @@ void DiscoveryService::shutdown()
         return;
     m_closed = true;
     cancelAll();
+    cancelCardRequests();
     disconnect(&m_api, nullptr, this, nullptr);
 }
 void DiscoveryService::reset()
@@ -188,6 +194,9 @@ void DiscoveryService::reset()
         catalog->finishCacheRecovery();
     if (m_closed)
         return;
+    cancelCardRequests();
+    for (auto *card : m_recommendationCards.all())
+        card->clear();
     const auto instance = m_instances.value(m_activePage);
     cancelAll();
     m_instances.clear();
@@ -221,12 +230,18 @@ void DiscoveryService::setPage(const QString &name, const QString &instance, boo
 {
     if (m_closed)
         return;
-    if (name != m_activePage)
+    if (name != m_activePage) {
         cancelAll();
+        cancelCardRequests();
+        m_cardDemand.clear();
+        for (auto *card : m_recommendationCards.all())
+            card->collection()->setMetadataActive(false);
+    }
     m_playback.personalFm()->setPageActive(name == "personal-fm", networkEnabled);
     m_activePage = name;
     m_networkEnabled = networkEnabled;
-    m_styleSongs.setMetadataActive(networkEnabled && name == "home");
+    m_styleSongs.setMetadataActive(networkEnabled &&
+                                   (name == "home" || name == "recommendation-detail"));
     m_dailySongs.setMetadataActive(networkEnabled && name == "recommend-songs");
     m_rankSongs.setMetadataActive(networkEnabled && name == "ranking");
     m_freeListen.setMetadataActive(networkEnabled && name == "free-listen");
@@ -234,17 +249,29 @@ void DiscoveryService::setPage(const QString &name, const QString &instance, boo
     if (!m_instances.contains(name) || m_instances.value(name) != instance) {
         m_instances.insert(name, instance);
         if (name == "home") {
-            for (auto p : {Style, Playlists, Editors}) {
+            cancelCardRequests();
+            for (auto *card : m_recommendationCards.all())
+                card->clear();
+            for (auto p : {Style, Daily}) {
                 cancel(p);
                 m_states[p] = Idle;
             }
-            m_category = "0";
             m_styleGroups.clear();
             m_selectedTags.clear();
             m_styleSongs.clear();
+            m_dailyDate.clear();
+            m_dailySubtitle.clear();
+            m_activeGroup = 0;
+        }
+        if (name == "explore") {
+            for (auto part : {Playlists, Editors}) {
+                cancel(part);
+                m_states[part] = Idle;
+                m_errors[part].clear();
+            }
             m_playlists.clear();
             m_editors.clear();
-            m_activeGroup = 0;
+            m_category = "0";
         }
         if (name == "recommend-songs") {
             cancel(Daily);
@@ -285,8 +312,8 @@ void DiscoveryService::setPage(const QString &name, const QString &instance, boo
         }
     }
     if (networkEnabled) {
-        if (name == "home")
-            for (auto p : {Style, Playlists, Editors}) {
+        if (name == "explore")
+            for (auto p : {Playlists, Editors}) {
                 if (m_states[p] == Idle)
                     request(p);
             }
@@ -305,20 +332,44 @@ void DiscoveryService::setPage(const QString &name, const QString &instance, boo
         if (name == "discover-flow" && m_states[DiscoverFlow] == Idle)
             request(DiscoverFlow);
     }
+    if (name == "recommendation-detail" && m_detailCard)
+        activateCard(m_detailCard->key(), true);
+    if (name == "home")
+        for (const auto &key : m_cardDemand) {
+            auto *card = m_recommendationCards.find(key);
+            if (card && card->status() == Idle)
+                requestCard(card);
+        }
     emit changed();
 }
 void DiscoveryService::request(Part part, bool append)
 {
     if (m_closed || !m_networkEnabled)
         return;
-    const bool home = part <= Editors && m_activePage == "home";
-    const bool daily = part == Daily && m_activePage == "recommend-songs";
+    const bool home =
+        (part == Style && (m_activePage == "home" || m_activePage == "recommendation-detail")) ||
+        ((part == Playlists || part == Editors) && m_activePage == "explore");
+    const bool daily =
+        part == Daily && (m_activePage == "recommend-songs" || m_activePage == "home" ||
+                          m_activePage == "recommendation-detail");
     const bool ranking = part >= RankTop && part <= RankSongs && m_activePage == "ranking";
     const bool freeListen = part == FreeListen && m_activePage == "free-listen";
     const bool discoverFlow = part == DiscoverFlow && m_activePage == "discover-flow";
     if (!home && !daily && !ranking && !freeListen && !discoverFlow)
         return;
     cancel(part);
+    if ((part == Daily || part == Style) &&
+        (m_activePage == "home" || m_activePage == "recommendation-detail")) {
+        int inFlight = m_cardPending.size();
+        for (const auto &pending : m_pending)
+            if (pending.part == Daily || pending.part == Style)
+                ++inFlight;
+        if (inFlight >= 3) {
+            m_states[part] = Idle;
+            emit changed();
+            return;
+        }
+    }
     m_errors[part].clear();
     m_states[part] = Loading;
     quint64 id = 0;
@@ -440,6 +491,8 @@ void DiscoveryService::notify(const QString &message, int tone)
 }
 void DiscoveryService::succeeded(quint64 id, const QByteArray &bytes)
 {
+    if (acceptCard(id, bytes))
+        return;
     if (!m_pending.contains(id))
         return;
     const auto pending = m_pending.take(id);
@@ -517,9 +570,16 @@ void DiscoveryService::succeeded(quint64 id, const QByteArray &bytes)
         break;
     }
     emit changed();
+    for (const auto &key : m_cardDemand) {
+        auto *card = m_recommendationCards.find(key);
+        if (card && card->status() == Idle)
+            requestCard(card);
+    }
 }
 void DiscoveryService::failed(quint64 id, const QString &error)
 {
+    if (failCard(id, error))
+        return;
     if (!m_pending.contains(id))
         return;
     const auto pending = m_pending.take(id);
@@ -544,6 +604,11 @@ void DiscoveryService::failed(quint64 id, const QString &error)
     if (pending.part == RankTop || pending.part == RankCatalog)
         mergeRanks();
     emit changed();
+    for (const auto &key : m_cardDemand) {
+        auto *card = m_recommendationCards.find(key);
+        if (card && card->status() == Idle)
+            requestCard(card);
+    }
 }
 void DiscoveryService::mergeRanks()
 {
@@ -585,7 +650,7 @@ void DiscoveryService::retry(Part part)
 }
 void DiscoveryService::selectCategory(const QString &value)
 {
-    if (m_activePage != "home" || m_category == value || (value != "0" && value != "11292"))
+    if (m_activePage != "explore" || m_category == value || (value != "0" && value != "11292"))
         return;
     m_category = value;
     request(Playlists);

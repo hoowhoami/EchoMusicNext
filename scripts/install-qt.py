@@ -15,7 +15,6 @@ import sys
 import venv
 
 from qt_sdk import ROOT, VERSION, official_kit, official_prefix, source_prefix, validate_sdk
-from qt_qv4_patch import ensure_qml_patch
 
 
 def run(command, cwd=ROOT):
@@ -58,7 +57,7 @@ def main():
     # A complete cached kit needs no pip/network/source build. A partial install
     # fails validation and is repaired before it can be used by the app build.
     try:
-        validate_sdk(prefix, runtime_patch=False)
+        validate_sdk(prefix)
     except (RuntimeError, OSError, subprocess.CalledProcessError):
         if source:
             run([sys.executable, ROOT / "scripts/build-qt.py"])
@@ -99,9 +98,7 @@ def main():
                 ],
                 cwd=download_directory,
             )
-        validate_sdk(prefix, runtime_patch=False)
-    # Only QtQml is rebuilt; the remaining SDK modules stay official prebuilt binaries.
-    ensure_qml_patch(prefix, jobs=min(os.cpu_count() or 2, 6))
+        validate_sdk(prefix)
     metadata = {
         "version": VERSION,
         "source": "audited-source" if source else "official-prebuilt",

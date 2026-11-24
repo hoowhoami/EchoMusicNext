@@ -32,7 +32,7 @@ class DevelopmentDiskTest(unittest.TestCase):
                 "target",
                 "build/release",
                 "build/symbols",
-                "build/qt-official/6.12.0",
+                "build/qt-official/6.12.1",
                 "tests/fixtures/api",
             ):
                 with self.subTest(name=name), self.assertRaises(ValueError):

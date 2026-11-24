@@ -151,12 +151,18 @@ void DesktopPagesTest::sidebarLayoutPersistsAndKeepsGroupsAndOneShortcut()
     QAbstractItemModelTester cards(layout.shortcutModel(),
                                    QAbstractItemModelTester::FailureReportingMode::QtTest);
     QCOMPARE(layout.rowCount(), 3);
-    QCOMPARE(layout.shortcutCatalog().size(), 9);
+    QCOMPARE(layout.shortcutCatalog().size(), 10);
+    bool hasArtistRecommendations = false;
     for (const auto &value : layout.shortcutCatalog()) {
         const auto entry = value.toMap();
         if (entry["key"] == "recommend")
             QCOMPARE(entry["route"].toString(), QString("recommend-songs"));
+        if (entry["key"] == "artist-recommendations") {
+            hasArtistRecommendations = true;
+            QCOMPARE(entry["route"].toString(), QString("artist-recommendations"));
+        }
     }
+    QVERIFY(hasArtistRecommendations);
     QCOMPARE(layout.sections()[0].toMap()["title"].toString(), QStringLiteral("音乐菜单"));
     QCOMPARE(layout.sections()[1].toMap()["title"].toString(), QStringLiteral("歌单"));
     QCOMPARE(layout.shortcuts().size(), 2);

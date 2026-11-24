@@ -39,7 +39,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(
-    Qt6 6.12.0 EXACT REQUIRED
+    Qt6 6.12.1 EXACT REQUIRED
     COMPONENTS Core
                Gui
                GuiPrivate
@@ -64,10 +64,9 @@ find_package(
 if(UNIX AND NOT APPLE)
     # Requiring this SDK module prevents an X11-only SDK silently satisfying the
     # declared Linux baseline. Actual X11/Wayland sessions still need acceptance.
-    find_package(Qt6 6.12.0 EXACT REQUIRED COMPONENTS WaylandClient DBus)
+    find_package(Qt6 6.12.1 EXACT REQUIRED COMPONENTS WaylandClient DBus)
 endif()
 qt_standard_project_setup(REQUIRES 6.12 I18N_SOURCE_LANGUAGE zh_CN)
-include(cmake/QtRuntimePatch.cmake)
 set(QT_QML_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/qml")
 include(CTest)
 include(cmake/Rust.cmake)

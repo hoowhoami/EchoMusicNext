@@ -478,6 +478,11 @@ var rawCalls=0, rawObserved, sawTransportError=false;
 function wait(op){return new Promise(function(ok,no){function f(){if(op.state<2)return;op.completed.disconnect(f);op.state===2?ok(op.result):no(Error(op.errorMessage))}op.completed.connect(f);f()})}
 var encoded=nativeScope.server.encodeBody({status:1,errcode:0,data:{list:[]}});
 )JS");
+    const auto encoded =
+        QJsonDocument::fromJson(QByteArray::fromBase64(js(host, "encoded").toString().toLatin1()));
+    QVERIFY(encoded.isObject());
+    QCOMPARE(encoded.object().value("status").toInt(), 1);
+    QVERIFY(encoded.object().value("data").toObject().value("list").isArray());
     QCOMPARE(
         js(host,
            "nativeScope.server.decodeBody(nativeScope.server.encodeBody('歌词','utf8'),'utf8')")

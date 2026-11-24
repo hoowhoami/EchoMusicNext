@@ -73,6 +73,7 @@ Item {
     EchoImageMetrics {
         id: metrics
         objectName: "coverMetrics"
+        deferRequests: true
         item: control
         active: control.resourceActive && (control.visible || control.transitionSourceActive)
         source: coverSource.resolvedSource
@@ -161,7 +162,7 @@ Item {
                 } else if (status !== Image.Loading)
                     previouslyReady = false;
                 if (status === Image.Error)
-                    coverSource.reject(metrics.source);
+                    coverSource.reject(metrics.requestSource);
             }
             fillMode: Image.PreserveAspectCrop
             visible: false

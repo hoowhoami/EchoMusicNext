@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Qt-6.12.0-41CD52?logo=qt" alt="Qt 6.12.0">
+  <img src="https://img.shields.io/badge/Qt-6.12.1-41CD52?logo=qt" alt="Qt 6.12.1">
   <img src="https://img.shields.io/badge/C%2B%2B-20-blue?logo=cplusplus" alt="C++20">
   <img src="https://img.shields.io/badge/Rust-1.99.0-orange?logo=rust" alt="Rust 1.99.0">
   <img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-brightgreen" alt="Platform">
@@ -40,7 +40,7 @@
 
 ## 🛠️ 技术栈
 
-- **应用框架**：Qt 6.12.0 / Qt Quick / QML。
+- **应用框架**：Qt 6.12.1 / Qt Quick / QML。
 - **应用服务**：C++20。
 - **原生模块**：Rust 1.99.0。
 - **音频引擎**：FFmpeg 解码、SoundTouch 变速处理及原生音频输出。
@@ -54,7 +54,7 @@
 
 ### 前置要求
 
-- Qt **6.12.0** SDK。
+- Qt **6.12.1** SDK。
 - Rust **1.99.0**，版本由 `rust-toolchain.toml` 固定。
 - CMake **3.28+**、Ninja 和 C++20 编译器。
 - 使用仓库辅助脚本或 MSVC / Ninja 链接启动器时需要 Python **3.12+**；格式工具另需 Node.js **24** / npm。
@@ -71,7 +71,7 @@
 
 适配目标为 **x64：Ubuntu 22.04+ / glibc 2.35+；ARM64：Ubuntu 24.04+ / glibc 2.39+**，覆盖 X11 / Wayland。需要 Qt、音频、图形和桌面集成开发库；软件包列表见[构建指南](docs/build.md)与 [CI 配置](.github/workflows/build.yml)。
 
-Linux x64、ARM64 均下载官方 Qt 6.12.0 预编译 SDK；源码 SDK 仅在显式指定 `--source` 时构建。以上均为适配目标，具体支持状态以对应平台的实际验证结果为准。
+Linux x64、ARM64 均下载官方 Qt 6.12.1 预编译 SDK；源码 SDK 仅在显式指定 `--source` 时构建。以上均为适配目标，具体支持状态以对应平台的实际验证结果为准。
 
 ### 本地开发
 
@@ -114,7 +114,7 @@ Linux x64、ARM64 均下载官方 Qt 6.12.0 预编译 SDK；源码 SDK 仅在显
 已有 Qt SDK 时，可以直接配置并构建：
 
 ```sh
-cmake --preset release -DCMAKE_PREFIX_PATH=/path/to/Qt/6.12.0/kit
+cmake --preset release -DCMAKE_PREFIX_PATH=/path/to/Qt/6.12.1/kit
 cmake --build --preset release --target echomusicnext
 ```
 
@@ -149,7 +149,7 @@ cmake --build --preset release --target echomusicnext
 **手动构建：**
 
 ```sh
-cmake --preset release -DCMAKE_PREFIX_PATH=/path/to/Qt/6.12.0/kit
+cmake --preset release -DCMAKE_PREFIX_PATH=/path/to/Qt/6.12.1/kit
 cmake --build --preset release
 ctest --preset release
 ```

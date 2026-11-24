@@ -53,6 +53,7 @@ public:
         Original,
         ArtistLinks,
         AlbumId,
+        Recommendation,
         PresentationReady
     };
     explicit SongCatalogModel(QObject *parent = nullptr);

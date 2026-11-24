@@ -284,6 +284,8 @@ impl Song {
                     headline: self.rec_copy_write.unwrap_or_default(),
                     detail: self.rec_sub_copy_write.unwrap_or_default(),
                     rank_label: self.rank_label,
+                    curator: None,
+                    artwork_url: None,
                 },
                 ranking: None,
                 artists,

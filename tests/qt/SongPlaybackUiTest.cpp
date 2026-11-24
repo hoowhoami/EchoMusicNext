@@ -300,7 +300,7 @@ Window {
                     QTRY_VERIFY(drawer->property("opened").toBool());
                     auto *surface = drawer->property("background").value<QQuickItem *>();
                     QVERIFY(surface);
-                    QCOMPARE(QQmlProperty(surface, "border.width").read().toReal(), 1.);
+                    QCOMPARE(QQmlProperty(surface, "border.width").read().toReal(), 0.);
                     QPointer<QQuickItem> roundedMask;
                     QTRY_VERIFY(
                         (roundedMask = drawer->findChild<QQuickItem *>("popupContentRoundedMask")));

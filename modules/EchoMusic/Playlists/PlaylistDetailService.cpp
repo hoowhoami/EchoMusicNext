@@ -1,5 +1,6 @@
 #include <QQmlEngine>
 #include "PlaylistDetailService.h"
+#include <QRandomGenerator>
 #include <utility>
 namespace EchoMusic
 {
@@ -44,11 +45,13 @@ void PlaylistDetailService::attachLibraryController(LibraryController &controlle
 }
 void PlaylistDetailService::cancelPlayback(bool replacing)
 {
+    delete m_pendingPlayRead.data();
     auto context = std::exchange(m_pendingPlayback, {});
     const auto id = std::exchange(m_pendingPlayListId, 0);
     m_pendingResource.clear();
     if (context) {
         disconnect(context, nullptr, this, nullptr);
+        disconnect(context->songs(), nullptr, this, nullptr);
         context->shutdown();
         context->deleteLater();
     }
@@ -83,31 +86,52 @@ void PlaylistDetailService::playPlaylist(const QString &resourceId, quint64 clou
                                                   m_metadata, resourceId, m_network, this);
     connect(m_pendingPlayback.data(), &PlaylistDetailContext::changed, this,
             &PlaylistDetailService::settlePlayback);
+    connect(m_pendingPlayback->songs(), &SongCatalogModel::readFailed, this,
+            [this] { cancelPlayback(); });
+    connect(m_pendingPlayback->songs(), &SongCatalogModel::cacheInvalidated, this, [this] {
+        delete m_pendingPlayRead.data();
+        settlePlayback();
+    });
     settlePlayback();
 }
 void PlaylistDetailService::settlePlayback()
 {
     auto *context = m_pendingPlayback.data();
-    if (!context || context->loading())
+    if (!context || context->loading() || m_pendingPlayRead)
         return;
-    // Detach the intent before publishing state or starting playback: either
-    // can synchronously trigger another playlist command.
-    m_pendingPlayback.clear();
-    disconnect(context, nullptr, this, nullptr);
-    const auto id = std::exchange(m_pendingPlayListId, 0);
-    m_pendingResource.clear();
-    if (m_controller)
-        m_controller->finishPlaylistPlayback(id);
     if (!context->complete()) {
-        emit notice(context->errorMessage().isEmpty() ? tr("歌单暂时无法加载，请稍后重试")
-                                                      : context->errorMessage(),
-                    true);
-    } else if (!context->songs()->hasPlayableTracks())
+        const auto error = context->errorMessage().isEmpty() ? tr("歌单暂时无法加载，请稍后重试")
+                                                             : context->errorMessage();
+        cancelPlayback();
+        emit notice(error, true);
+        return;
+    }
+    if (!context->songs()->hasPlayableTracks()) {
+        cancelPlayback();
         emit notice(tr("歌单暂无可播放歌曲"), true);
-    else
-        context->actions()->play();
-    context->shutdown();
-    context->deleteLater();
+        return;
+    }
+    // Loading the directory is only the first phase. Keep its source leases and
+    // explicit intent alive until the asynchronous full-song snapshot arrives.
+    const auto title = context->detail().value("title").toString();
+    const auto key = "queue:playlist:" + context->detail().value("global_id").toString();
+    m_pendingPlayRead = new QObject(context);
+    context->songs()->requestTracks(
+        false, m_pendingPlayRead, [this, context, title, key](PlaybackTracks tracks) {
+            if (m_pendingPlayback != context)
+                return;
+            // Retire before queue publication: playback.changed must not cancel
+            // this accepted command, and later intents must not be cleared.
+            cancelPlayback();
+            if (tracks.isEmpty()) {
+                emit notice(tr("歌单暂无可播放歌曲"), true);
+                return;
+            }
+            const int index = m_playback.playMode() == PlaybackService::Shuffle
+                                  ? QRandomGenerator::global()->bounded(int(tracks.size()))
+                                  : 0;
+            m_playback.playTracks(tracks, index, title, key);
+        });
 }
 PlaylistDetailService::~PlaylistDetailService()
 {

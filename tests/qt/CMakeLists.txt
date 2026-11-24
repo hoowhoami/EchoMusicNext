@@ -295,7 +295,7 @@ echo_copy_rust_runtime(echo-playlist-mutation-test)
 option(ECHO_ENABLE_QML_BINDING_PROBE "Enable Qt-private QML binding diagnostics" OFF)
 qt_add_executable(echo-controls-ui-test ControlsUiTest.cpp)
 if(ECHO_ENABLE_QML_BINDING_PROBE)
-    find_package(Qt6 6.12.0 EXACT REQUIRED COMPONENTS QmlPrivate)
+    find_package(Qt6 6.12.1 EXACT REQUIRED COMPONENTS QmlPrivate)
     target_link_libraries(echo-controls-ui-test PRIVATE Qt6::QmlPrivate)
     target_compile_definitions(echo-controls-ui-test PRIVATE ECHO_ENABLE_QML_BINDING_PROBE=1)
 endif()
@@ -343,6 +343,7 @@ qt_add_qml_module(
     SelectHarness.qml
     BackdropHarness.qml
     PopupScrollHarness.qml
+    PopupLoaderHarness.qml
     TypographyHarness.qml
     BadgeTagHarness.qml
     TextTagAlignmentHarness.qml
@@ -363,12 +364,19 @@ set(ECHO_CONTROLS_TEST_GROUPS
     controls-ui-inputs controls-ui-popups controls-ui-typography controls-ui-effects
     controls-ui-behavior controls-selective-pixel-snap
 )
+add_test(NAME popup-loader-optional-properties COMMAND echo-controls-ui-test
+                                                       popupLoaderAcceptsOptionalProperties
+)
+set_tests_properties(
+    popup-loader-optional-properties PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30
+)
 add_test(
     NAME controls-ui-inputs
     COMMAND
         echo-controls-ui-test continuousAngleWheelPreservesDistanceAndPixelInput
         wheelCancellationAndMotionPreferences pageWheelRegionsPreserveNativeEvents
         imageDensityTracksScaleWithoutTrackingScroll
+        imageRequestsCoalesceLayoutAndRetireSynchronously coverRequestsUseSettledBoundedDimensions
         selectProjectionKeepsTypedValuesAndTracksModelChanges selectPublishesPopupAfterConstruction
         selectSearchMultiKeyboardPlacementAndVirtualization
         numberInputCommitsAndClampsAcrossAllInputPaths textEditorsShareFocusCaretAndSurfaces
@@ -651,7 +659,7 @@ set_tests_properties(
 # developer SDKs that provide QtDBus. This is not Linux desktop acceptance.
 if(UNIX)
     if(NOT TARGET Qt6::DBus)
-        find_package(Qt6 6.12.0 EXACT QUIET COMPONENTS DBus)
+        find_package(Qt6 6.12.1 EXACT QUIET COMPONENTS DBus)
     endif()
     if(TARGET Qt6::DBus)
         qt_add_executable(echo-linux-system-theme-test LinuxSystemThemeTest.cpp)
@@ -938,9 +946,16 @@ add_test(
         productionContentBlacklistKeepsPreferencesDraftAndVirtualScroll
         deviceRemovalRequiresConfirmationRefreshAndCurrentSession
 )
-add_test(NAME desktop-pages-popups
-         COMMAND echo-desktop-pages-test productionQualityPopupContainsAndScrollsAllOptions
-                 productionPopoversSwitchOnOneOutsideClick taskIndicatorUsesSingleDot
+add_test(
+    NAME desktop-pages-popups
+    COMMAND
+        echo-desktop-pages-test productionQualityPopupContainsAndScrollsAllOptions
+        productionPopoversSwitchOnOneOutsideClick productionVolumeGainSurfaces
+        taskIndicatorUsesSingleDot
+)
+add_test(NAME volume-gain-ui COMMAND echo-desktop-pages-test productionVolumeGainSurfaces)
+set_tests_properties(
+    volume-gain-ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 90 RUN_SERIAL TRUE
 )
 add_test(
     NAME desktop-pages-library
@@ -1567,7 +1582,7 @@ target_link_libraries(
             Qt6::Test
 )
 add_test(NAME playlist-detail COMMAND echo-playlist-detail-test)
-set_tests_properties(playlist-detail PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+set_tests_properties(playlist-detail PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 90)
 
 qt_add_executable(echo-album-detail-test AlbumDetailTest.cpp)
 target_link_libraries(
@@ -1639,7 +1654,7 @@ add_test(NAME motion COMMAND echo-motion-test)
 set_tests_properties(motion PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
 
 # QML-local interaction contracts complement the C++ native-window/service tests.
-find_package(Qt6 6.12.0 EXACT REQUIRED COMPONENTS QuickTest)
+find_package(Qt6 6.12.1 EXACT REQUIRED COMPONENTS QuickTest)
 qt_add_executable(echo-quick-controls-test QuickControlsTest.cpp)
 # Only Controls/Theme are under test; scanning all sibling QML harnesses would
 # import the application, Rust playback and browser verification into this small runner.
@@ -2315,7 +2330,7 @@ set_tests_properties(
                                   TIMEOUT 15
 )
 
-find_package(Qt6 6.12.0 EXACT REQUIRED COMPONENTS QuickPrivate)
+find_package(Qt6 6.12.1 EXACT REQUIRED COMPONENTS QuickPrivate)
 qt_add_executable(echo-point-mesh-test PointMeshTest.cpp)
 target_link_libraries(echo-point-mesh-test PRIVATE echo_plugin_sdk Qt6::QuickPrivate Qt6::Test)
 add_test(NAME point-mesh COMMAND echo-point-mesh-test)
@@ -2514,6 +2529,27 @@ set_tests_properties(
         TIMEOUT 30
 )
 if(ECHO_BUILD_UI_SOAK_TEST AND APPLE)
+    qt_add_executable(echo-home-resource-test HomeResourceTest.cpp)
+    target_link_libraries(
+        echo-home-resource-test
+        PRIVATE "-lobjc"
+                echo_settings
+                echo_settingsplugin
+                echo_discovery
+                echo_discoveryplugin
+                echo_theme
+                echo_themeplugin
+                echo_shell
+                echo_shellplugin
+                echo_platform
+                echo_playback_service
+                Qt6::QuickPrivate
+                Qt6::GuiPrivate
+                Qt6::QuickControls2
+                Qt6::Test
+                Qt6::Sql
+    )
+    echo_copy_rust_runtime(echo-home-resource-test)
     qt_add_executable(echo-ui-soak-test UiCompositionSoak.cpp plugins/PluginRuntimeTestFixture.h)
     target_include_directories(echo-ui-soak-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(

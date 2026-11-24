@@ -2186,7 +2186,7 @@ QtObject {
              *action = findVisual(page, "appearanceAction");
         QVERIFY(heading && action);
         QTRY_VERIFY(qAbs(action->x() + action->width() - heading->width()) < 2);
-        QTRY_COMPARE(page->width(), frame->width() - 238);
+        QTRY_COMPARE(page->width(), frame->width() - 236);
         shell.zoomIn();
         QTRY_VERIFY(qAbs(frame->width() * shell.uiScale() - window->width()) < 0.01);
         QTRY_COMPARE(mainMaterial->mapToScene(QPointF()), mainSurface->mapToScene(QPointF()));
@@ -2415,9 +2415,23 @@ QtObject {
                             QTRY_VERIFY(action->property("hovered").toBool());
                             const bool clipped = key == longKey && kind == "playerbar";
                             QTRY_COMPARE(tip->property("requestedVisible").toBool(), clipped);
-                            if (clipped)
-                                QTRY_VERIFY(tip->property("visible").toBool());
-                            else {
+                            if (clipped) {
+                                const auto diagnostic = [&] {
+                                    return QString("kind=%1 scale=%2 width=%3 text=%4 requested=%5 "
+                                                   "eligible=%6 triggered=%7 dismissed=%8 popup=%9")
+                                        .arg(kind)
+                                        .arg(scale)
+                                        .arg(width)
+                                        .arg(tip->property("text").toString())
+                                        .arg(tip->property("requestedVisible").toBool())
+                                        .arg(tip->property("eligible").toBool())
+                                        .arg(tip->property("triggered").toBool())
+                                        .arg(tip->property("dismissedUntilHoverEnds").toBool())
+                                        .arg(bool(tip->property("popup").value<QObject *>()));
+                                };
+                                QTRY_VERIFY2(tip->property("visible").toBool(),
+                                             qPrintable(diagnostic()));
+                            } else {
                                 QTest::qWait(550);
                                 QVERIFY(!tip->property("popup").value<QObject *>());
                             }
@@ -3063,7 +3077,7 @@ QtObject {
         send(&touchpad, {0, 20}, {});
         QCOMPARE(playback.volume(), 51.);
         if (!mini)
-            QCOMPARE(volume->property("tooltipText").toString(), QStringLiteral("音量·51"));
+            QCOMPARE(volume->property("tooltipText").toString(), QStringLiteral("音量 51%"));
         QVERIFY(!root->findChild<QObject *>("miniPlayerVolumePopup"));
         QSignalSpy popups(&controller, &ShellController::playbackPopupRequested);
         const auto point =

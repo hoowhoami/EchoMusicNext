@@ -42,13 +42,16 @@ ItemDelegate {
     background: Rectangle {
         radius: Theme.cardRadius
         color: Theme.mutedSurface
-        EchoDashedFrame {
+        Loader {
             anchors.fill: parent
-            solid: true
-            strokeColor: Theme.accent
-            radius: Theme.cardRadius
-            thickness: 2
-            visible: card.visualFocus
+            active: card.visualFocus && card.resourceActive
+            sourceComponent: EchoDashedFrame {
+                objectName: "contentCardFocusFrame"
+                solid: true
+                strokeColor: Theme.accent
+                radius: Theme.cardRadius
+                thickness: 2
+            }
         }
     }
     contentItem: ColumnLayout {
@@ -66,59 +69,67 @@ ItemDelegate {
                 circular: card.artist
                 resourceActive: card.resourceActive
             }
-            Rectangle {
+            Loader {
                 anchors.fill: parent
-                radius: Theme.controlRadius
-                color: "#4d000000"
-                opacity: card.resourceActive && card.hovered && card.video ? 1 : 0
-                Behavior on opacity {
-                    enabled: card.resourceActive
-                    NumberAnimation {
-                        duration: Theme.normalDuration
-                        easing.type: Easing.BezierSpline
-                        easing.bezierCurve: Theme.easeStandard
-                    }
-                }
-                Rectangle {
-                    anchors.centerIn: parent
-                    width: 36
-                    height: 36
-                    radius: 18
-                    color: "#e6ffffff"
-                    scale: card.resourceActive && card.hovered ? 1 : 0.75
-                    Behavior on scale {
-                        enabled: card.resourceActive
-                        NumberAnimation {
-                            duration: Theme.normalDuration
-                            easing.type: Easing.BezierSpline
-                            easing.bezierCurve: Theme.easeStandard
+                active: card.video && card.resourceActive
+                sourceComponent: Item {
+                    objectName: "contentCardVideoDetails"
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: Theme.controlRadius
+                        color: "#4d000000"
+                        opacity: card.resourceActive && card.hovered ? 1 : 0
+                        Behavior on opacity {
+                            enabled: card.resourceActive
+                            NumberAnimation {
+                                duration: Theme.normalDuration
+                                easing.type: Easing.BezierSpline
+                                easing.bezierCurve: Theme.easeStandard
+                            }
+                        }
+                        Rectangle {
+                            anchors.centerIn: parent
+                            width: 36
+                            height: 36
+                            radius: 18
+                            color: "#e6ffffff"
+                            scale: card.resourceActive && card.hovered ? 1 : 0.75
+                            Behavior on scale {
+                                enabled: card.resourceActive
+                                NumberAnimation {
+                                    duration: Theme.normalDuration
+                                    easing.type: Easing.BezierSpline
+                                    easing.bezierCurve: Theme.easeStandard
+                                }
+                            }
+                            EchoIcon {
+                                anchors.centerIn: parent
+                                width: 14
+                                height: 14
+                                name: "play"
+                                color: "black"
+                                resourceActive: card.resourceActive
+                            }
                         }
                     }
-                    EchoIcon {
-                        anchors.centerIn: parent
-                        width: 14
-                        height: 14
-                        name: "play"
-                        color: "black"
-                        resourceActive: card.resourceActive
+                    Rectangle {
+                        visible: card.durationText.length > 0
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        anchors.margins: 8
+                        width: time.implicitWidth + 10
+                        height: 20
+                        radius: 4
+                        color: "#99000000"
+                        Text {
+                            id: time
+                            anchors.centerIn: parent
+                            text: card.durationText
+                            color: "white"
+                            font: Theme.font(11, Theme.regularWeight)
+                            textFormat: Text.PlainText
+                        }
                     }
-                }
-            }
-            Rectangle {
-                visible: card.video && card.durationText.length > 0
-                anchors.right: parent.right
-                anchors.bottom: parent.bottom
-                anchors.margins: 8
-                width: time.implicitWidth + 10
-                height: 20
-                radius: 4
-                color: "#99000000"
-                Text {
-                    id: time
-                    anchors.centerIn: parent
-                    text: card.durationText
-                    color: "white"
-                    font: Theme.font(11, Theme.regularWeight)
                 }
             }
         }

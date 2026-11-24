@@ -1,5 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import EchoMusic.Controls
 import EchoMusic.Theme
 
 // One bounded image texture and a native Qt scene-graph quad. The UV crop is
@@ -11,11 +12,18 @@ Item {
     required property vector3d scrim
     signal ready
     signal failed
+    EchoImageMetrics {
+        id: metrics
+        item: artwork
+        source: artwork.imageUrl
+        maximumDecodeSize: 800
+        deferRequests: true
+    }
     Image {
         id: image
         objectName: "discoverFlowArtwork"
-        source: artwork.imageUrl
-        sourceSize: Qt.size(800, 800)
+        source: metrics.resolvedSource
+        sourceSize: metrics.decodeSize
         asynchronous: true
         visible: false
         onStatusChanged: {

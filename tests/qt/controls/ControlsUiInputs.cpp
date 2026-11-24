@@ -2,6 +2,7 @@
 #include "ControlsUiTestFixture.h"
 #include <QClipboard>
 #include <QContextMenuEvent>
+#include <QQuickImageProvider>
 
 void ControlsUiTest::textEditingMenusShareStyleActionsAndLifetime()
 {
@@ -497,6 +498,24 @@ void ControlsUiTest::imageDensityTracksScaleWithoutTrackingScroll()
     const auto file = QUrl::fromLocalFile("/tmp/a-{size}.png");
     metrics.setSource(file);
     QCOMPARE(metrics.resolvedSource(), file);
+    QQuickItem thumbnail(window.contentItem());
+    thumbnail.setSize({48, 48});
+    EchoImageMetrics small;
+    small.setItem(&thumbnail);
+    small.setSource(QUrl("https://imge.kugou.com/stdmusic/1600/date/art.jpg"));
+    QCOMPARE(small.resolvedSource(), QUrl("https://imge.kugou.com/stdmusic/240/date/art.jpg"));
+    small.setSource(QUrl("http://c1.kgimg.com/custom/1600/date/art.png"));
+    QCOMPARE(small.resolvedSource(), QUrl("http://c1.kgimg.com/custom/240/date/art.png"));
+    const QUrl signedLarge("https://imge.kugou.com/stdmusic/1600/date/art.jpg?sig=keep");
+    small.setSource(signedLarge);
+    QCOMPARE(small.resolvedSource(), signedLarge);
+    const QUrl unknownLarge("https://images.example/stdmusic/1600/date/art.jpg");
+    small.setSource(unknownLarge);
+    QCOMPARE(small.resolvedSource(), unknownLarge);
+    small.setSource(QUrl("https://imge.kugou.com/stdmusic/1600/date/art.jpg"));
+    small.setMinimumSize({380, 380});
+    QVERIFY(!small.resolvedSource().path().contains(
+        "/240/")); // Playback still reserves its full destination density.
     metrics.setActive(false);
     QVERIFY(metrics.resolvedSource().isEmpty());
     QVERIFY(metrics.pixelSize().isEmpty());
@@ -514,6 +533,116 @@ void ControlsUiTest::imageDensityTracksScaleWithoutTrackingScroll()
     transition.setActive(false);
     QVERIFY(transition.pixelSize().isEmpty());
     QVERIFY(transition.decodeSize().isEmpty());
+}
+
+void ControlsUiTest::imageRequestsCoalesceLayoutAndRetireSynchronously()
+{
+    QQuickItem item;
+    EchoImageMetrics metrics;
+    metrics.setDeferRequests(true);
+    metrics.setItem(&item);
+    const QUrl first("https://imge.kugou.com/stdmusic/1600/date/first.jpg");
+    const QUrl second("https://imge.kugou.com/stdmusic/1600/date/second.jpg");
+    metrics.setSource(first);
+    QSignalSpy requests(&metrics, &EchoImageMetrics::requestChanged);
+    item.setSize({1500, 1500});
+    item.setSize({48, 48});
+    metrics.setSource(second);
+    QVERIFY(metrics.resolvedSource().isEmpty());
+    QTRY_COMPARE(requests.size(), 1);
+    QCOMPARE(metrics.decodeSize(), QSize(64, 64));
+    QCOMPARE(metrics.requestSource(), second);
+    QVERIFY(metrics.resolvedSource().path().contains("/240/"));
+    item.setSize({600, 600});
+    QTRY_COMPARE(requests.size(), 2);
+    item.setSize({40, 40});
+    QCoreApplication::processEvents();
+    QCOMPARE(requests.size(), 2); // Retain a published copy through a collapsing header.
+    metrics.setSource(first);
+    QCOMPARE(metrics.requestSource(), second); // Old decoder errors retain their own identity.
+    QTRY_COMPARE(requests.size(), 3);
+    QCOMPARE(metrics.requestSource(), first);
+    QCOMPARE(metrics.decodeSize(), QSize(64, 64));
+    metrics.setMaximumDecodeSize(32);
+    QTRY_COMPARE(metrics.decodeSize(), QSize(32, 32));
+    item.setSize({1200, 1200});
+    metrics.setSource(second);
+    metrics.setActive(false);
+    QVERIFY(metrics.resolvedSource().isEmpty());
+    QVERIFY(metrics.decodeSize().isEmpty());
+    const auto retired = requests.size();
+    QCoreApplication::processEvents();
+    QCOMPARE(requests.size(), retired); // No queued request can resurrect a pooled cover.
+    metrics.setActive(true);
+    QTRY_COMPARE(metrics.requestSource(), second);
+    QCOMPARE(metrics.decodeSize(), QSize(32, 32));
+    auto pending = std::make_unique<EchoImageMetrics>();
+    pending->setDeferRequests(true);
+    pending->setItem(&item);
+    pending->setSource(first);
+    pending.reset();
+    QCoreApplication::processEvents(); // The coalescer is owned by the deleted metrics object.
+}
+
+void ControlsUiTest::coverRequestsUseSettledBoundedDimensions()
+{
+    class Provider final : public QQuickImageProvider
+    {
+    public:
+        Provider() : QQuickImageProvider(Image) {}
+        std::atomic_int calls{0}, unbounded{0}, largest{0};
+        QImage requestImage(const QString &, QSize *size, const QSize &requested) override
+        {
+            ++calls;
+            if (requested.width() <= 0 || requested.height() <= 0)
+                ++unbounded;
+            const int side = std::max(requested.width(), requested.height());
+            int previous = largest;
+            while (side > previous && !largest.compare_exchange_weak(previous, side)) {
+            }
+            *size = QSize(64, 64);
+            QImage image(64, 64, QImage::Format_RGB32);
+            image.fill(Qt::blue);
+            return image;
+        }
+    };
+    ControlsSession session;
+    session.theme.attachToEngine(session.engine);
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    auto *provider = new Provider;
+    session.engine.addImageProvider("request-budget", provider);
+    QQmlComponent component(&session.engine);
+    component.setData(R"(
+import QtQuick
+import EchoMusic.Controls
+Item {
+ property real edge: 1500
+ EchoCover {
+  objectName: "probe"; width: parent.edge; height: width
+  source: "image://request-budget/first"; placeholderGlyph: ""
+ }
+})",
+                      QUrl());
+    std::unique_ptr<QObject> root(component.create());
+    QVERIFY2(root, qPrintable(component.errorString()));
+    auto *cover = root->findChild<QObject *>("probe");
+    QVERIFY(cover);
+    root->setProperty("edge", 48);
+    QTRY_COMPARE(cover->property("status").toInt(), 1);
+    QCOMPARE(provider->unbounded.load(), 0);
+    QCOMPARE(provider->largest.load(), 64);
+    QCOMPARE(provider->calls.load(), 1);
+    root->setProperty("edge", 1400);
+    root->setProperty("edge", 48);
+    QCoreApplication::processEvents();
+    QCOMPARE(provider->calls.load(), 1);
+    cover->setProperty("source", QUrl("image://request-budget/second"));
+    QTRY_COMPARE(provider->calls.load(), 2);
+    cover->setProperty("resourceActive", false);
+    QCoreApplication::processEvents();
+    QCOMPARE(provider->unbounded.load(), 0);
+    QCOMPARE(provider->calls.load(), 2);
+    QCOMPARE(warnings.size(), 0);
 }
 
 void ControlsUiTest::imageDensitySharesAncestorsAndReleasesInactiveObservers()

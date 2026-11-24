@@ -66,6 +66,7 @@ private:
     RouteController &m_router;
     QPointer<LibraryController> m_controller;
     QPointer<PlaylistDetailContext> m_pendingPlayback;
+    QPointer<QObject> m_pendingPlayRead;
     quint64 m_pendingPlayListId = 0;
     QString m_pendingResource;
     QString m_pendingPlaySequence;

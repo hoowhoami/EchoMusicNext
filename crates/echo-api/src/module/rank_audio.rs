@@ -359,6 +359,8 @@ pub fn convert(bytes: &[u8]) -> Result<RankSongs, ApiError> {
                         headline: s.business.recommend_reason,
                         detail: String::new(),
                         rank_label: None,
+                        curator: None,
+                        artwork_url: None,
                     },
                     ranking: Some(RankingPosition {
                         rank_id: s.business.rank_id,

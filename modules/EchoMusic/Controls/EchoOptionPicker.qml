@@ -5,15 +5,19 @@ import QtQuick.Layouts
 import EchoMusic.Theme
 import EchoMusic.Controls
 
-// Grouped tabs with a bounded set of wrapping option buttons.
+// Grouped, bounded options. Single picks close; opt-in multiple selection
+// emits toggled and keeps the dialog open until the user finishes.
 EchoDialog {
     id: picker
     property var groups: []
     property string selectedId: ""
+    property bool multiple: false
+    property var selectedIds: []
     property string activeGroup: ""
     readonly property int groupIndex: Math.max(0, groups.findIndex(group => group.label === activeGroup))
     readonly property var options: groups.length ? groups[Math.min(groupIndex, groups.length - 1)].options : []
     signal chosen(string id)
+    signal toggled(string id)
     preferredWidth: 500
     onGroupsChanged: {
         if (!groups.some(group => group.label === activeGroup))
@@ -22,7 +26,7 @@ EchoDialog {
     onOpened: {
         activeGroup = groups.length ? groups[0].label : "";
         for (let i = 0; i < groups.length; ++i)
-            if (groups[i].options.some(option => String(option.id) === selectedId)) {
+            if (groups[i].options.some(option => multiple ? selectedIds.indexOf(String(option.id)) >= 0 : String(option.id) === selectedId)) {
                 activeGroup = groups[i].label;
                 break;
             }
@@ -59,18 +63,37 @@ EchoDialog {
                         model: picker.options
                         delegate: EchoSoftButton {
                             required property var modelData
+                            objectName: "option-" + String(modelData.id)
                             colors: Theme.floating
                             text: modelData.label
-                            accent: String(modelData.id) === picker.selectedId
-                            Accessible.role: Accessible.RadioButton
+                            accent: picker.multiple ? picker.selectedIds.indexOf(String(modelData.id)) >= 0 : String(modelData.id) === picker.selectedId
+                            Accessible.role: picker.multiple ? Accessible.CheckBox : Accessible.RadioButton
                             Accessible.checked: accent
                             onClicked: {
-                                picker.chosen(String(modelData.id));
-                                picker.close();
+                                if (picker.multiple)
+                                    picker.toggled(String(modelData.id));
+                                else {
+                                    picker.chosen(String(modelData.id));
+                                    picker.close();
+                                }
                             }
                         }
                     }
                 }
+            }
+        }
+    }
+    footerContent: multiple ? doneFooter : null
+    Component {
+        id: doneFooter
+        RowLayout {
+            Item {
+                Layout.fillWidth: true
+            }
+            EchoButton {
+                text: qsTr("完成")
+                colors: Theme.floating
+                onClicked: picker.close()
             }
         }
     }

@@ -252,6 +252,8 @@ impl Item {
                 headline: String::new(),
                 detail: String::new(),
                 rank_label: None,
+                curator: None,
+                artwork_url: None,
             },
             ranking: None,
             artists,

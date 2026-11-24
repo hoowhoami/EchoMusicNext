@@ -175,11 +175,14 @@ EchoPluginServer::EchoPluginServer(EchoPluginContext &s) : QObject(&s), m_scope(
 }
 QString EchoPluginServer::encodeBody(const QVariant &value, const QString &encoding)
 {
+    const auto normalized = value.metaType() == QMetaType::fromType<QJSValue>()
+                                ? value.value<QJSValue>().toVariant()
+                                : value;
     QByteArray bytes;
-    if (encoding == "utf8" && value.metaType() == QMetaType::fromType<QString>())
-        bytes = value.toString().toUtf8();
+    if (encoding == "utf8" && normalized.metaType() == QMetaType::fromType<QString>())
+        bytes = normalized.toString().toUtf8();
     else if (encoding == "json") {
-        bytes = QJsonDocument(QJsonArray{QJsonValue::fromVariant(value)})
+        bytes = QJsonDocument(QJsonArray{QJsonValue::fromVariant(normalized)})
                     .toJson(QJsonDocument::Compact);
         bytes = bytes.mid(1, bytes.size() - 2);
     } else {

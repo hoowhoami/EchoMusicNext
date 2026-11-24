@@ -150,11 +150,11 @@ ColumnLayout {
                 options: [
                     {
                         value: "blend",
-                        label: qsTr("原声 / 音效混合（适合校正 IR）")
+                        label: qsTr("原声 / 音效混合")
                     },
                     {
                         value: "reverb",
-                        label: qsTr("叠加混响（保留原声）")
+                        label: qsTr("叠加混响")
                     }
                 ]
                 value: pane.audio.impulseMixMode

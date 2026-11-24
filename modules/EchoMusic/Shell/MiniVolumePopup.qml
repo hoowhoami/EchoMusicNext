@@ -7,14 +7,15 @@ import EchoMusic.Controls
 import EchoMusic.Theme
 import EchoMusic.Playback
 
-// Mini-only visual exception requested by the user; placement, native lifetime
-// and dismissal still belong to the same shared anchored popup as other menus.
+// The native Mini wrapper keeps its soft pointer and screen-bounded placement;
+// its volume content is shared with the main-window surfaces.
 EchoAnchoredPopup {
     id: popup
     required property PlaybackService playback
     property real contentScale: 1
     readonly property real logicalWidth: width / contentScale
-    readonly property real bodyHeight: 48
+    readonly property real naturalBodyHeight: volumePanel.implicitHeight + 32
+    readonly property real bodyHeight: Math.max(0, height / contentScale - tipHeight)
     readonly property real tipHeight: 9
     readonly property real tipX: Math.max(28, Math.min((anchorRect.x + anchorRect.width / 2 - x) / contentScale, logicalWidth - 28))
     popupType: Popup.Window
@@ -25,81 +26,45 @@ EchoAnchoredPopup {
     screenBounded: true
     // Popup.Window uses actual width/height for its native bounds. Scale the
     // bounded content inside those bounds instead of clipping a Popup.scale.
-    preferredWidth: 224 * contentScale
-    implicitHeight: (bodyHeight + tipHeight) * contentScale
-    // Flipping swaps top/bottom padding. The fixed single-row height must not
-    // depend on those paddings through the shared scrolling content limit.
-    height: implicitHeight
+    preferredWidth: 320 * contentScale
+    // Native popup windows have integer pixel bounds; round up so fractional
+    // Mini scaling cannot create a subpixel overflow and an unnecessary scrollbar.
+    implicitHeight: Math.ceil((naturalBodyHeight + tipHeight) * contentScale)
+    // Keep natural content height independent of placement and its flipped
+    // paddings; a short screen scrolls the same production panel.
+    height: Math.min(implicitHeight, placementHeight)
     preferAbove: true
     contentAlign: "center"
     sideOffset: 0
-    leftPadding: 12 * contentScale
-    rightPadding: 16 * contentScale
-    topPadding: (placedAbove ? 8 : 8 + tipHeight) * contentScale
-    bottomPadding: (placedAbove ? 8 + tipHeight : 8) * contentScale
+    leftPadding: 20 * contentScale
+    rightPadding: 20 * contentScale
+    topPadding: (placedAbove ? 16 : 16 + tipHeight) * contentScale
+    bottomPadding: (placedAbove ? 16 + tipHeight : 16) * contentScale
     // Reserve native window pixels for the bounded shadow without expanding the
     // host Mini window or adding a texture-backed blur of its contents.
     leftInset: -12 * contentScale
     rightInset: -12 * contentScale
     topInset: -12 * contentScale
     bottomInset: -12 * contentScale
-    contentItem: Item {
-        RowLayout {
-            width: parent.width / popup.contentScale
-            height: parent.height / popup.contentScale
+    contentItem: Flickable {
+        id: viewport
+        clip: true
+        contentWidth: width
+        contentHeight: volumePanel.implicitHeight * popup.contentScale
+        boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
+        ScrollBar.vertical: EchoPopupScrollBar {
+            surface: popup
+            view: viewport
+            resourceActive: popup.visible
+        }
+        PlaybackVolumePanel {
+            id: volumePanel
+            width: viewport.width / popup.contentScale
+            height: implicitHeight
             scale: popup.contentScale
             transformOrigin: Item.TopLeft
-            spacing: 8
-            EchoIconButton {
-                objectName: "playbackVolumeMute"
-                colors: Theme.floating
-                Layout.preferredWidth: 24
-                Layout.preferredHeight: 24
-                padding: 4
-                glyph: popup.playback.volume > 0 ? "volume" : "volume-off"
-                text: popup.playback.volume > 0 ? qsTr("静音") : qsTr("取消静音")
-                onClicked: popup.playback.toggleMute()
-            }
-            EchoSlider {
-                id: slider
-                objectName: "playbackVolumeSlider"
-                colors: Theme.floating
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                padding: 0
-                from: 0
-                to: popup.playback.cast.remote ? 100 : 150
-                stepSize: 1
-                value: popup.playback.volume
-                onMoved: popup.playback.setVolume(value)
-                Accessible.name: qsTr("音量")
-                handle: Rectangle {
-                    x: slider.visualPosition * (slider.availableWidth - width)
-                    y: slider.availableHeight / 2 - height / 2
-                    width: 10
-                    height: 10
-                    radius: 5
-                    color: slider.colors.accent
-                    EchoDashedFrame {
-                        anchors.fill: parent
-                        solid: true
-                        strokeColor: slider.colors.text
-                        radius: 5
-                        visible: slider.visualFocus
-                    }
-                }
-            }
-            EchoTextLine {
-                objectName: "miniVolumeValue"
-                Layout.minimumWidth: implicitWidth
-                Layout.preferredWidth: Math.max(40, implicitWidth)
-                Layout.fillHeight: true
-                text: Math.round(popup.playback.volume) + "%"
-                font: Theme.font(11, Theme.semiboldWeight)
-                color: Theme.floating.secondaryText
-                horizontalAlignment: Text.AlignRight
-                fillTextWidth: true
-            }
+            playback: popup.playback
         }
     }
     background: Item {
@@ -137,8 +102,8 @@ EchoAnchoredPopup {
                 }
                 ShapePath {
                     fillColor: Theme.floating.elevated
-                    strokeColor: Theme.floating.subtleBorder
-                    strokeWidth: .5
+                    strokeColor: "transparent"
+                    strokeWidth: 0
                     startX: 14
                     startY: 0
                     PathLine {

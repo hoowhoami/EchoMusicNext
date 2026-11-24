@@ -17,6 +17,7 @@
 #include <QJsonArray>
 #include <QFontMetricsF>
 #include <QJsonDocument>
+#include <QFile>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQmlIncubationController>
@@ -24,6 +25,7 @@
 #include <QQuickWindow>
 #include "SettingsStore.h"
 #include <QSignalSpy>
+#include <QSqlDatabase>
 #include <QTemporaryDir>
 #include <QtTest>
 #ifdef Q_OS_MACOS
@@ -142,6 +144,20 @@ public:
         c.m_complete = true;
         c.m_total = songs.size();
         emit c.changed();
+    }
+    static void preparePages(PlaylistDetailContext &c, bool owned)
+    {
+        c.cancel();
+        c.m_network = false;
+        c.m_songs.setMetadataActive(false);
+        c.m_detail = {{"global_id", c.m_resourceId}, {"title", "Inline playlist"}};
+        c.m_actions.setQueueContext("Inline playlist", "queue:playlist:" + c.m_resourceId);
+        if (owned)
+            cloud(c);
+    }
+    static void allowNetwork(PlaylistDetailContext &c)
+    {
+        c.m_network = true;
     }
     static void pending(PlaylistDetailContext &c, quint64 id, quint32 page)
     {
@@ -689,9 +705,215 @@ Window {
         QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
         api.shutdown();
     }
+    void sidebarStoredPlaybackReadsAllPagesBeforeRetiringTheContext_data()
+    {
+        QTest::addColumn<bool>("cloud");
+        QTest::addColumn<bool>("shuffle");
+        QTest::newRow("owned-cloud") << true << false;
+        QTest::newRow("collected-public") << false << false;
+        QTest::newRow("owned-shuffle") << true << true;
+        QTest::newRow("collected-shuffle") << false << true;
+    }
+    void sidebarStoredPlaybackReadsAllPagesBeforeRetiringTheContext()
+    {
+        QFETCH(bool, cloud);
+        QFETCH(bool, shuffle);
+        QTemporaryDir dir;
+        SessionDatabase database(dir.filePath("session"));
+        {
+            SettingsStore prefs(dir.filePath("prefs.ini"));
+            ApiClient api(DeviceIdentity::temporary());
+            QVERIFY(api.setAccount(100, "inline-play-domain-fixture"));
+            PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+            playback.setPlayMode(shuffle ? PlaybackService::Shuffle : PlaybackService::ListLoop);
+            UserPlaylistModel library(api);
+            UserPlaylistModelTestAccess::seed(library, api);
+            UserPlaylistModelTestAccess::setKind(library, cloud ? "owned" : "collected");
+            PlaylistMutationService mutations(api);
+            LibraryController controller(api, library, mutations);
+            SongMetadataService metadata(api);
+            metadata.enableSqlIndex(database);
+            RouteController router;
+            router.registerPage({"home", "/home", QUrl("qrc:/unused-home.qml")});
+            QVERIFY(router.navigate("home"));
+            PlaylistDetailService service(api, playback, library, mutations, *controller.order(),
+                                          metadata, router, true);
+            service.attachLibraryController(controller);
+            QSignalSpy notices(&service, &PlaylistDetailService::notice);
+            const auto route = router.current();
+            const auto mounted = router.mountedCount();
+            QVERIFY(controller.playPlaylist(7));
+            QPointer<PlaylistDetailContext> context =
+                PlaylistDetailServiceTestAccess::pending(service);
+            QVERIFY(context);
+            PlaylistDetailContextTestAccess::preparePages(*context, cloud);
+            for (int page = 1; page <= 2; ++page) {
+                QJsonArray entries;
+                for (int i = (page - 1) * 140 + 1; i <= page * 140; ++i) {
+                    auto entry = playlistSong(i);
+                    entry.insert("sort_index", i);
+                    entries.append(entry);
+                }
+                const QJsonObject value{{"items", entries}, {"total", 280}, {"page", page}};
+                PlaylistDetailContextTestAccess::pending(*context, 98000 + page, page);
+                PlaylistDetailContextTestAccess::accept(
+                    *context, 98000 + page,
+                    cloud ? QJsonObject{{"revision", 9}, {"page", value}} : value);
+                if (page == 1) {
+                    // The offline seam has no transport to start page two.
+                    // Keep its pending request just as real pagination does.
+                    PlaylistDetailContextTestAccess::pending(*context, 98002, 2);
+                    QTRY_COMPARE(context->songs()->totalCount(), 140);
+                    QCOMPARE(playback.queue()->rowCount(), 0);
+                    QCOMPARE(controller.pendingPlayListId(), quint64(7));
+                }
+            }
+            QTRY_COMPARE(playback.queue()->rowCount(), 280);
+            QCOMPARE(playback.sourceKey(), "queue:playlist:cover-playlist");
+            QCOMPARE(controller.pendingPlayListId(), quint64(0));
+            QCOMPARE(router.current(), route);
+            QCOMPARE(router.mountedCount(), mounted);
+            QVERIFY(!PlaylistDetailServiceTestAccess::pending(service));
+            QTRY_VERIFY(!context);
+            QCOMPARE(notices.size(), 0);
+            PlaybackTracks tracks;
+            QString readError;
+            bool read = false;
+            QObject reader;
+            playback.queue()->requestTracks(&reader, [&](auto values, auto error) {
+                tracks = std::move(values);
+                readError = std::move(error);
+                read = true;
+            });
+            QTRY_VERIFY(read);
+            QVERIFY2(readError.isEmpty(), qPrintable(readError));
+            QCOMPARE(tracks.first().id, QString("1"));
+            QCOMPARE(tracks.last().id, QString("280"));
+            if (!shuffle)
+                QCOMPARE(playback.trackId(), QString("1"));
+            QCOMPARE(tracks.last().catalogMetadata.value("resources"),
+                     playlistSong(280).value("metadata").toObject().value("resources"));
+            service.shutdown();
+            router.shutdown();
+            QSignalSpy closed(&playback, &PlaybackService::closed);
+            playback.shutdown();
+            QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+            api.shutdown();
+        }
+        QSignalSpy closed(&database, &SessionDatabase::closed);
+        database.shutdown();
+        QTRY_COMPARE(closed.size(), 1);
+    }
+    void sidebarPlaybackCancelsWhileReadingStoredSongs_data()
+    {
+        QTest::addColumn<QString>("cancel");
+        for (const auto &action :
+             {"replacement", "other-track", "account", "shutdown", "failure", "cache-recovery"})
+            QTest::newRow(action) << QString(action);
+    }
+    void sidebarPlaybackCancelsWhileReadingStoredSongs()
+    {
+        QFETCH(QString, cancel);
+        QTemporaryDir dir;
+        SessionDatabase database(dir.filePath("session"));
+        {
+            SettingsStore prefs(dir.filePath("prefs.ini"));
+            ApiClient api(DeviceIdentity::temporary());
+            QVERIFY(api.setAccount(100, "inline-play-domain-fixture"));
+            PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+            UserPlaylistModel library(api);
+            UserPlaylistModelTestAccess::seed(library, api);
+            UserPlaylistModelTestAccess::setKind(library, "owned");
+            PlaylistMutationService mutations(api);
+            LibraryController controller(api, library, mutations);
+            SongMetadataService metadata(api);
+            metadata.enableSqlIndex(database);
+            RouteController router;
+            PlaylistDetailService service(api, playback, library, mutations, *controller.order(),
+                                          metadata, router, true);
+            service.attachLibraryController(controller);
+            QVERIFY(controller.playPlaylist(7));
+            QPointer<PlaylistDetailContext> context =
+                PlaylistDetailServiceTestAccess::pending(service);
+            const QJsonArray songs{playlistSong(1)["song"], playlistSong(2)["song"]};
+            PlaylistDetailContextTestAccess::finishPlayback(*context, songs);
+            QCOMPARE(controller.pendingPlayListId(), quint64(7));
+            QCOMPARE(PlaylistDetailServiceTestAccess::pending(service), context.data());
+            QCOMPARE(playback.queue()->rowCount(), 0);
+            if (cancel == "cache-recovery") {
+                PlaylistDetailContextTestAccess::allowNetwork(*context);
+                QSignalSpy invalidated(&database, &SessionDatabase::invalidated);
+                QVERIFY(database.submit(
+                    this,
+                    [](QSqlDatabase &db, const QString &) {
+                        const auto path = db.databaseName();
+                        db.close();
+                        return QFile::remove(path);
+                    },
+                    [](bool) {}));
+                // The next read observes a closed, missing source, retiring
+                // admitted old work just as a wholly lost disposable cache does.
+                QVERIFY(database.submit(
+                    this, [](QSqlDatabase &, const QString &) { return true; }, [](bool) {}));
+                QTRY_COMPARE(invalidated.size(), 1);
+                QCOMPARE(PlaylistDetailServiceTestAccess::pending(service), context.data());
+                QVERIFY(context->loading());
+                QCOMPARE(controller.pendingPlayListId(), quint64(7));
+                PlaylistDetailContextTestAccess::preparePages(*context, false);
+                PlaylistDetailContextTestAccess::pending(*context, 99010, 1);
+                PlaylistDetailContextTestAccess::accept(
+                    *context, 99010,
+                    QJsonObject{{"items", QJsonArray{playlistSong(3)}}, {"total", 1}});
+            } else if (cancel == "replacement") {
+                QVERIFY(controller.playPlaylist(7));
+                auto *replacement = PlaylistDetailServiceTestAccess::pending(service);
+                QVERIFY(replacement && replacement != context);
+                // Retired children cannot clear a newer intent before deleteLater.
+                emit context->songs()->readFailed("retired read");
+                QCOMPARE(PlaylistDetailServiceTestAccess::pending(service), replacement);
+                PlaylistDetailContextTestAccess::finishPlayback(*replacement,
+                                                                {playlistSong(3)["song"]});
+            } else if (cancel == "other-track") {
+                playback.playTracks({PlaybackTrack::fromDomain(playlistSong(4)["song"].toObject())},
+                                    0, "Other queue", "queue:test-other");
+            } else if (cancel == "account") {
+                QVERIFY(api.setAccount(101, "another-domain-fixture"));
+            } else if (cancel == "shutdown") {
+                service.shutdown();
+            } else
+                emit context->songs()->readFailed("cache read failure");
+            QTRY_VERIFY(!context);
+            QTRY_VERIFY(!PlaylistDetailServiceTestAccess::pending(service));
+            QTRY_COMPARE(database.pendingJobs(), 0);
+            QCOMPARE(controller.pendingPlayListId(), quint64(0));
+            if (cancel == "replacement" || cancel == "cache-recovery")
+                QCOMPARE(playback.trackId(), QString("3"));
+            else if (cancel == "other-track")
+                QCOMPARE(playback.trackId(), QString("4"));
+            else
+                QCOMPARE(playback.queue()->rowCount(), 0);
+            service.shutdown();
+            router.shutdown();
+            QSignalSpy closed(&playback, &PlaybackService::closed);
+            playback.shutdown();
+            QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+            api.shutdown();
+        }
+        QSignalSpy closed(&database, &SessionDatabase::closed);
+        database.shutdown();
+        QTRY_COMPARE(closed.size(), 1);
+    }
+    void sidebarPlaybackLoadsWithoutMountingAPageAndCancelsOldIntents_data()
+    {
+        QTest::addColumn<bool>("stored");
+        QTest::newRow("memory") << false;
+        QTest::newRow("session-sqlite") << true;
+    }
     void sidebarPlaybackLoadsWithoutMountingAPageAndCancelsOldIntents()
     {
+        QFETCH(bool, stored);
         QTemporaryDir dir;
+        SessionDatabase database(dir.filePath("session"));
         SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
         QVERIFY(api.setAccount(100, "inline-play-domain-fixture"));
@@ -702,6 +924,8 @@ Window {
         PlaylistMutationService mutations(api);
         LibraryController controller(api, library, mutations);
         SongMetadataService metadata(api);
+        if (stored)
+            metadata.enableSqlIndex(database);
         RouteController router;
         router.registerPage({"home", "/home", QUrl("qrc:/unused-home.qml")});
         QVERIFY(router.navigate("home"));
@@ -724,7 +948,7 @@ Window {
         PlaylistDetailContextTestAccess::finishPlayback(*first, songs);
         QCOMPARE(playback.queue()->rowCount(), 0);
         PlaylistDetailContextTestAccess::finishPlayback(*second, songs);
-        QCOMPARE(playback.queue()->rowCount(), 2);
+        QTRY_COMPARE(playback.queue()->rowCount(), 2);
         QCOMPARE(playback.sourceKey(), "queue:playlist:cover-playlist");
         QCOMPARE(controller.pendingPlayListId(), quint64(0));
         QCOMPARE(router.current(), route);
@@ -771,6 +995,7 @@ Window {
         QVERIFY(!PlaylistDetailServiceTestAccess::pending(service));
         QCOMPARE(controller.pendingPlayListId(), quint64(0));
         QCOMPARE(router.current(), detailRoute);
+        QTRY_COMPARE(playback.sourceKey(), "queue:playlist:cover-playlist");
         QCOMPARE(playback.queue()->rowCount(), 2);
         // Successful deletion leaves only the matching detail. No write is sent.
         emit controller.removed("another-playlist");

@@ -1,5 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import EchoMusic.Controls
 import EchoMusic.Playback
 
 // One cover owns a 32x32 preprocessing graph and one cropped mesh render target.
@@ -23,13 +24,20 @@ Item {
     }
     onPhaseChanged: refresh()
     onTargetSizeChanged: refresh()
+    EchoImageMetrics {
+        id: metrics
+        item: cover
+        source: artwork.coverSource
+        maximumDecodeSize: 32
+        deferRequests: true
+    }
     Image {
         id: cover
         objectName: "playbackBackgroundCover"
         width: 32 / artwork.renderDpr
         height: width
-        source: artwork.coverSource
-        sourceSize: Qt.size(32, 32)
+        source: metrics.resolvedSource
+        sourceSize: metrics.decodeSize
         cache: false
         asynchronous: true
         visible: false

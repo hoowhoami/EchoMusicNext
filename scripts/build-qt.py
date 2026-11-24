@@ -22,12 +22,13 @@ modules = [
     "qtwebsockets",
     "qtshadertools",
     "qtsvg",
+    "qtimageformats",
     "qtdeclarative",
     "qttools",  # Linguist extraction/compilation is part of the development SDK.
 ]
 if sys.platform.startswith("linux"):
     modules.append("qtwayland")  # Wayland QPA lives outside qtbase's X11 plugin.
-expected_commit = "ef25002ed292b132d1ed3246bfcee1d24a9cd966"  # Peeled official v6.12.0 tag
+expected_commit = "88bc9efbe213208113439d7cb3e119469784f363"  # Peeled official v6.12.1 tag
 
 
 def run(*args, cwd=None):
@@ -53,8 +54,8 @@ if (
     subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source, text=True).strip()
     != expected_commit
 ):
-    raise RuntimeError("Qt source commit differs from the audited 6.12.0 tag")
-# Keep exact source bytes across Windows and Unix for audited patch hashes.
+    raise RuntimeError("Qt source commit differs from the audited 6.12.1 tag")
+# Keep source bytes consistent across Windows and Unix.
 run(
     "git",
     "-c",

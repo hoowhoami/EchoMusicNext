@@ -13,6 +13,47 @@
 #include <qt_windows.h>
 #endif
 
+void ControlsUiTest::popupLoaderAcceptsOptionalProperties()
+{
+    ControlsSession session;
+    QQmlComponent component(&session.engine);
+    component.loadUrl(QUrl("qrc:/qt/qml/EchoMusic/ControlsTests/PopupLoaderHarness.qml"));
+    session.root.reset(component.create());
+    QVERIFY2(session.root, qPrintable(component.errorString()));
+    session.window = qobject_cast<QQuickWindow *>(session.root.data());
+    QVERIFY(session.window);
+    QTRY_VERIFY(session.window->isExposed());
+    const auto popup = [&] { return session.root->property("popup").value<QObject *>(); };
+    QVERIFY(!popup());
+    QVERIFY(QMetaObject::invokeMethod(session.root.data(), "openEmpty"));
+    QPointer<QObject> first = popup();
+    QVERIFY(first);
+    QTRY_VERIFY(first->property("opened").toBool());
+    QCOMPARE(first->property("payload").toInt(), 0);
+    QVERIFY(QMetaObject::invokeMethod(session.root.data(), "closePopup"));
+    QTRY_VERIFY(first.isNull());
+
+    QVERIFY(QMetaObject::invokeMethod(session.root.data(), "openConfigured"));
+    QPointer<QObject> configured = popup();
+    QVERIFY(configured);
+    QTRY_VERIFY(configured->property("opened").toBool());
+    QCOMPARE(configured->property("payload").toInt(), 17);
+    QCOMPARE(configured->property("entry").toMap().value("key").toString(),
+             QStringLiteral("theme"));
+    QVERIFY(QMetaObject::invokeMethod(session.root.data(), "closePopup"));
+    QTRY_VERIFY(configured.isNull());
+
+    session.root->setProperty("intent", true);
+    QTRY_VERIFY(popup() && popup()->property("opened").toBool());
+    QPointer<QObject> beforeMinimize = popup();
+    session.window->showMinimized();
+    QTRY_VERIFY(beforeMinimize.isNull());
+    session.window->showNormal();
+    QTRY_VERIFY(popup() && popup()->property("opened").toBool());
+    session.root->setProperty("intent", false);
+    QTRY_VERIFY(!popup());
+}
+
 void ControlsUiTest::scaledPopupTextKeepsNativePixelResolution()
 {
     ControlsSession session;

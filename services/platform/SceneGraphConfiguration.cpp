@@ -13,5 +13,10 @@ void configureSceneGraph()
         qputenv("QSG_ATLAS_WIDTH", "2048");
     if (!qEnvironmentVariableIsSet("QSG_ATLAS_HEIGHT"))
         qputenv("QSG_ATLAS_HEIGHT", "1024");
+    // Sparse CJK glyph allocation otherwise grows toward Metal's 16384px
+    // texture limit. Bound each page of Qt's existing glyph cache; glyph
+    // resolution and the native reuse/eviction path remain unchanged.
+    if (!qEnvironmentVariableIsSet("QSG_DISTANCEFIELD_MAX_TEXTURE_SIZE"))
+        qputenv("QSG_DISTANCEFIELD_MAX_TEXTURE_SIZE", "2048");
 }
 } // namespace EchoMusic

@@ -39,7 +39,8 @@ QtObject {
         }
         return item;
     }
-    function open(properties: var): void {
+    // Actions and restored visibility can open without an initial property map.
+    function open(properties = undefined): void {
         const surface = create(properties);
         if (surface)
             surface.open();

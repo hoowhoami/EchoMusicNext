@@ -510,8 +510,13 @@ private slots:
         auto *fm = playback.personalFm();
         if (!live) {
             fm->setPageActive(true, true);
+            auto previewSongs = songs();
+            auto firstSong = previewSongs.first().toObject();
+            firstSong["title"] = "Across the wind";
+            firstSong["artists"] = QJsonArray{QJsonObject{{"name", "塞壬唱片-MSR"}, {"id", 7}}};
+            previewSongs[0] = firstSong;
             PersonalFmControllerTestAccess::complete(
-                *fm, PersonalFmControllerTestAccess::resetRequest(*fm), songs());
+                *fm, PersonalFmControllerTestAccess::resetRequest(*fm), previewSongs);
         }
         QTRY_VERIFY_WITH_TIMEOUT(!fm->previewLoading(), 15000);
         QVERIFY2(!fm->current().isEmpty(), qPrintable(fm->errorMessage()));
@@ -673,6 +678,14 @@ private slots:
                 Test::FrameSpy frames(window);
                 window->update();
                 QTRY_VERIFY(!frames.isEmpty());
+                auto *metadataTrack = visual(window->contentItem(), "personalFmMetadataTrack");
+                QVERIFY(metadataTrack);
+                auto *metadataText = metadataTrack->property("textItem").value<QQuickItem *>();
+                QVERIFY(metadataText);
+                QTRY_COMPARE(metadataText->property("lineCount").toInt(), 1);
+                if (!live)
+                    QTRY_COMPARE(metadataText->property("text").toString(),
+                                 QString("Across the wind · 塞壬唱片-MSR"));
                 auto *poster = visual(window->contentItem(), "personalFmPoster");
                 QVERIFY(poster);
                 QCOMPARE(poster->width(), 248.);
