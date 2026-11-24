@@ -32,6 +32,10 @@ add_library(
     PointerHoverRefresh.cpp
     TaskbarProgressState.h
     TaskbarProgressState.cpp
+    # The DWM bitmap geometry: request parsing and tile fitting. Pure so the
+    # aspect-ratio mapping is testable without a taskbar.
+    TaskbarThumbnailLayout.h
+    TaskbarThumbnailLayout.cpp
     # Shared Win32 plumbing for the taskbar adapters (COM acquisition and GDI
     # conversions); callers only exist inside Q_OS_WIN blocks.
     WindowsTaskbarInterop.h

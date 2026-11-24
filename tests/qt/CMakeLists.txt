@@ -186,6 +186,12 @@ qt_add_executable(echo-taskbar-progress-state-test TaskbarProgressStateTest.cpp)
 target_link_libraries(echo-taskbar-progress-state-test PRIVATE echo_platform Qt6::Test)
 add_test(NAME taskbar-progress-state COMMAND echo-taskbar-progress-state-test)
 set_tests_properties(taskbar-progress-state PROPERTIES TIMEOUT 20)
+# The preview bitmap follows the size DWM names; a square tile stretched into a
+# non-square card is what squashed the cover to the left half.
+qt_add_executable(echo-taskbar-thumbnail-layout-test TaskbarThumbnailLayoutTest.cpp)
+target_link_libraries(echo-taskbar-thumbnail-layout-test PRIVATE echo_platform Qt6::Test)
+add_test(NAME taskbar-thumbnail-layout COMMAND echo-taskbar-thumbnail-layout-test)
+set_tests_properties(taskbar-thumbnail-layout PROPERTIES TIMEOUT 20)
 qt_add_executable(echo-taskbar-button-test TaskbarButtonControllerTest.cpp)
 target_link_libraries(echo-taskbar-button-test PRIVATE echo_shell Qt6::Test)
 add_test(NAME taskbar-button COMMAND echo-taskbar-button-test)
