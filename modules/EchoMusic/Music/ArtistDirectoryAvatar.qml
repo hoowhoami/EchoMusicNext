@@ -8,7 +8,9 @@ import EchoMusic.Theme
 // The directory intentionally differs from the metadata-rich search artist card.
 ItemDelegate {
     id: entry
-    EchoActionCursor {}
+    EchoActionCursor {
+        enabled: entry.navigationAvailable && entry.resourceId.length > 0
+    }
     required property string title
     required property string coverUrl
     required property string resourceId
@@ -17,7 +19,8 @@ ItemDelegate {
     property bool navigationAvailable: false
     signal openRequested(string id)
     padding: 0
-    implicitHeight: width + 40
+    topPadding: 4
+    implicitHeight: width + 44
     hoverEnabled: true
     Accessible.name: title
     background: null
@@ -27,6 +30,26 @@ ItemDelegate {
         visible: entry.presentationReady
         spacing: 12
         EchoCover {
+            id: artwork
+            transform: Translate {
+                y: entry.resourceActive && entry.hovered ? -4 : 0
+                Behavior on y {
+                    enabled: motion.allowed
+                    NumberAnimation {
+                        id: lift
+                        objectName: "contentArtworkLift"
+                        duration: Theme.normalDuration
+                        easing.type: Easing.BezierSpline
+                        easing.bezierCurve: Theme.easeStandard
+                    }
+                }
+            }
+            EchoMotionScope {
+                id: motion
+                target: entry
+                active: entry.resourceActive
+                animations: [lift]
+            }
             coverScope: "artist"
             objectName: "artistDirectoryAvatar"
             Layout.fillWidth: true
@@ -50,7 +73,7 @@ ItemDelegate {
             Layout.preferredHeight: 28
             text: entry.title
             font: Theme.font(16, Theme.regularWeight)
-            color: entry.hovered ? Theme.accentText : Theme.text
+            color: Theme.text
             fillTextWidth: true
             horizontalAlignment: Text.AlignHCenter
         }

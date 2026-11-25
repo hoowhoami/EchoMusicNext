@@ -68,6 +68,8 @@
 `source` 只接受当前公开 `player.coverUrl`、本插件包内的规范文件 URL、当前安装已导入
 图片的 handle 或对应受管理 URL。路径穿越、外部文件、其他安装的 handle、任意网络 URL
 和 data URL 都被拒绝。当前封面支持实际的 HTTP(S) 和宿主公开的嵌入封面 file URL。
+当前在线封面的下载响应与页面、系统媒体封面共用宿主1GiB磁盘缓存，遵循HTTP过期和
+no-store；像素采样和动画结果仍按本SDK的处理尺寸与租约独立生成，不扩大来源权限。
 采样封面时同时绑定 URL、source revision、账号 epoch 和 scope；切曲或封面更换会取消
 请求，旧响应不能成为新来源的结果。
 

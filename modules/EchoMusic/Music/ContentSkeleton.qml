@@ -9,10 +9,11 @@ Rectangle {
     id: skeleton
     property bool compact: false
     property bool video: false
+    property bool artist: false
     property bool resourceActive: true
-    readonly property real coverSize: Math.max(0, width - 22)
-    implicitHeight: compact ? 62 : coverSize / (video ? 1.78 : 1) + 66
-    color: compact ? Theme.withAlpha(Theme.text, 0.03) : Theme.mutedSurface
+    readonly property real coverSize: Math.max(0, width)
+    implicitHeight: compact ? 62 : coverSize / (video ? 1.78 : 1) + (artist ? 52 : 70)
+    color: compact ? Theme.withAlpha(Theme.text, 0.03) : "transparent"
     radius: Theme.cardRadius
     RowLayout {
         anchors.fill: parent
@@ -53,18 +54,23 @@ Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        anchors.margins: 11
+        anchors.topMargin: 4
         visible: !skeleton.compact
         spacing: 8
-        EchoSkeleton {
+        Item {
             Layout.fillWidth: true
             Layout.preferredHeight: skeleton.coverSize / (skeleton.video ? 1.78 : 1)
-            radius: skeleton.video ? 8 : 14
-            animate: skeleton.resourceActive
+            EchoSkeleton {
+                anchors.centerIn: parent
+                width: skeleton.artist ? Math.min(parent.width * .82, 180) : parent.width
+                height: skeleton.artist ? width : parent.height
+                radius: skeleton.artist ? width / 2 : skeleton.video ? 8 : 14
+                animate: skeleton.resourceActive
+            }
         }
         Item {
             Layout.fillWidth: true
-            Layout.preferredHeight: 36
+            Layout.preferredHeight: skeleton.artist ? 40 : 58
             Column {
                 anchors.left: parent.left
                 anchors.right: parent.right

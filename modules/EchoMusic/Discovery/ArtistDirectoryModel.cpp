@@ -2,6 +2,7 @@
 #include "SongCatalogModel.h"
 #include "CacheCost.h"
 #include <QQmlEngine>
+#include <algorithm>
 #include <numeric>
 
 namespace EchoMusic
@@ -166,7 +167,10 @@ void ArtistDirectoryModel::read()
 {
     if (!m_active || m_recovering || m_failed || m_reader || m_demand.size() == 0 || !m_store)
         return;
-    const auto first = m_demand.keys().first();
+    // Demand keys are ordered by recency. Reading forward from the newest
+    // (usually last) row would reread overlapping ranges for every earlier row.
+    const auto demands = m_demand.keys();
+    const auto first = *std::min_element(demands.cbegin(), demands.cend());
     const auto generation = m_generation;
     m_reader = new QObject(this);
     m_store->read(
@@ -198,9 +202,18 @@ void ArtistDirectoryModel::read()
                 if (m_positions.contains(first + i))
                     changed.append(m_positions.value(first + i));
             }
-            // Publish once the bounded batch is admitted, outside data() evaluation.
-            for (const auto row : changed)
-                emit dataChanged(index(row), index(row));
+            // Publish contiguous presentation ranges after admitting the batch;
+            // identity/order did not change and need no proxy/delegate refresh.
+            std::sort(changed.begin(), changed.end());
+            for (int i = 0; i < changed.size();) {
+                const int start = changed[i];
+                int end = start;
+                while (++i < changed.size() && changed[i] == end + 1)
+                    end = changed[i];
+                emit dataChanged(index(start), index(end),
+                                 {SongCatalogModel::Title, SongCatalogModel::CoverUrl,
+                                  SongCatalogModel::PresentationReady});
+            }
             if (m_demand.size())
                 m_readTimer.start();
         },

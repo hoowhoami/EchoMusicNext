@@ -10,6 +10,7 @@
 
 namespace EchoMusic
 {
+class QmlImageNetworkFactory;
 /// Application-owned applied network policy. The form holds presentation drafts;
 /// Apply commits configuration plus a local SQLite password record. A blank password
 /// retains the old secret; stored password bytes are never returned to QML.
@@ -31,6 +32,12 @@ class NetworkPreferences final : public QObject
 public:
     explicit NetworkPreferences(EchoMusic::SettingsStore &settings, ApiClient &api,
                                 QObject *parent = nullptr, LocalCredentialStore *store = nullptr);
+    ~NetworkPreferences() override;
+    void enableImageCache(const QString &directory);
+    QmlImageNetworkFactory *imageNetworkFactory() const
+    {
+        return m_imageNetwork.get();
+    }
     QString proxyMode() const
     {
         return NetworkConfiguration::modeKey(m_configuration.mode);
@@ -145,6 +152,7 @@ private:
     QString m_error;
     NetworkConfiguration m_configuration;
     std::unique_ptr<NetworkTransport> m_transport;
+    std::unique_ptr<QmlImageNetworkFactory> m_imageNetwork;
     QString m_password, m_passwordId, m_githubProxy;
     bool m_busy = false, m_secretAvailable = true;
     LocalCredentialStore *m_store;

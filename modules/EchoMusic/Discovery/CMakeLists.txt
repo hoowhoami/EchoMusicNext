@@ -43,6 +43,7 @@ qt_add_qml_module(
     DailyRecommendPage.qml
     RankingPage.qml
     ExplorePage.qml
+    PlaylistCategoriesPage.qml
     PlaylistCollectionSection.qml
     ArtistRecommendationsPage.qml
     ExploreHeader.qml

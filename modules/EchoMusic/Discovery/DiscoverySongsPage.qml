@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
+import QtQuick.Layouts
 import EchoMusic.Shell
 import EchoMusic.Controls
 import EchoMusic.Theme
@@ -11,9 +12,9 @@ RoutePage {
     required property DiscoveryService service
     property bool ranking: false
     readonly property SongCatalogModel collection: ranking ? service.rankingSongs : service.dailySongs
-    readonly property int part: ranking ? DiscoveryService.RankSongs : DiscoveryService.Daily
+    readonly property int part: ranking ? (service.ranks.length > 0 ? DiscoveryService.RankSongs : service.states[DiscoveryService.RankCatalog] === DiscoveryService.Error ? DiscoveryService.RankCatalog : DiscoveryService.RankTop) : DiscoveryService.Daily
     readonly property bool loading: service.states[part] === DiscoveryService.Loading || service.states[part] === DiscoveryService.Idle
-    readonly property bool ranksLoading: ranking && (service.states[DiscoveryService.RankTop] === DiscoveryService.Loading || service.states[DiscoveryService.RankCatalog] === DiscoveryService.Loading)
+    readonly property bool ranksLoading: ranking && service.ranks.length === 0 && [DiscoveryService.RankTop, DiscoveryService.RankCatalog].some(part => service.states[part] === DiscoveryService.Idle || service.states[part] === DiscoveryService.Loading)
     readonly property string rankDescription: String(service.selectedRank.description || "").split(/\r?\n/).map(line => line.trim()).filter(line => line.length && !/^更新频率\s*[:：]/.test(line)).join(" · ")
     objectName: ranking ? "rankingPage" : "dailyRecommendPage"
     onPageActiveChanged: if (!pageActive) {
@@ -41,7 +42,7 @@ RoutePage {
         actions: page.service.actions(page.collection)
         resourceActive: page.pageActive && visible
         loading: page.loading
-        expandedHeaderHeight: 176 + (page.ranking && page.rankDescription.length > 0 ? 28 : 0)
+        expandedHeaderHeight: 176
         errorMessage: page.service.states[page.part] === DiscoveryService.Error ? page.service.errors[page.part] : ""
         menuSongId: page.menuSongId
         onRetryRequested: page.service.retry(page.part)
@@ -51,7 +52,8 @@ RoutePage {
                 id: detail
                 heading: page.ranking ? qsTr("排行榜") : qsTr("每日推荐")
                 typeLabel: page.ranking ? "RANK" : "RECOMMEND"
-                subtitle: page.ranking ? page.service.selectedRank.title || qsTr("精选音乐榜单") : page.service.dailySubtitle || qsTr("为你量身定制的每日歌单")
+                subtitle: page.ranking ? "" : page.service.dailySubtitle || qsTr("为你量身定制的每日歌单")
+                detailsComponent: page.ranking && page.rankDescription.length > 0 ? rankIntroduction : null
                 secondaryDetailsComponent: Component {
                     Flow {
                         objectName: "discoveryDetailMetadata"
@@ -86,7 +88,6 @@ RoutePage {
                         }
                     }
                 }
-                description: page.ranking ? page.rankDescription : ""
                 day: page.service.dailyDate.length ? String(Number(page.service.dailyDate.slice(-2))) : page.service.todayLabel
                 ranking: page.ranking
                 scrollTop: catalog.scrollTop
@@ -120,10 +121,31 @@ RoutePage {
         }
     }
     Component {
+        id: rankIntroduction
+        EchoActionButton {
+            id: introduction
+            objectName: "rankingIntroduction"
+            text: page.rankDescription
+            padding: 0
+            font: Theme.font(13, Theme.semiboldWeight)
+            Accessible.name: qsTr("查看完整榜单简介")
+            background: null
+            contentItem: EchoTextTagRow {
+                objectName: "rankingIntroductionText"
+                text: introduction.text
+                font: introduction.font
+                color: Theme.secondaryText
+                fillTextWidth: true
+            }
+            onClicked: introOwner.open()
+        }
+    }
+    Component {
         id: chooseRank
         EchoSoftButton {
             objectName: "discoveryChooseRank"
             text: page.service.selectedRank.title || qsTr("排行榜选择")
+            enabled: page.service.ranks.length > 0
             glyph: "chevron-down"
             onClicked: selectorOwner.open()
         }
@@ -152,27 +174,119 @@ RoutePage {
                 heading: qsTr("排行榜选择")
                 preferredWidth: 520
                 uiScale: page.settings.uiScale
+                property int activeTab: 0
+                readonly property var options: activeTab === 0 ? page.service.recommendedRanks : page.service.ranks
+                readonly property int directoryPart: activeTab === 0 ? DiscoveryService.RankTop : DiscoveryService.RankCatalog
+                onOpened: activeTab = page.service.selectedRank.id && !page.service.recommendedRanks.some(rank => rank.id === page.service.selectedRank.id) ? 1 : 0
                 body: Component {
-                    Flow {
+                    ColumnLayout {
                         width: parent.width
-                        spacing: 8
-                        Repeater {
-                            model: page.service.ranks
-                            delegate: EchoSoftButton {
-                                required property var modelData
-                                size: EchoControlSize.Compact
-                                leftPadding: 16
-                                rightPadding: 16
-                                colors: Theme.floating
-                                text: modelData.title
-                                accent: modelData.id === page.service.selectedRank.id
-                                Accessible.role: Accessible.RadioButton
-                                Accessible.checked: accent
-                                onClicked: {
-                                    selector.close();
-                                    page.service.selectRank(modelData.id);
+                        spacing: 12
+                        EchoTabBar {
+                            objectName: "discoveryRankGroups"
+                            Layout.fillWidth: true
+                            labels: [qsTr("推荐"), qsTr("全部")]
+                            currentIndex: selector.activeTab
+                            onPicked: index => selector.activeTab = index
+                        }
+                        ListView {
+                            id: ranks
+                            objectName: "discoveryRankOptions"
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            Layout.minimumHeight: 0
+                            Layout.preferredHeight: implicitHeight
+                            readonly property real rowHeight: EchoControlSize.heightFor(EchoControlSize.Compact)
+                            readonly property var rows: {
+                                const result = [];
+                                let row = [], used = 0;
+                                for (const rank of selector.options) {
+                                    const itemWidth = Math.min(width, Math.ceil(optionMetrics.advanceWidth(String(rank.title))) + 32);
+                                    if (row.length && used + spacing + itemWidth > width) {
+                                        result.push(row);
+                                        row = [];
+                                        used = 0;
+                                    }
+                                    row.push({
+                                        rank: rank,
+                                        itemWidth: itemWidth
+                                    });
+                                    used += (row.length > 1 ? spacing : 0) + itemWidth;
+                                }
+                                if (row.length)
+                                    result.push(row);
+                                return result;
+                            }
+                            spacing: 8
+                            implicitHeight: rows.length ? Math.max(0, Math.min(360, rows.length * (rowHeight + spacing) - spacing)) : 80
+                            model: width > 0 && height > 0 ? rows : []
+                            currentIndex: rows.findIndex(row => row.some(item => item.rank.id === page.service.selectedRank.id))
+                            FontMetrics {
+                                id: optionMetrics
+                                font: Theme.font(12, Theme.semiboldWeight)
+                            }
+                            reuseItems: true
+                            EchoViewPoolGuard {
+                                targetView: ranks
+                            }
+                            cacheBuffer: rowHeight
+                            boundsBehavior: Flickable.StopAtBounds
+                            clip: true
+                            ScrollBar.vertical: EchoPopupScrollBar {
+                                surface: selector
+                                view: ranks
+                                resourceActive: selector.visible
+                            }
+                            Connections {
+                                target: selector
+                                function onOpened(): void {
+                                    ranks.positionViewAtIndex(Math.max(0, ranks.currentIndex), ListView.Contain);
                                 }
                             }
+                            delegate: Row {
+                                id: optionRow
+                                required property var modelData
+                                width: ranks.width
+                                height: ranks.rowHeight
+                                spacing: ranks.spacing
+                                Repeater {
+                                    model: optionRow.modelData
+                                    delegate: EchoSoftButton {
+                                        required property var modelData
+                                        objectName: "discoveryRankOption"
+                                        readonly property var rankId: modelData.rank.id
+                                        width: modelData.itemWidth
+                                        height: ranks.rowHeight
+                                        size: EchoControlSize.Compact
+                                        leftPadding: 16
+                                        rightPadding: 16
+                                        colors: Theme.floating
+                                        text: modelData.rank.title
+                                        accent: rankId === page.service.selectedRank.id
+                                        Accessible.role: Accessible.RadioButton
+                                        Accessible.checked: accent
+                                        onClicked: {
+                                            const id = rankId;
+                                            selector.close();
+                                            page.service.selectRank(id);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            visible: selector.options.length === 0 || page.service.states[selector.directoryPart] === DiscoveryService.Error
+                            text: page.service.errors[selector.directoryPart] || (page.service.states[selector.directoryPart] < DiscoveryService.Ready ? qsTr("正在加载榜单…") : qsTr("暂时没有榜单"))
+                            wrapMode: Text.Wrap
+                            color: Theme.floatingSecondaryText
+                            font: Theme.font(12, Theme.regularWeight)
+                        }
+                        EchoSoftButton {
+                            visible: page.service.states[selector.directoryPart] === DiscoveryService.Error
+                            text: qsTr("重试")
+                            colors: Theme.floating
+                            onClicked: page.service.retry(selector.directoryPart)
                         }
                     }
                 }
@@ -185,6 +299,7 @@ RoutePage {
         sourceComponent: Component {
             EchoTextDialog {
                 id: intro
+                objectName: "rankingIntroductionDialog"
                 heading: page.service.selectedRank.title || qsTr("榜单简介")
                 preferredWidth: 520
                 uiScale: page.settings.uiScale

@@ -127,6 +127,7 @@ qt_add_qml_module(
     EchoWindowDragArea.qml
     EchoUiPartHost.qml
     EchoBoundedListView.qml
+    EchoCarouselView.qml
     EchoViewPoolGuard.qml
     EchoMotionScope.qml
     EchoSlideMotion.qml

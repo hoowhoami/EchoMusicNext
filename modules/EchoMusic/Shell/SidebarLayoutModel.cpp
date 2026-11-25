@@ -103,7 +103,8 @@ SidebarLayoutModel::SidebarLayoutModel(EchoMusic::SettingsStore &preferences, QO
                  {"cloud", tr("音乐云盘"), "cloud", "library"},
                  {"history", tr("播放历史"), "clock", "library"}};
     m_shortcutCatalog = {{"home", tr("歌曲推荐"), "sparkles", {}},
-                         {"explore", tr("歌单广场"), "compass", {}},
+                         {"explore", tr("推荐歌单"), "compass", {}},
+                         {"playlist-categories", tr("分类歌单"), "list", {}},
                          {"free-listen", tr("免费听"), "gift", {}},
                          {"discover-flow", tr("刷歌"), "vinyl", {}},
                          {"personal-fm", tr("私人 FM"), "radio", {}},

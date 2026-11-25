@@ -60,13 +60,22 @@ Rectangle {
                 surface.detail.setVideoSink(video.videoSink);
         }
     }
+    EchoImageMetrics {
+        id: posterMetrics
+        objectName: "mvPosterMetrics"
+        item: surface
+        active: surface.presented && surface.outputActive && surface.visible && !surface.detail.player
+        source: surface.detail.detail.cover_url || ""
+        deferRequests: true
+    }
     Image {
+        objectName: "mvPosterImage"
         anchors.fill: parent
         visible: !surface.detail.player
-        source: surface.detail.detail.cover_url || ""
+        source: posterMetrics.resolvedSource
         fillMode: Image.PreserveAspectFit
         asynchronous: true
-        sourceSize.width: 1120
+        sourceSize: posterMetrics.decodeSize
     }
     EchoActionCursor {}
     TapHandler {

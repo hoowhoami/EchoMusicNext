@@ -71,6 +71,7 @@ qt_add_executable(echo-cover-rendering-test CoverRenderingTest.cpp)
 target_link_libraries(
     echo-cover-rendering-test
     PRIVATE echo_controls
+            echo_network
             echo_platform
             echo_controlsplugin
             echo_theme
@@ -84,6 +85,13 @@ add_test(NAME cover-rendering
                  cropAlphaAndRoundedPixels scrollReturnDoesNotReplayArtworkReveal
 )
 set_tests_properties(cover-rendering PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
+qt_add_executable(echo-image-network-cache-test ImageNetworkCacheTest.cpp)
+target_link_libraries(
+    echo-image-network-cache-test PRIVATE echo_network echo_playback_service Qt6::Network
+                                          Qt6::Concurrent Qt6::Test
+)
+add_test(NAME image-network-cache COMMAND echo-image-network-cache-test)
+set_tests_properties(image-network-cache PROPERTIES TIMEOUT 45)
 qt_add_qml_module(echo-back-to-top-test URI EchoMusic.BackToTopTests QML_FILES BackToTopHarness.qml)
 target_link_libraries(
     echo-back-to-top-test
@@ -150,7 +158,7 @@ target_link_libraries(
 )
 add_test(NAME settings-backup COMMAND echo-settings-backup-test)
 set_tests_properties(settings-backup PROPERTIES TIMEOUT 45)
-target_link_libraries(echo-shortcut-service-test PRIVATE echo_shell Qt6::Test)
+target_link_libraries(echo-shortcut-service-test PRIVATE echo_shell echo_theme Qt6::Test)
 add_test(NAME shortcut-service COMMAND echo-shortcut-service-test)
 set_tests_properties(shortcut-service PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 20)
 qt_add_executable(echo-taskbar-lyric-geometry-test TaskbarLyricGeometryTest.cpp)
@@ -2552,6 +2560,8 @@ if(ECHO_BUILD_UI_SOAK_TEST AND APPLE)
                 echo_settingsplugin
                 echo_discovery
                 echo_discoveryplugin
+                echo_favorites
+                echo_favoritesplugin
                 echo_theme
                 echo_themeplugin
                 echo_shell

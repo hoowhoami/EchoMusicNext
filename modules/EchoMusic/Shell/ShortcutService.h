@@ -6,6 +6,7 @@
 #include "SettingsStore.h"
 #include <functional>
 #include <QHash>
+#include <QSet>
 #include <QtQml/qqmlregistration.h>
 
 namespace EchoMusic
@@ -129,9 +130,11 @@ private:
     void persist(int row);
     void registerGlobal();
     bool editableFocus(QQuickWindow *window) const;
+    void clearConsumedKeys();
     EchoMusic::SettingsStore &m_settings;
     QList<Entry> m_entries;
-    QPointer<QQuickWindow> m_window, m_miniWindow;
+    QPointer<QQuickWindow> m_window, m_miniWindow, m_consumedWindow;
+    QSet<int> m_consumedKeys;
     GlobalShortcuts m_global;
     bool m_nativeRegistration, m_globalEnabled, m_conflictPrompt, m_suppressDefault;
     bool m_recordingGlobal = false, m_closed = false;

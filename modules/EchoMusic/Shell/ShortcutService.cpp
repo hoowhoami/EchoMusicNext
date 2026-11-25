@@ -8,6 +8,23 @@ namespace EchoMusic
 {
 namespace
 {
+bool defaultNavigationKey(int key)
+{
+    switch (key) {
+    case Qt::Key_Space:
+    case Qt::Key_PageUp:
+    case Qt::Key_PageDown:
+    case Qt::Key_Home:
+    case Qt::Key_End:
+    case Qt::Key_Up:
+    case Qt::Key_Down:
+    case Qt::Key_Left:
+    case Qt::Key_Right:
+        return true;
+    default:
+        return false;
+    }
+}
 QKeySequence normalizedShortcut(const QKeySequence &sequence)
 {
 #if defined(Q_OS_MACOS)
@@ -112,8 +129,8 @@ ShortcutService::ShortcutService(EchoMusic::SettingsStore &settings, bool native
         const char *key, *title, *description, *local, *global;
     };
     const Definition definitions[] = {
-        {"togglePlayback", "播放 / 暂停", "切换当前歌曲的播放状态", "Ctrl+Space",
-         "Ctrl+Shift+Space"},
+        {"togglePlayback", "播放 / 暂停", "切换当前歌曲的播放状态；前台非输入状态也可直接按空格",
+         "Ctrl+Space", "Ctrl+Shift+Space"},
         {"previousTrack", "上一首", "跳转到播放列表中的上一首歌曲", "Ctrl+Left", "Ctrl+Shift+Left"},
         {"nextTrack", "下一首", "跳转到播放列表中的下一首歌曲", "Ctrl+Right", "Ctrl+Shift+Right"},
         {"seekBackward", "快退", "按设置的快退步长回退当前播放进度", "Alt+Ctrl+Left",
@@ -242,10 +259,14 @@ QHash<int, QByteArray> ShortcutService::roleNames() const
 }
 void ShortcutService::attach(QQuickWindow *window)
 {
+    if (m_consumedWindow == m_window)
+        clearConsumedKeys();
     m_window = window;
 }
 void ShortcutService::attachMini(QQuickWindow *window)
 {
+    if (m_consumedWindow == m_miniWindow)
+        clearConsumedKeys();
     m_miniWindow = window;
 }
 void ShortcutService::beginRecording(int row, bool global)
@@ -421,46 +442,91 @@ bool ShortcutService::editableFocus(QQuickWindow *window) const
             return true;
     return false;
 }
+void ShortcutService::clearConsumedKeys()
+{
+    m_consumedKeys.clear();
+    m_consumedWindow.clear();
+}
 bool ShortcutService::eventFilter(QObject *watched, QEvent *event)
 {
     if (m_closed)
         return false;
-    if (event->type() == QEvent::ApplicationDeactivate)
+    if (event->type() == QEvent::ApplicationDeactivate) {
+        clearConsumedKeys();
         stopRecording();
-    if (event->type() != QEvent::ShortcutOverride && event->type() != QEvent::KeyPress)
+    }
+    if (event->type() == QEvent::WindowDeactivate && watched == m_consumedWindow)
+        clearConsumedKeys();
+    if (event->type() != QEvent::ShortcutOverride && event->type() != QEvent::KeyPress &&
+        event->type() != QEvent::KeyRelease)
         return false;
     auto *window = qobject_cast<QQuickWindow *>(watched);
     if (!window || (window != m_window && window != m_miniWindow))
         return false;
     auto key = static_cast<QKeyEvent *>(event);
+    // Finish an owned press even if the command changed focus or modifiers.
+    // In particular, do not leak repeats/releases into a newly focused button.
+    if (m_consumedWindow == window && m_consumedKeys.contains(key->key())) {
+        if (event->type() == QEvent::KeyRelease && !key->isAutoRepeat()) {
+            m_consumedKeys.remove(key->key());
+            if (m_consumedKeys.isEmpty())
+                m_consumedWindow.clear();
+        }
+        key->accept();
+        return true;
+    }
+    if (event->type() == QEvent::KeyRelease)
+        return false;
     if (m_recordingRow >= 0 && window == m_window) {
         if (event->type() == QEvent::KeyPress)
             recordKey(key->key(), key->modifiers(), key->isAutoRepeat());
         key->accept();
         return true;
     }
-    if (m_recordingRow >= 0 || !window->isActive() || editableFocus(window) || key->isAutoRepeat())
+    if (m_recordingRow >= 0 || !window->isActive() || editableFocus(window))
         return false;
+    const auto consume = [&] {
+        if (event->type() == QEvent::KeyPress && !key->isAutoRepeat()) {
+            if (m_consumedWindow != window)
+                clearConsumedKeys();
+            m_consumedWindow = window;
+            m_consumedKeys.insert(key->key());
+        }
+        key->accept();
+        return true;
+    };
+    if (key->key() == Qt::Key_Space && key->modifiers() == Qt::NoModifier) {
+        // Playback owns bare Space outside editors, including focused buttons.
+        // Never let the same gesture activate a control or scroll its page.
+        consume();
+        if (event->type() == QEvent::KeyPress && !key->isAutoRepeat())
+            emit triggered(TogglePlayback);
+        return true;
+    }
     const auto sequence = normalizedShortcut(QKeySequence(key->keyCombination()));
     for (int row = 0; row < m_entries.size(); ++row) {
         if (m_entries[row].local.isEmpty() || m_entries[row].local != sequence)
             continue;
-        if (event->type() == QEvent::KeyPress)
+        if (m_suppressDefault)
+            consume();
+        if (event->type() == QEvent::KeyPress && !key->isAutoRepeat())
             emit triggered(Command(row));
-        if (m_suppressDefault) {
-            key->accept();
-            return true;
-        }
-        return false;
+        return m_suppressDefault;
     }
     const auto bindings = m_plugins.values();
     for (const auto &binding : bindings)
         if (binding.owner && !binding.global && binding.sequence == sequence) {
-            if (event->type() == QEvent::KeyPress && binding.invoke)
+            consume();
+            if (event->type() == QEvent::KeyPress && !key->isAutoRepeat() && binding.invoke)
                 binding.invoke();
-            key->accept();
             return true;
         }
+    // Match the reference input guard independently of configured shortcuts.
+    // Shift selection is included; system/application modifier chords pass on.
+    if (m_suppressDefault &&
+        !(key->modifiers() & (Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier)) &&
+        defaultNavigationKey(key->key()))
+        return consume();
     return false;
 }
 quint64 ShortcutService::registerPlugin(PluginBinding binding, QString &error)
@@ -510,6 +576,7 @@ void ShortcutService::shutdown()
     if (m_closed)
         return;
     m_closed = true;
+    clearConsumedKeys();
     m_recordingRow = -1;
     m_global.replace({});
     m_plugins.clear();

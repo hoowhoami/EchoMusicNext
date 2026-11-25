@@ -4170,6 +4170,116 @@ QtObject {
         routes.shutdown();
         drain();
     }
+    void shortcutPickerUsesOneContinuousScroll_data()
+    {
+        QTest::addColumn<bool>("dark");
+        QTest::addColumn<double>("scale");
+        QTest::newRow("light-100") << false << 1.;
+        QTest::newRow("dark-100") << true << 1.;
+        QTest::newRow("light-125") << false << 1.25;
+        QTest::newRow("dark-125") << true << 1.25;
+    }
+    void shortcutPickerUsesOneContinuousScroll()
+    {
+        if (QGuiApplication::platformName() != "offscreen")
+            QSKIP("Nonintrusive popup scrolling regression");
+        QFETCH(bool, dark);
+        QFETCH(double, scale);
+        QTemporaryDir directory;
+        SettingsStore preferences(directory.filePath("prefs.ini"));
+        ThemeStore theme(preferences);
+        theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
+        theme.setMotionEnabled(false);
+        SidebarLayoutModel layout(preferences, nullptr);
+        RouteController router;
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import QtQuick.Controls.Basic
+import EchoMusic.Shell
+Window {
+ id: host; visible: true; width: 1000; height: 680
+ required property SidebarLayoutModel layout
+ required property RouteController router
+ required property real uiScale
+ Item { id: rail; width: 190; height: parent.height }
+ SidebarShortcutPopup {
+  id: picker; layout: host.layout; router: host.router
+  anchorItem: rail; uiScale: host.uiScale
+  Component.onCompleted: open()
+ }
+})",
+                          QUrl("qrc:/shortcut-single-scroll-test.qml"));
+        QScopedPointer<QObject> root(
+            component.createWithInitialProperties({{"layout", QVariant::fromValue(&layout)},
+                                                   {"router", QVariant::fromValue(&router)},
+                                                   {"uiScale", scale}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window);
+        QQuickItem *view = nullptr;
+        QTRY_VERIFY((view = findVisual(window->contentItem(), "shortcutPickerView")));
+        QTRY_VERIFY(view->height() > 100);
+        QTRY_VERIFY(view->property("contentHeight").toReal() > view->height());
+        const auto capture = [&](const QString &phase) {
+            const auto output = qEnvironmentVariable("ECHO_SHORTCUT_SCROLL_ARTIFACTS");
+            if (output.isEmpty())
+                return;
+            QVERIFY(QDir().mkpath(output));
+            QImage frame;
+            QTRY_VERIFY(!(frame = window->grabWindow()).isNull());
+            QVERIFY(frame.save(
+                output +
+                QString("/%1-%2-%3.png").arg(dark ? "dark" : "light").arg(scale).arg(phase)));
+        };
+        capture("top");
+        int flickables = 0, bars = 0;
+        QList<QQuickItem *> pending{window->contentItem()};
+        while (!pending.isEmpty()) {
+            auto *item = pending.takeLast();
+            flickables += item->inherits("QQuickFlickable");
+            bars += item->inherits("QQuickScrollBar");
+            pending.append(item->childItems());
+        }
+        QCOMPARE(flickables, 1);
+        QCOMPARE(bars, 1);
+        QQuickItem *candidate = nullptr;
+        QTRY_VERIFY((candidate = findVisual(window->contentItem(), "shortcutCandidate-explore")));
+        auto *artists = findVisual(window->contentItem(), "shortcutArtistsHeading");
+        QVERIFY(artists);
+        const auto before = artists->mapToScene(QPointF()).y();
+        const auto start = view->property("contentY").toReal();
+        const auto position = candidate->mapToScene(candidate->boundingRect().center());
+        QWheelEvent wheel(position, window->mapToGlobal(position.toPoint()), {}, QPoint(0, -120),
+                          Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+        QCoreApplication::sendEvent(window, &wheel);
+        QTRY_VERIFY(view->property("contentY").toReal() > start);
+        QVERIFY(artists->mapToScene(QPointF()).y() < before);
+        // One native viewport reaches the last category; no inner list traps input.
+        QVERIFY(QMetaObject::invokeMethod(view, "positionViewAtEnd"));
+        auto *recent = findVisual(window->contentItem(), "shortcutPlaylistsHeading");
+        QVERIFY(recent);
+        QTRY_VERIFY(recent->mapToItem(view, QPointF()).y() >= 0);
+        QVERIFY(recent->mapToItem(view, QPointF()).y() < view->height());
+        capture("bottom");
+        QVERIFY(QMetaObject::invokeMethod(view, "positionViewAtBeginning"));
+        QQuickItem *toggle = nullptr;
+        QTRY_VERIFY(
+            (toggle = findVisual(window->contentItem(), "shortcutCandidateToggle-explore")));
+        const auto hasExplore = [&] {
+            for (const auto &entry : layout.shortcuts())
+                if (entry.toMap()["key"] == "explore")
+                    return true;
+            return false;
+        };
+        const auto pinned = hasExplore();
+        QVERIFY(QMetaObject::invokeMethod(toggle, "clicked"));
+        QTRY_COMPARE(hasExplore(), !pinned);
+        QCOMPARE(warnings.size(), 0);
+    }
     void sidebarVisibilityKeepsEditorStable()
     {
         QTemporaryDir directory;

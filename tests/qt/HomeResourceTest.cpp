@@ -45,7 +45,9 @@ public:
     {
         constexpr quint64 id = 99001;
         s.m_pending.insert(id, {part, s.m_api.sessionRevision()});
-        s.succeeded(id, QJsonDocument(data.toArray()).toJson());
+        s.succeeded(
+            id, (data.isArray() ? QJsonDocument(data.toArray()) : QJsonDocument(data.toObject()))
+                    .toJson());
     }
 };
 class ExploreServiceTestAccess
@@ -55,7 +57,9 @@ public:
     {
         constexpr quint64 id = 99002;
         s.m_pending.insert(id, {part, s.m_api.sessionRevision()});
-        s.accept(id, QJsonDocument(data.toObject()).toJson());
+        s.accept(id,
+                 (data.isArray() ? QJsonDocument(data.toArray()) : QJsonDocument(data.toObject()))
+                     .toJson());
     }
 };
 } // namespace EchoMusic
@@ -519,6 +523,15 @@ Rectangle {
                 view->setProperty("contentY", end * (pass % 2 ? 36 - step : step) / 36.);
                 maxCommand = std::max(maxCommand, command.nsecsElapsed() / 1000);
                 maxTurn = std::max(maxTurn, pump(35));
+                if (step % 12 == 0)
+                    for (const auto &key :
+                         {QString("recommended-0"), QString("editors"), QString("albums-all")})
+                        if (auto *strip =
+                                find(scene.window.contentItem(), "playlistCarousel-" + key)) {
+                            QVERIFY(QMetaObject::invokeMethod(strip, "step",
+                                                              Q_ARG(int, pass % 2 ? -1 : 1)));
+                            maxTurn = std::max(maxTurn, pump(90));
+                        }
             }
             QPointer<QQuickItem> oldView = view;
             QVERIFY(router.navigate("artist-recommendations"));
@@ -542,6 +555,80 @@ Rectangle {
                               << "metalBytes" << metalBytes(scene)
                               << QJsonDocument(retained).toJson(QJsonDocument::Compact);
         }
+        // Classification remains an ordinary vertical grid with the same bounded resources.
+        QVERIFY(router.navigate("playlist-categories"));
+        ExploreServiceTestAccess::complete(
+            service, ExploreService::Categories,
+            QJsonArray{QJsonObject{
+                {"name", "分类"},
+                {"children", QJsonArray{QJsonObject{{"id", "sample"}, {"name", "分类一"}}}}}});
+        ExploreServiceTestAccess::complete(service, ExploreService::Playlists, cards);
+        pump(300);
+        auto *grid = find(scene.window.contentItem(), "playlistCategoriesGrid");
+        QVERIFY(grid);
+        QVERIFY(grid->property("contentHeight").toDouble() > grid->height() * 2);
+        QVERIFY(!find(scene.window.contentItem(), "playlistSquareView"));
+        for (int step = 0; step <= 20; ++step) {
+            const auto end = grid->property("originY").toDouble() +
+                             grid->property("contentHeight").toDouble() - grid->height();
+            grid->setProperty("contentY", end * step / 20.);
+            pump(35);
+            QVERIFY(usage(root.get(), &engine)["activeCovers"].toInt() <= 96);
+        }
+        const auto artifacts = qEnvironmentVariable("ECHO_PLAYLIST_UI_ARTIFACTS");
+        if (!artifacts.isEmpty() && !encoded && imageDelay == 0) {
+            QVERIFY(QDir().mkpath(artifacts));
+            for (const auto mode : {ThemeStore::Light, ThemeStore::Dark})
+                for (const double zoom : {1., 1.25}) {
+                    theme.setMode(mode);
+                    auto *item = qobject_cast<QQuickItem *>(root.get());
+                    item->setTransformOrigin(QQuickItem::TopLeft);
+                    item->setScale(zoom);
+                    item->setWidth(scene.window.width() / zoom);
+                    item->setHeight(scene.window.height() / zoom);
+                    for (const auto &route : {QString("explore"), QString("playlist-categories")}) {
+                        QVERIFY(router.navigate(route));
+                        if (route == "explore") {
+                            DiscoveryServiceTestAccess::complete(
+                                discovery, DiscoveryService::Playlists, cards);
+                            DiscoveryServiceTestAccess::complete(discovery,
+                                                                 DiscoveryService::Editors, cards);
+                            ExploreServiceTestAccess::complete(
+                                service, ExploreService::Albums,
+                                QJsonObject{{"regions", QJsonObject{{"chn", cards}}}});
+                        } else {
+                            ExploreServiceTestAccess::complete(service, ExploreService::Playlists,
+                                                               cards);
+                        }
+                        pump(300);
+                        auto *scroll = find(scene.window.contentItem(),
+                                            route == "explore" ? "playlistSquareView"
+                                                               : "playlistCategoriesGrid");
+                        QVERIFY(scroll);
+                        scroll->setProperty("contentY",
+                                            scroll->property("originY").toDouble() -
+                                                scroll->property("topMargin").toDouble());
+                        pump(500);
+                        auto *rhi = scene.control.rhi();
+                        QRhiReadbackResult result;
+                        auto *updates = rhi->nextResourceUpdateBatch();
+                        updates->readBackTexture(QRhiReadbackDescription(scene.color.get()),
+                                                 &result);
+                        QRhiCommandBuffer *commands = nullptr;
+                        QCOMPARE(rhi->beginOffscreenFrame(&commands), QRhi::FrameOpSuccess);
+                        commands->resourceUpdate(updates);
+                        rhi->endOffscreenFrame();
+                        rhi->finish();
+                        QVERIFY(!result.data.isEmpty());
+                        QImage image(reinterpret_cast<const uchar *>(result.data.constData()),
+                                     result.pixelSize.width(), result.pixelSize.height(),
+                                     QImage::Format_RGBA8888);
+                        QVERIFY(image.save(
+                            artifacts +
+                            QString("/%1-%2-%3.png").arg(route).arg(int(mode)).arg(zoom)));
+                    }
+                }
+        }
         // 1440px / six columns at DPR2 needs at most a 768px provider raster.
         // The unpositioned/synchronous grid requested transient 3200px images.
         QVERIFY2(images->maxSide.load() <= 1024, "Transient grid geometry inflated cover decoding");
@@ -564,6 +651,314 @@ Rectangle {
         QSignalSpy drained(&playback, &PlaybackService::closed);
         playback.shutdown();
         QTRY_COMPARE(drained.size(), 1);
+        api.shutdown();
+    }
+    void sharedContentCardsRendering()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ThemeStore theme(prefs);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        auto *images = new Images;
+        engine.addImageProvider("home", images);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QVariantList artwork;
+        const auto fixture = qEnvironmentVariable("ECHO_HOME_UI_FIXTURE");
+        if (!fixture.isEmpty()) {
+            QFile file(fixture);
+            QVERIFY(file.open(QIODevice::ReadOnly));
+            const auto songs = QJsonDocument::fromJson(file.readAll()).object()["songs"].toArray();
+            for (const auto &song : songs)
+                artwork.append(song.toObject()["cover_url"].toString());
+        }
+        if (artwork.isEmpty())
+            for (int i = 0; i < 4; ++i)
+                artwork.append(QString("image://home/card-%1").arg(i));
+        Scene scene;
+        QVERIFY(scene.create());
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import QtQuick.Layouts
+import EchoMusic.Music
+import EchoMusic.Favorites
+import EchoMusic.Theme
+Rectangle {
+ id: host; width: 1440; height: 900; color: Theme.main
+ required property var artwork
+ Column {
+  x: 32; y: 24; spacing: 24
+  Text { text: "歌单与专辑"; color: Theme.text; font: Theme.font(18, Theme.semiboldWeight) }
+  Row {
+   spacing: 24
+   Repeater {
+    model: 4
+    ContentCard {
+     required property int index
+     objectName: "poster-" + index
+     width: 220; height: implicitHeight
+     title: ["再听亿遍！好听到破圈的国风歌曲", "伤感：眼泪都留不住你要走的心！", "健身房BGM：速来分泌你的多巴胺", "抖音车载DJ | 快乐指数100%"][index]
+     artistText: ""; extraText: "音乐收藏家 · 30 首歌曲"
+     coverUrl: host.artwork[index % host.artwork.length]
+     durationText: ""; resourceId: String(index)
+    }
+   }
+  }
+  Text { text: "MV、歌手与用户"; color: Theme.text; font: Theme.font(18, Theme.semiboldWeight) }
+  Row {
+   spacing: 24
+   ContentCard {
+    objectName: "video-probe"; video: true
+    width: 280; height: implicitHeight
+    title: "音乐现场 Live — 让今天的心情回到音乐里"
+    artistText: "歌手名称"; extraText: ""; coverUrl: host.artwork[0]
+    durationText: "03:20"; resourceId: "video"
+   }
+   ContentCard {
+    artist: true; width: 180; height: implicitHeight
+    title: "歌手 Artist"; artistText: "120 首歌曲 · 8 张专辑"; extraText: ""
+    coverUrl: host.artwork[1 % host.artwork.length]; durationText: ""; resourceId: "artist"
+   }
+   FavoriteUserCard {
+    width: 180; height: implicitHeight
+    nickname: "音乐收藏家"; metaText: "用音乐记录生活"
+    avatarUrl: host.artwork[2 % host.artwork.length]
+   }
+   ArtistDirectoryAvatar {
+    width: 180; height: implicitHeight
+    title: "歌手目录"; coverUrl: host.artwork[3 % host.artwork.length]; resourceId: "directory"
+   }
+  }
+ }
+})",
+                          QUrl("qrc:/shared-card-capture.qml"));
+        std::unique_ptr<QObject> root(
+            component.createWithInitialProperties({{"artwork", artwork}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *item = qobject_cast<QQuickItem *>(root.get());
+        item->setParentItem(scene.window.contentItem());
+        item->setTransformOrigin(QQuickItem::TopLeft);
+        const auto pump = [&](int ms) {
+            QElapsedTimer timer;
+            timer.start();
+            do {
+                QCoreApplication::processEvents();
+                scene.frame();
+                QTest::qWait(2);
+            } while (timer.elapsed() < ms);
+        };
+        const auto move = [&](QPointF position) {
+            QMouseEvent event(QEvent::MouseMove, position, position, Qt::NoButton, Qt::NoButton,
+                              Qt::NoModifier);
+            QCoreApplication::sendEvent(&scene.window, &event);
+        };
+        const auto capture = [&](QString name) {
+            const auto artifacts = qEnvironmentVariable("ECHO_SHARED_CARD_ARTIFACTS");
+            if (artifacts.isEmpty())
+                return true;
+            if (!QDir().mkpath(artifacts))
+                return false;
+            auto *rhi = scene.control.rhi();
+            QRhiReadbackResult result;
+            auto *updates = rhi->nextResourceUpdateBatch();
+            updates->readBackTexture(QRhiReadbackDescription(scene.color.get()), &result);
+            QRhiCommandBuffer *commands = nullptr;
+            if (rhi->beginOffscreenFrame(&commands) != QRhi::FrameOpSuccess)
+                return false;
+            commands->resourceUpdate(updates);
+            rhi->endOffscreenFrame();
+            rhi->finish();
+            QImage image(reinterpret_cast<const uchar *>(result.data.constData()),
+                         result.pixelSize.width(), result.pixelSize.height(),
+                         QImage::Format_RGBA8888);
+            return !image.isNull() && image.save(artifacts + "/" + name + ".png");
+        };
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark})
+            for (const auto zoom : {1., 1.25}) {
+                theme.setMode(mode);
+                item->setScale(zoom);
+                item->setWidth(scene.window.width() / zoom);
+                item->setHeight(scene.window.height() / zoom);
+                move(QPointF(1400, 850));
+                // Let the preceding leave transition finish before taking a
+                // new scale/theme baseline, rather than measuring mid-flight.
+                pump(220);
+                const auto coversReady = [&] {
+                    QList<QQuickItem *> pending{item};
+                    while (!pending.isEmpty()) {
+                        auto *child = pending.takeLast();
+                        pending.append(child->childItems());
+                        if (child->objectName() == "coverImage" && child->isVisible() &&
+                            child->property("status").toInt() != 1)
+                            return false;
+                    }
+                    return true;
+                };
+                QElapsedTimer loading;
+                loading.start();
+                while (!coversReady() && loading.elapsed() < 3000)
+                    pump(20);
+                QVERIFY(coversReady());
+                pump(30);
+                const auto name = QString("cards-%1-%2").arg(int(mode)).arg(zoom);
+                QVERIFY(capture(name));
+                auto *card = find(item, "video-probe");
+                auto *media = find(card, "contentCardMedia");
+                auto *caption = find(card, "contentCardCaption");
+                QVERIFY(card && media && caption);
+                const auto before = media->mapToScene(QPointF()).y();
+                const auto captionPosition = caption->mapToScene(QPointF());
+                move(card->mapToScene(QPointF(50, 50)));
+                QVERIFY(card->property("hovered").toBool());
+                pump(50);
+                const auto intermediate = media->mapToScene(QPointF()).y();
+                QVERIFY(intermediate < before && intermediate > before - 4 * zoom);
+                QVERIFY(capture(name + "-hover-moving"));
+                pump(200);
+                QVERIFY(qAbs(media->mapToScene(QPointF()).y() - before + 4 * zoom) < .01);
+                QCOMPARE(caption->mapToScene(QPointF()), captionPosition);
+                QVERIFY(capture(name + "-hover"));
+                QVERIFY(!scene.window.handle());
+            }
+        QCOMPARE(warnings.size(), 0);
+        root.reset();
+    }
+
+    void rankingHeaderIntroductionRendering()
+    {
+        const auto fixture = qEnvironmentVariable("ECHO_RANK_HEADER_FIXTURE");
+        if (fixture.isEmpty())
+            QSKIP("Optional private rank catalog/header capture");
+        QFile file(fixture);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const auto input = QJsonDocument::fromJson(file.readAll()).object();
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        prefs.setValue("playback/volume", 0.);
+        ApiClient api(DeviceIdentity::temporary());
+        AccountService account(api);
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        SessionDatabase database(dir.filePath("session"));
+        SongMetadataService metadata(api);
+        metadata.enableSqlIndex(database);
+        playback.attachMetadata(metadata);
+        ThemeStore theme(prefs);
+        theme.setMotionEnabled(false);
+        ShellSettings settings(prefs);
+        settings.acceptUserAgreement();
+        RouteController router;
+        DiscoveryService service(api, playback, account);
+        DiscoveryRouteCoordinator routes(service, router, false);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        Scene scene;
+        QVERIFY(scene.create());
+        QQmlComponent component(&engine);
+        component.setData(R"(import QtQuick
+import EchoMusic.Shell
+import EchoMusic.Theme
+Rectangle {
+ id: host; width: 1440; height: 900; color: Theme.main
+ required property RouteController router
+ required property ShellSettings settings
+ RouteHost { anchors.fill: parent; router: host.router; settings: host.settings }
+})",
+                          QUrl("qrc:/ranking-header-render.qml"));
+        QScopedPointer<QObject> root(
+            component.createWithInitialProperties({{"router", QVariant::fromValue(&router)},
+                                                   {"settings", QVariant::fromValue(&settings)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *item = qobject_cast<QQuickItem *>(root.data());
+        item->setParentItem(scene.window.contentItem());
+        item->setTransformOrigin(QQuickItem::TopLeft);
+        QVERIFY(router.navigate("ranking"));
+        DiscoveryServiceTestAccess::complete(service, DiscoveryService::RankTop, QJsonArray{});
+        DiscoveryServiceTestAccess::complete(service, DiscoveryService::RankCatalog,
+                                             input["ranks"]);
+        service.selectRank(quint64(input["selected_id"].toInteger()));
+        DiscoveryServiceTestAccess::complete(service, DiscoveryService::RankSongs, input["songs"]);
+        const auto pump = [&](int ms) {
+            QElapsedTimer time;
+            time.start();
+            do {
+                QCoreApplication::processEvents();
+                scene.frame();
+                QTest::qWait(2);
+            } while (time.elapsed() < ms);
+        };
+        const auto artifacts = qEnvironmentVariable("ECHO_RANK_HEADER_ARTIFACTS");
+        if (!artifacts.isEmpty())
+            QVERIFY(QDir().mkpath(artifacts));
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark})
+            for (const double zoom : {1., 1.25}) {
+                theme.setMode(mode);
+                item->setScale(zoom);
+                item->setWidth(scene.window.width() / zoom);
+                item->setHeight(scene.window.height() / zoom);
+                pump(200);
+                auto *header = find(scene.window.contentItem(), "songDetailHeader");
+                auto *intro = find(scene.window.contentItem(), "rankingIntroduction");
+                QVERIFY(header && intro);
+                const auto imageryReady = [&] {
+                    auto *cover = find(header, "coverImage");
+                    if (!cover || cover->property("status").toInt() != 1)
+                        return false;
+                    QList<QQuickItem *> pending{header};
+                    while (!pending.isEmpty()) {
+                        auto *child = pending.takeLast();
+                        pending.append(child->childItems());
+                        if (child->objectName() == "iconImage" && child->isVisible() &&
+                            !child->property("source").toUrl().isEmpty() &&
+                            child->property("status").toInt() != 1)
+                            return false;
+                    }
+                    return true;
+                };
+                QElapsedTimer artworkWait;
+                artworkWait.start();
+                while (!imageryReady() && artworkWait.elapsed() < 3000)
+                    pump(20);
+                QVERIFY(imageryReady());
+                pump(30);
+                QCOMPARE(header->property("subtitle").toString(), QString());
+                QCOMPARE(header->property("description").toString(), QString());
+                QVERIFY(intro->property("font").value<QFont>().weight() >= QFont::DemiBold);
+                QVERIFY(!intro->property("text").toString().isEmpty());
+                QVERIFY(!scene.window.handle());
+                if (!artifacts.isEmpty()) {
+                    auto *rhi = scene.control.rhi();
+                    QRhiReadbackResult result;
+                    auto *updates = rhi->nextResourceUpdateBatch();
+                    updates->readBackTexture(QRhiReadbackDescription(scene.color.get()), &result);
+                    QRhiCommandBuffer *commands = nullptr;
+                    QCOMPARE(rhi->beginOffscreenFrame(&commands), QRhi::FrameOpSuccess);
+                    commands->resourceUpdate(updates);
+                    rhi->endOffscreenFrame();
+                    rhi->finish();
+                    QVERIFY(!result.data.isEmpty());
+                    QImage image(reinterpret_cast<const uchar *>(result.data.constData()),
+                                 result.pixelSize.width(), result.pixelSize.height(),
+                                 QImage::Format_RGBA8888);
+                    const auto rect = header->mapRectToScene(header->boundingRect());
+                    const QRect pixels(int(rect.x() * 2), int(rect.y() * 2), int(rect.width() * 2),
+                                       int(rect.height() * 2));
+                    QVERIFY(
+                        image.copy(pixels.intersected(image.rect()))
+                            .save(artifacts + QString("/rank-%1-%2.png").arg(int(mode)).arg(zoom)));
+                }
+            }
+        QCOMPARE(warnings.size(), 0);
+        root.reset();
+        pump(50);
+        service.shutdown();
+        QSignalSpy drained(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE(drained.size(), 1);
+        QSignalSpy closed(&database, &SessionDatabase::closed);
+        database.shutdown();
+        QTRY_COMPARE(closed.size(), 1);
         api.shutdown();
     }
     void homeRetiresOffscreenResources_data()
@@ -659,7 +1054,7 @@ Rectangle {
             }
             QJsonArray groups;
             if (key == "3102" || key == "3103")
-                for (int i = 0; i < 64; ++i)
+                for (int i = 0; i < (key == "3102" ? 1 : 64); ++i)
                     groups.append(QJsonObject{
                         {"title", QString("主题 %1").arg(i)},
                         {"start_index", i * 3},
@@ -719,13 +1114,10 @@ Rectangle {
                 phase = QString("scroll-%1-%2").arg(pass).arg(index);
                 maxFrame = std::max(maxFrame, pump(60));
                 const auto artifacts = qEnvironmentVariable("ECHO_HOME_UI_ARTIFACTS");
-                if (pass == 0 && keys[index] == "3006" && !artifacts.isEmpty()) {
+                if (pass == 0 && (keys[index] == "3006" || keys[index] == "3102") &&
+                    !artifacts.isEmpty()) {
                     QVERIFY(QDir().mkpath(artifacts));
-                    auto *vipCarousel =
-                        find(scene.window.contentItem(), "recommendationFeatureCarousel-3006");
-                    QVERIFY(vipCarousel);
-                    vipCarousel->setProperty("currentIndex", 0);
-                    QVERIFY(QMetaObject::invokeMethod(vipCarousel, "positionViewAtBeginning"));
+                    const auto captureKey = keys[index];
                     auto *item = qobject_cast<QQuickItem *>(root.get());
                     item->setTransformOrigin(QQuickItem::TopLeft);
                     for (const auto zoom : {1., 1.25})
@@ -737,6 +1129,56 @@ Rectangle {
                             QVERIFY(QMetaObject::invokeMethod(view, "positionViewAtIndex",
                                                               Q_ARG(int, index), Q_ARG(int, 0)));
                             pump(400);
+                            auto *carousel =
+                                find(scene.window.contentItem(),
+                                     captureKey == "3006" ? "recommendationFeatureCarousel-3006"
+                                                          : "recommendationGroupCarousel-3102");
+                            QVERIFY(carousel);
+                            const int preview = captureKey == "3006" ? 1 : 0;
+                            carousel->setProperty("currentIndex", preview);
+                            QVERIFY(QMetaObject::invokeMethod(carousel, "positionViewAtIndex",
+                                                              Q_ARG(int, preview), Q_ARG(int, 0)));
+                            const auto pointer = carousel->mapToScene(
+                                QPointF(carousel->width() / 2, carousel->height() / 2));
+                            QMouseEvent hover(QEvent::MouseMove, pointer, pointer, Qt::NoButton,
+                                              Qt::NoButton, Qt::NoModifier);
+                            QCoreApplication::sendEvent(&scene.window, &hover);
+                            pump(40);
+                            if (captureKey == "3006") {
+                                auto *left = find(scene.window.contentItem(),
+                                                  "recommendationCarouselPrevious-3006");
+                                auto *right = find(scene.window.contentItem(),
+                                                   "recommendationCarouselNext-3006");
+                                QVERIFY(left && right && left->isVisible() && right->isVisible());
+                                const auto leftBounds =
+                                    left->mapRectToItem(view, left->boundingRect());
+                                const auto rightBounds =
+                                    right->mapRectToItem(view, right->boundingRect());
+                                QVERIFY(leftBounds.left() >= -.5 &&
+                                        rightBounds.right() <= view->width() + .5);
+                            } else {
+                                auto *panel =
+                                    find(scene.window.contentItem(), "recommendationPanel-3102");
+                                auto *more = find(panel, "recommendationViewAll");
+                                QVERIFY(more && more->isVisible() && more->isEnabled());
+                            }
+                            const auto iconsReady = [&] {
+                                QList<QQuickItem *> pending{scene.window.contentItem()};
+                                while (!pending.isEmpty()) {
+                                    auto *child = pending.takeLast();
+                                    pending.append(child->childItems());
+                                    if (child->objectName() == "iconImage" && child->isVisible() &&
+                                        !child->property("source").toUrl().isEmpty() &&
+                                        child->property("status").toInt() != 1)
+                                        return false;
+                                }
+                                return true;
+                            };
+                            QElapsedTimer iconWait;
+                            iconWait.start();
+                            while (!iconsReady() && iconWait.elapsed() < 3000)
+                                pump(20);
+                            QVERIFY(iconsReady());
                             scene.frame();
                             auto *rhi = scene.control.rhi();
                             QRhiReadbackResult result;
@@ -752,8 +1194,11 @@ Rectangle {
                             QImage image(reinterpret_cast<const uchar *>(result.data.constData()),
                                          result.pixelSize.width(), result.pixelSize.height(),
                                          QImage::Format_RGBA8888);
-                            QVERIFY(image.save(artifacts +
-                                               QString("/vip-%1-%2.png").arg(int(mode)).arg(zoom)));
+                            QVERIFY(image.save(
+                                artifacts + QString("/%1-%2-%3.png")
+                                                .arg(captureKey == "3006" ? "vip" : "single-group")
+                                                .arg(int(mode))
+                                                .arg(zoom)));
                             QVERIFY(!scene.window.handle());
                         }
                     item->setScale(1);

@@ -5,6 +5,8 @@
 #include "PlaybackService.h"
 #include "AccountService.h"
 #include "ApiClient.h"
+#include "NetworkPreferences.h"
+#include "QmlImageNetworkFactory.h"
 #include "asset-archive/CaseFold.h"
 #include <QApplication>
 #include <QCryptographicHash>
@@ -967,7 +969,9 @@ EchoPluginAssets::EchoPluginAssets(EchoPluginContext &scope, QString dataPath,
     : QObject(&scope), m_scope(scope),
       m_store(activationAssets ? activationAssets->m_store
                                : std::make_shared<EchoPluginAssetStore>()),
-      m_network(this)
+      m_network(scope.host().network && scope.host().network->imageNetworkFactory()
+                    ? scope.host().network->imageNetworkFactory()->createImageClient(this, 8 * MiB)
+                    : new QNetworkAccessManager(this))
 {
     if (!activationAssets)
         m_store->directory = QDir(dataPath).filePath("assets-v1");
@@ -1591,7 +1595,7 @@ EchoPluginOperation *EchoPluginAssets::imageRequest(int command, const QUrl &sou
     request.setTransferTimeout(15000);
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                          QNetworkRequest::NoLessSafeRedirectPolicy);
-    auto *reply = m_network.get(request);
+    auto *reply = m_network->get(request);
     reply->setReadBufferSize(65536);
     job->reply = reply;
     auto *deadline = new QTimer(this);

@@ -133,7 +133,12 @@ QUrl EchoImageMetrics::resolveSource(const QUrl &source, const QSize &size) cons
     auto url = source;
     auto path = url.path();
     const int needed = qMax(size.width(), size.height());
-    const int requested = needed <= 240 ? 240 : needed <= 400 ? 400 : needed <= 800 ? 800 : 1600;
+    const int requested = needed <= 100   ? 100
+                          : needed <= 150 ? 150
+                          : needed <= 240 ? 240
+                          : needed <= 400 ? 400
+                          : needed <= 800 ? 800
+                                          : 1600;
     // A size placeholder explicitly grants resizing. Known unsigned Kugou
     // artwork paths select the display-density bucket in either direction;
     // an already-large URL must not force thumbnails to download the original.
@@ -144,9 +149,9 @@ QUrl EchoImageMetrics::resolveSource(const QUrl &source, const QSize &size) cons
     } else if (!url.hasQuery() && (url.scheme() == "https" || url.scheme() == "http")) {
         const auto host = url.host().toLower();
         if (host == "imge.kugou.com" || host == "imgessl.kugou.com" || host == "c1.kgimg.com" ||
-            host == "imge.kgimg.com") {
+            host == "imge.kgimg.com" || host == "singerimg.kugou.com") {
             static const QRegularExpression sized(
-                QStringLiteral("^/(?:stdmusic|custom)/(\\d+)(?=/)"));
+                QStringLiteral("^/(?:stdmusic|custom|uploadpic/softhead)/(\\d+)(?=/)"));
             const auto match = sized.match(path);
             if (match.hasMatch() && match.captured(1).toInt() != requested)
                 path.replace(match.capturedStart(1), match.capturedLength(1),

@@ -160,7 +160,8 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
       m_effectCatalog(api, m_audioControls, this,
                       settings.files("audio-effect-catalog", SettingsDomain::Device) +
                           "/catalog.sqlite"),
-      m_catalog(this), m_lyrics(this), m_climax(api, this), m_listening(api, this),
+      m_artwork(nullptr, network ? network->imageNetworkFactory() : nullptr), m_catalog(this),
+      m_lyrics(this), m_climax(api, this), m_listening(api, this),
       m_lyricAppearance(settings, this), m_dynamicCover(api, this),
       m_portraits(api, *m_lyricAppearance.portrait(), this),
       m_lyricText(m_lyrics, m_native, settings, this), m_lyricSource(api, settings, this)

@@ -1,4 +1,5 @@
 #include "PlaybackArtwork.h"
+#include "QmlImageNetworkFactory.h"
 #include <QImageReader>
 #include <QBuffer>
 #include <QFile>
@@ -56,7 +57,9 @@ static ArtworkResult decode(const QByteArray &bytes)
                                  qRound(best->b / best->weight));
     return result;
 }
-PlaybackArtwork::PlaybackArtwork(QObject *parent) : QObject(parent)
+PlaybackArtwork::PlaybackArtwork(QObject *parent, QmlImageNetworkFactory *images)
+    : QObject(parent), m_network(images ? images->createImageClient(this, 2 * 1024 * 1024)
+                                        : new QNetworkAccessManager(this))
 {
     m_pool.setMaxThreadCount(1);
 }
@@ -120,7 +123,7 @@ void PlaybackArtwork::load(const QString &source, quint64 sequence)
     request.setTransferTimeout(15000);
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                          QNetworkRequest::NoLessSafeRedirectPolicy);
-    auto *reply = m_network.get(request);
+    auto *reply = m_network->get(request);
     m_reply = reply;
     connect(reply, &QNetworkReply::downloadProgress, this, [reply](qint64 received, qint64 total) {
         if (received > 2 * 1024 * 1024 || total > 2 * 1024 * 1024)

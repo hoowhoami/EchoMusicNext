@@ -290,9 +290,9 @@ void DiscoveryService::setPage(const QString &name, const QString &instance, boo
                 cancel(p);
                 m_states[p] = Idle;
             }
+            m_ranks.clear();
             m_rankTop = {};
             m_rankCatalog = {};
-            m_ranks.clear();
             m_rankSongs.clear();
             m_rankSongs.setQuery({});
             m_selectedRank = 0;
@@ -324,10 +324,9 @@ void DiscoveryService::setPage(const QString &name, const QString &instance, boo
         if (name == "recommend-songs" && m_states[Daily] == Idle)
             request(Daily);
         if (name == "ranking") {
-            for (auto p : {RankTop, RankCatalog}) {
-                if (m_states[p] == Idle)
-                    request(p);
-            }
+            for (auto part : {RankTop, RankCatalog})
+                if (m_states[part] == Idle)
+                    request(part);
             if (m_selectedRank && m_states[RankSongs] == Idle)
                 request(RankSongs);
         }
@@ -599,14 +598,14 @@ void DiscoveryService::failed(quint64 id, const QString &error)
     }
     m_states[pending.part] = Error;
     m_errors[pending.part] = error;
+    if (pending.part == RankTop || pending.part == RankCatalog)
+        mergeRanks();
     if (pending.part == DiscoverFlow && !pending.append && m_activePage == "discover-flow")
         emit notice(tr("推荐歌曲加载失败，请稍后重试"), 2);
     if (pending.part == Style)
         m_styleSongs.clear();
     if (pending.part == FreeListen)
         m_freeListen.clear();
-    if (pending.part == RankTop || pending.part == RankCatalog)
-        mergeRanks();
     emit changed();
     for (const auto &key : m_cardDemand) {
         auto *card = m_recommendationCards.find(key);
@@ -614,30 +613,62 @@ void DiscoveryService::failed(quint64 id, const QString &error)
             requestCard(card);
     }
 }
+QVariantList DiscoveryService::recommendedRanks() const
+{
+    QVariantList result;
+    QSet<quint64> seen;
+    for (const auto &entry : m_rankTop) {
+        const auto id = quint64(entry.toObject()["id"].toInteger());
+        if (seen.contains(id))
+            continue;
+        for (const auto &rank : m_ranks)
+            if (rank.toMap()["id"].toULongLong() == id) {
+                result.append(rank);
+                seen.insert(id);
+                break;
+            }
+    }
+    return result;
+}
 void DiscoveryService::mergeRanks()
 {
-    // Wait for both independent requests to settle.
-    if (m_states[RankTop] == Loading || m_states[RankCatalog] == Loading ||
-        m_states[RankTop] == Idle || m_states[RankCatalog] == Idle)
-        return;
-    const auto source = m_rankTop.isEmpty() ? m_rankCatalog : m_rankTop;
+    // Recommendation membership and order belong to rank_top, not catalog ranktype
+    // or a fixed list of names. Keep the complete directory behind those entries.
+    for (auto part : {RankTop, RankCatalog})
+        if (m_states[part] == Idle || m_states[part] == Loading)
+            return;
     m_ranks.clear();
-    for (const auto &value : source) {
-        auto rank = value.toObject();
-        for (const auto &detail : m_rankCatalog) {
-            const auto d = detail.toObject();
-            if (d["id"] != rank["id"])
+    QSet<quint64> seen;
+    for (const auto &entry : m_rankTop) {
+        auto rank = entry.toObject();
+        const auto id = quint64(rank["id"].toInteger());
+        if (rank["id"].isDouble() && seen.contains(id))
+            continue;
+        for (const auto &entry : m_rankCatalog) {
+            const auto detail = entry.toObject();
+            if (!rank["id"].isDouble() || detail["id"] != rank["id"])
                 continue;
-            if (rank["description"].toString().isEmpty())
-                rank["description"] = d["description"];
-            if (rank["update_frequency"].toString().isEmpty())
-                rank["update_frequency"] = d["update_frequency"];
-            if (!d["published_at"].isNull())
-                rank["published_at"] = d["published_at"];
+            for (auto it = detail.begin(); it != detail.end(); ++it)
+                if (rank[it.key()].isUndefined() || rank[it.key()].isNull() ||
+                    (rank[it.key()].isString() && rank[it.key()].toString().isEmpty()) ||
+                    (it.key() == "published_at" && !it.value().isNull()))
+                    rank[it.key()] = it.value();
+            break;
         }
         m_ranks.append(rank.toVariantMap());
+        if (rank["id"].isDouble())
+            seen.insert(id);
     }
-    if (!m_ranks.isEmpty() && !m_selectedRank) {
+    for (const auto &entry : m_rankCatalog) {
+        const auto rank = entry.toObject();
+        const auto id = quint64(rank["id"].toInteger());
+        if (rank["id"].isDouble() && seen.contains(id))
+            continue;
+        m_ranks.append(rank.toVariantMap());
+        if (rank["id"].isDouble())
+            seen.insert(id);
+    }
+    if (!m_selectedRank && !m_ranks.isEmpty()) {
         m_selectedRank = m_ranks.first().toMap()["id"].toULongLong();
         request(RankSongs);
     }
@@ -646,11 +677,7 @@ void DiscoveryService::retry(Part part)
 {
     if (part < 0 || part >= PartCount)
         return;
-    if (part == RankTop || part == RankCatalog) {
-        request(RankTop);
-        request(RankCatalog);
-    } else
-        request(part);
+    request(part);
 }
 void DiscoveryService::selectCategory(const QString &value)
 {

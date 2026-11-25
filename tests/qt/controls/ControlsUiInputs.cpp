@@ -503,9 +503,16 @@ void ControlsUiTest::imageDensityTracksScaleWithoutTrackingScroll()
     EchoImageMetrics small;
     small.setItem(&thumbnail);
     small.setSource(QUrl("https://imge.kugou.com/stdmusic/1600/date/art.jpg"));
-    QCOMPARE(small.resolvedSource(), QUrl("https://imge.kugou.com/stdmusic/240/date/art.jpg"));
+    QCOMPARE(small.resolvedSource(), QUrl("https://imge.kugou.com/stdmusic/100/date/art.jpg"));
     small.setSource(QUrl("http://c1.kgimg.com/custom/1600/date/art.png"));
-    QCOMPARE(small.resolvedSource(), QUrl("http://c1.kgimg.com/custom/240/date/art.png"));
+    QCOMPARE(small.resolvedSource(), QUrl("http://c1.kgimg.com/custom/100/date/art.png"));
+    small.setSource(QUrl("https://singerimg.kugou.com/uploadpic/softhead/1600/date/art.jpg"));
+    QCOMPARE(small.resolvedSource(),
+             QUrl("https://singerimg.kugou.com/uploadpic/softhead/100/date/art.jpg"));
+    const QUrl signedAvatar(
+        "https://singerimg.kugou.com/uploadpic/softhead/1600/date/art.jpg?sig=keep");
+    small.setSource(signedAvatar);
+    QCOMPARE(small.resolvedSource(), signedAvatar);
     const QUrl signedLarge("https://imge.kugou.com/stdmusic/1600/date/art.jpg?sig=keep");
     small.setSource(signedLarge);
     QCOMPARE(small.resolvedSource(), signedLarge);
@@ -552,7 +559,7 @@ void ControlsUiTest::imageRequestsCoalesceLayoutAndRetireSynchronously()
     QTRY_COMPARE(requests.size(), 1);
     QCOMPARE(metrics.decodeSize(), QSize(64, 64));
     QCOMPARE(metrics.requestSource(), second);
-    QVERIFY(metrics.resolvedSource().path().contains("/240/"));
+    QVERIFY(metrics.resolvedSource().path().contains("/100/"));
     item.setSize({600, 600});
     QTRY_COMPARE(requests.size(), 2);
     item.setSize({40, 40});

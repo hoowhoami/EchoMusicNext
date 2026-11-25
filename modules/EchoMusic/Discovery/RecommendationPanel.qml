@@ -18,6 +18,8 @@ Item {
     property int previewIndex: 0
     property string demandKey: ""
     readonly property bool grouped: card.groups.count > 0 || card.key === "3102" || card.key === "3103"
+    readonly property bool singleGroup: grouped && card.groups.count === 1
+    property Action singleGroupAction: null
     readonly property bool hasContent: card.collection.count > 0 || card.groups.count > 0
     readonly property bool emptyBody: !hasContent && (card.status === 2 || card.status === 3)
     // A section reserves its full preview extent while it is still loading.
@@ -28,11 +30,19 @@ Item {
     readonly property int previewSongs: card.collection.count > 0 ? Math.min(6, card.collection.count) : 6
     // The sleeve follows the reference aspect ratio; captions have two fixed
     // single-line slots, so upstream paragraph breaks cannot shrink artwork.
-    readonly property real vipPreviewWidth: Math.min(206, width * .48)
+    // Integral slots keep ListView snapping and animated targets identical.
+    readonly property real vipPreviewWidth: Math.min(206, Math.floor(contentWidth * .48))
     readonly property real vipSleeveHeight: Math.ceil(vipPreviewWidth * 1.34)
     readonly property real vipCaptionHeight: Theme.font(12, Theme.regularWeight).pixelSize * 1.5 + 4 + Theme.font(10, Theme.regularWeight).pixelSize * 1.5
     readonly property real bodyHeight: emptyBody ? 96 : grouped ? 240 : card.key === "3006" ? vipSleeveHeight + 8 + vipCaptionHeight : card.key === "3004" ? 240 : Math.ceil(previewSongs / 2) * 84
-    implicitHeight: contentLayout.implicitHeight
+    readonly property real contentWidth: Math.max(0, width - 32)
+    implicitHeight: contentLayout.implicitHeight + 32
+    Rectangle {
+        objectName: "recommendationSectionSurface"
+        anchors.fill: parent
+        radius: Theme.cardRadius
+        color: Theme.withAlpha(Theme.text, Theme.dark ? .06 : .035)
+    }
     function rememberIndex(index: int): void {
         previewIndex = Math.max(0, index);
         panel.EchoPageState.save("recommendation-preview-" + card.key, {
@@ -46,7 +56,7 @@ Item {
     // A stable reading budget keeps late subtitles/tags from changing rows.
     // Only the available header width determines whether information wraps.
     readonly property real headingBudget: headingTitle.implicitWidth - headingBadge.implicitWidth + headingBadge.horizontalPadding * 2 + headingBadge.font.pixelSize * 2
-    readonly property bool inlineInformation: hasInformation && width - (width >= 340 ? headerActions.implicitWidth + 8 : 0) >= headingBudget + 12 + (style ? 168 : 120)
+    readonly property bool inlineInformation: hasInformation && contentWidth - (!grouped ? headerActions.implicitWidth + 8 : 0) >= headingBudget + 12 + (style ? 168 : 120)
     readonly property string information: {
         if (!daily)
             return card.subtitle;
@@ -94,9 +104,11 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
+        anchors.margins: 16
         spacing: 16
         RowLayout {
             Layout.fillWidth: true
+            Layout.minimumHeight: 28
             spacing: 8
             ColumnLayout {
                 Layout.fillWidth: true
@@ -120,6 +132,37 @@ Item {
                             count: panel.card.collection.totalCount > 99 ? "99+" : panel.card.collection.totalCount
                             tone: EchoBadge.Neutral
                         }
+                        Loader {
+                            active: !panel.grouped
+                            visible: active
+                            Layout.leftMargin: 6
+                            sourceComponent: EchoIconButton {
+                                id: headerPlay
+                                objectName: "recommendationPlayAll"
+                                width: 28
+                                height: 28
+                                implicitWidth: 28
+                                implicitHeight: 28
+                                padding: 7
+                                glyph: "play"
+                                text: qsTr("播放")
+                                foreground: Theme.accentText
+                                visualContentActive: panel.resourceActive
+                                enabled: panel.card.collection.count > 0
+                                background: Rectangle {
+                                    radius: width / 2
+                                    color: Theme.withAlpha(Theme.accent, headerPlay.hovered ? .18 : .1)
+                                    border.width: headerPlay.visualFocus ? 2 : 0
+                                    border.color: Theme.accent
+                                }
+                                onClicked: {
+                                    if (panel.card.key === "3107")
+                                        panel.service.playFeed(3107);
+                                    else
+                                        panel.card.actions.play();
+                                }
+                            }
+                        }
                     }
                     Loader {
                         Layout.fillWidth: true
@@ -138,17 +181,11 @@ Item {
             }
             Loader {
                 id: headerActions
-                active: !panel.grouped && panel.width >= 340
+                active: !panel.grouped || panel.singleGroup
                 visible: active
                 Layout.alignment: Qt.AlignTop
-                sourceComponent: cardActions
+                sourceComponent: moreAction
             }
-        }
-        Loader {
-            Layout.alignment: Qt.AlignRight
-            active: !panel.grouped && panel.width < 340
-            visible: active
-            sourceComponent: cardActions
         }
         Loader {
             objectName: "recommendationBody"
@@ -203,32 +240,25 @@ Item {
             onClicked: stylePicker.open()
         }
     }
-    component CardAction: EchoSoftButton {
-        glyphSize: 12
-        size: EchoControlSize.Small
-        accent: true
-    }
     Component {
-        id: cardActions
-        RowLayout {
-            spacing: 8
-            CardAction {
-                objectName: "recommendationViewAll"
-                text: qsTr("更多")
-                glyph: "list"
-                onClicked: panel.router.navigate("recommendation-detail", {}, panel.card.key)
-            }
-            CardAction {
-                objectName: "recommendationPlayAll"
-                text: qsTr("播放")
-                glyph: "play"
-                enabled: panel.card.collection.count > 0
-                onClicked: {
-                    if (panel.card.key === "3107")
-                        panel.service.playFeed(3107);
-                    else
-                        panel.card.actions.play();
-                }
+        id: moreAction
+        EchoSoftButton {
+            objectName: "recommendationViewAll"
+            text: qsTr("更多")
+            Accessible.name: qsTr("更多")
+            glyph: "chevron-right"
+            glyphAfterText: true
+            glyphSize: 14
+            plain: true
+            leftPadding: 4
+            rightPadding: 0
+            size: EchoControlSize.Small
+            enabled: !panel.grouped || panel.singleGroupAction !== null && panel.singleGroupAction.enabled
+            onClicked: {
+                if (panel.singleGroupAction && panel.singleGroup)
+                    panel.singleGroupAction.trigger();
+                else if (!panel.grouped)
+                    panel.router.navigate("recommendation-detail", {}, panel.card.key);
             }
         }
     }
@@ -337,148 +367,11 @@ Item {
             }
         }
     }
-    component Carousel: ListView {
-        id: carousel
-        orientation: ListView.Horizontal
-        snapMode: ListView.SnapToItem
-        boundsBehavior: Flickable.StopAtBounds
-        flickableDirection: Flickable.HorizontalFlick
-        spacing: 12
-        clip: true
-        reuseItems: true
-        // Prepare neighboring presentation slots, not a second song collection.
-        cacheBuffer: previewWidth + spacing
-        property real previewWidth: compositionWidth
-        readonly property int compositionColumns: Math.max(1, Math.floor((parent.width + spacing) / (320 + spacing)))
-        readonly property real compositionWidth: Math.max(0, (width - spacing * (compositionColumns - 1)) / compositionColumns)
-        EchoViewPoolGuard {
-            targetView: carousel
-        }
-        property bool restored: false
-        property bool viewReady: false
-        activeFocusOnTab: count > 1
-        HoverHandler {
-            id: carouselHover
-            parent: carousel.parent
-            margin: 36
-            blocking: false
-            enabled: panel.resourceActive
-        }
-        property bool keyboardNavigation: false
-        readonly property bool navigationShown: panel.resourceActive && count > 1 && (carouselHover.hovered || previous.hovered || next.hovered || keyboardNavigation && activeFocus || previous.visualFocus || next.visualFocus)
-        onActiveFocusChanged: if (!activeFocus)
-            keyboardNavigation = false
-        Keys.onLeftPressed: {
-            keyboardNavigation = true;
-            step(-1);
-        }
-        Keys.onRightPressed: {
-            keyboardNavigation = true;
-            step(1);
-        }
-        CarouselArrow {
-            id: previous
-            parent: carousel.parent
-            objectName: "recommendationCarouselPrevious-" + panel.card.key
-            anchors.right: carousel.left
-            anchors.verticalCenter: carousel.verticalCenter
-            visible: carousel.navigationShown && !carousel.atXBeginning
-            glyph: "chevron-left"
-            text: qsTr("上一组")
-            onClicked: carousel.step(-1)
-        }
-        CarouselArrow {
-            id: next
-            parent: carousel.parent
-            objectName: "recommendationCarouselNext-" + panel.card.key
-            anchors.left: carousel.right
-            anchors.verticalCenter: carousel.verticalCenter
-            visible: carousel.navigationShown && !carousel.atXEnd
-            glyph: "chevron-right"
-            text: qsTr("下一组")
-            onClicked: carousel.step(1)
-        }
-        function restoreIndex(): void {
-            if (viewReady && !restored && count > 0 && width > 0) {
-                forceLayout();
-                currentIndex = Math.min(panel.previewIndex, count - 1);
-                positionViewAtIndex(currentIndex, ListView.Beginning);
-                restored = true;
-            }
-        }
-        function step(delta: int): void {
-            const index = Math.max(0, Math.min(count - 1, currentIndex + delta));
-            slide.stop();
-            cancelFlick();
-            const start = contentX;
-            // Cached native positions and uniform slots avoid a viewport
-            // round trip just to calculate the animation destination.
-            const item = itemAtIndex(index);
-            const requested = item ? item.x : originX + index * (previewWidth + spacing);
-            const destination = Math.max(originX, Math.min(requested, originX + Math.max(0, contentWidth - width)));
-            currentIndex = index;
-            panel.rememberIndex(currentIndex);
-            if (motion.allowed && Math.abs(destination - start) > .5) {
-                contentX = start;
-                slide.from = start;
-                slide.to = destination;
-                slide.start();
-            } else
-                contentX = destination;
-        }
-        EchoMotionScope {
-            id: motion
-            target: carousel
-            active: panel.resourceActive
-            animations: [slide]
-        }
-        NumberAnimation {
-            id: slide
-            objectName: "recommendationCarouselSlide-" + panel.card.key
-            target: carousel
-            property: "contentX"
-            duration: Theme.panelDuration
-            easing.type: Easing.BezierSpline
-            easing.bezierCurve: Theme.easeStandard
-        }
-        onMovementStarted: slide.stop()
-        onCountChanged: restoreIndex()
-        onWidthChanged: {
-            if (restored) {
-                slide.stop();
-                forceLayout();
-                positionViewAtIndex(currentIndex, ListView.Beginning);
-            } else
-                restoreIndex();
-        }
-        Component.onCompleted: {
-            viewReady = true;
-            restoreIndex();
-        }
-        onMovementEnded: {
-            if (slide.running)
-                return;
-            const left = indexAt(contentX + 1, height / 2);
-            if (left >= 0) {
-                currentIndex = left;
-                panel.rememberIndex(left);
-            }
-        }
-        footer: Item {
-            width: 1
-            height: carousel.height
-        }
-    }
-    component CarouselArrow: EchoIconButton {
-        id: arrow
-        width: 36
-        height: 36
-        padding: 8
-        z: 2
-        foreground: hovered || visualFocus ? Theme.accentText : Theme.text
-        visualContentActive: panel.resourceActive && visible
-        hoverBackground: false
-        background: null
+    component Carousel: EchoCarouselView {
+        resourceActive: panel.resourceActive
+        navigationKey: panel.card.key
+        initialIndex: panel.previewIndex
+        onIndexRemembered: index => panel.rememberIndex(index)
     }
     Component {
         id: featureContent
@@ -490,7 +383,7 @@ Item {
                 // Do not enumerate the source while an initial zero-width
                 // slot still awaits its native layout.
                 model: width > 0 && previewWidth > 0 ? panel.card.collection : null
-                previewWidth: panel.card.key === "3006" ? Math.min(206, width * .48) : compositionWidth
+                previewWidth: panel.card.key === "3006" ? Math.min(206, Math.floor(width * .48)) : compositionWidth
                 delegate: SongPreview {
                     width: features.previewWidth
                     height: features.height
@@ -511,10 +404,18 @@ Item {
                 id: groups
                 objectName: "recommendationGroupCarousel-" + panel.card.key
                 anchors.fill: parent
-                model: panel.card.groups
+                model: width > 0 && previewWidth > 0 ? panel.card.groups : null
                 previewWidth: panel.card.groups.count > 1 ? compositionWidth : width
                 delegate: RecommendationGroupCard {
+                    id: themeGroup
                     property bool pooled: false
+                    promoteMore: panel.singleGroup
+                    Binding {
+                        target: panel
+                        property: "singleGroupAction"
+                        value: themeGroup.moreAction
+                        when: panel.singleGroup && themeGroup.index === 0 && !themeGroup.pooled
+                    }
                     card: panel.card
                     service: panel.service
                     router: panel.router

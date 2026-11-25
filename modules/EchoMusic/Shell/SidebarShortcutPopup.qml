@@ -159,20 +159,27 @@ EchoDialog {
     Component.onDestruction: layout.browseResources(false)
     flushBody: true
     body: Component {
-        Flickable {
+        ListView {
             id: shortcutView
+            objectName: "shortcutPickerView"
             implicitHeight: popup.bodyHeightLimit
+            cacheBuffer: 60
+            reuseItems: true
+            EchoViewPoolGuard {
+                targetView: shortcutView
+            }
+            property var catalog: popup.layout.shortcutCatalog
+            model: Math.ceil(catalog.length / 2)
+            spacing: 10
             clip: true
             boundsBehavior: Flickable.StopAtBounds
             contentWidth: width
-            contentHeight: body.implicitHeight
             ScrollBar.vertical: EchoPopupScrollBar {
                 surface: popup
                 view: shortcutView
                 resourceActive: popup.visible
             }
-            ColumnLayout {
-                id: body
+            header: ColumnLayout {
                 width: shortcutView.width - 24
                 spacing: 0
                 Label {
@@ -204,41 +211,29 @@ EchoDialog {
                         onClicked: popup.layout.restoreShortcuts()
                     }
                 }
-                EchoBoundedListView {
-                    id: options
+            }
+            delegate: RowLayout {
+                id: optionRow
+                required property int index
+                width: shortcutView.width - 24
+                spacing: 10
+                uniformCellSizes: true
+                ShortcutOption {
+                    modelData: shortcutView.catalog[optionRow.index * 2]
+                }
+                Loader {
                     Layout.fillWidth: true
-                    maximumViewportHeight: 320
-                    implicitWidth: 420
-                    clip: true
-                    cacheBuffer: 60
-                    reuseItems: true
-                    property var catalog: popup.layout.shortcutCatalog
-                    model: Math.ceil(catalog.length / 2)
-                    spacing: 10
-                    ScrollBar.vertical: EchoPageScrollBar {
-                        view: options
-                        viewActive: popup.visible
-                    }
-                    delegate: RowLayout {
-                        id: optionRow
-                        required property int index
-                        width: options.width
-                        spacing: 10
-                        uniformCellSizes: true
-                        ShortcutOption {
-                            modelData: options.catalog[optionRow.index * 2]
-                        }
-                        Loader {
-                            Layout.fillWidth: true
-                            Layout.minimumWidth: 0
-                            active: optionRow.index * 2 + 1 < options.catalog.length
-                            sourceComponent: ShortcutOption {
-                                modelData: options.catalog[optionRow.index * 2 + 1]
-                                width: parent.width
-                            }
-                        }
+                    Layout.minimumWidth: 0
+                    active: optionRow.index * 2 + 1 < shortcutView.catalog.length
+                    sourceComponent: ShortcutOption {
+                        modelData: shortcutView.catalog[optionRow.index * 2 + 1]
+                        width: parent.width
                     }
                 }
+            }
+            footer: ColumnLayout {
+                width: shortcutView.width - 24
+                spacing: 0
                 ColumnLayout {
                     Layout.fillWidth: true
                     Layout.topMargin: 30

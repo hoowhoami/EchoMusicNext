@@ -49,6 +49,7 @@ class DiscoveryService final : public QObject
     Q_PROPERTY(QStringList selectedTags READ selectedTags NOTIFY changed)
     Q_PROPERTY(QString styleSummary READ styleSummary NOTIFY changed)
     Q_PROPERTY(QVariantList ranks READ ranks NOTIFY changed)
+    Q_PROPERTY(QVariantList recommendedRanks READ recommendedRanks NOTIFY changed)
     Q_PROPERTY(QVariantMap selectedRank READ selectedRank NOTIFY changed)
     Q_PROPERTY(QString dailyDate READ dailyDate NOTIFY changed)
     Q_PROPERTY(QString dailySubtitle READ dailySubtitle NOTIFY changed)
@@ -151,6 +152,7 @@ public:
     {
         return m_ranks;
     }
+    QVariantList recommendedRanks() const;
     QVariantMap selectedRank() const;
     QString dailyDate() const
     {
@@ -246,6 +248,7 @@ private:
         bool append = false;
     };
     void request(Part part, bool append = false);
+    void mergeRanks();
     /// Deduplicate DiscoverFlow batches against served keys.
     /// Reset the key set before replacing the catalog.
     QJsonArray discoverRows(const QJsonObject &payload);
@@ -254,7 +257,6 @@ private:
     void reset();
     void succeeded(quint64 id, const QByteArray &bytes);
     void failed(quint64 id, const QString &error);
-    void mergeRanks();
     void syncDiscoverQueue();
     QString queueKey(const SongCatalogModel *model) const;
     QString queueTitle(const SongCatalogModel *model) const;
@@ -274,8 +276,8 @@ private:
     QHash<QString, QString> m_instances;
     std::array<State, PartCount> m_states{};
     std::array<QString, PartCount> m_errors{};
-    QJsonArray m_rankTop, m_rankCatalog;
     QVariantList m_styleGroups, m_ranks;
+    QJsonArray m_rankTop, m_rankCatalog;
     QStringList m_selectedTags;
     /// Source keys already served by DiscoverFlow, so a later batch cannot add
     /// a row the user has already scrolled past (SongCatalogModel renames

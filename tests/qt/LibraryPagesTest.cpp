@@ -4828,6 +4828,127 @@ Window {
         QCOMPARE(warnings.size(), 0);
     }
 
+    void contentArtworkLiftKeepsCaptionsAndHitTargets_data()
+    {
+        QTest::addColumn<QString>("kind");
+        for (const auto &kind : {"playlist", "video", "artist", "user", "directory"})
+            QTest::newRow(kind) << QString(kind);
+    }
+    void contentArtworkLiftKeepsCaptionsAndHitTargets()
+    {
+        QFETCH(QString, kind);
+        if (QGuiApplication::platformName() != "offscreen")
+            QSKIP("Local event regression; no desktop pointer interaction");
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ThemeStore theme(prefs);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        const bool person = kind == "artist" || kind == "user" || kind == "directory";
+        const auto type = kind == "user"        ? "FavoriteUserCard"
+                          : kind == "directory" ? "ArtistDirectoryAvatar"
+                                                : "ContentCard";
+        const auto fields =
+            kind == "user" ? QString("nickname: \"用户名称\"; avatarUrl: \"\"; metaText: "
+                                     "\"个人简介\"; singer: true; targetId: \"42\"")
+            : kind == "directory"
+                ? QString("title: \"歌手名称\"; coverUrl: \"\"; resourceId: \"42\"")
+                : QString("title: \"再听亿遍！好听到破圈的国风歌曲与漫长的故事\"; artistText: "
+                          "\"歌手名称\"; extraText: \"创作者 · 30 首歌曲\"; coverUrl: \"\"; "
+                          "durationText: \"03:20\"; resourceId: \"42\"; video: %1; artist: %2")
+                      .arg(kind == "video" ? "true" : "false", kind == "artist" ? "true" : "false");
+        QQmlComponent component(&engine);
+        component.setData(QString(R"(
+import QtQuick
+import EchoMusic.Music
+import EchoMusic.Favorites
+Window {
+ visible: true; width: 500; height: 500
+ %1 { objectName: "probe"; x: 30; y: 30; width: 200; height: implicitHeight
+      navigationAvailable: true; %2 }
+})")
+                              .arg(type, fields)
+                              .toUtf8(),
+                          QUrl());
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.get());
+        auto *card = root->findChild<QQuickItem *>("probe");
+        QVERIFY(window && card);
+        const auto find = [](auto &&self, QQuickItem *item, const QString &name) -> QQuickItem * {
+            if (item->objectName() == name)
+                return item;
+            for (auto *child : item->childItems())
+                if (auto *hit = self(self, child, name))
+                    return hit;
+            return nullptr;
+        };
+        auto *media =
+            find(find, card, kind == "directory" ? "artistDirectoryAvatar" : "contentCardMedia");
+        auto *caption =
+            find(find, card, kind == "directory" ? "artistDirectoryCaption" : "contentCardCaption");
+        QVERIFY(media && caption);
+        if (kind == "artist") {
+            // SearchModel keeps artist counts in extraText, with no creator.
+            card->setProperty("artistText", "");
+            card->setProperty("extraText", "120 歌曲 • 8 专辑");
+            auto *secondary = find(find, card, "contentCardSecondary");
+            QVERIFY(secondary);
+            QCOMPARE(secondary->property("text").toString(), QString("120 歌曲 • 8 专辑"));
+        }
+        QTest::mouseMove(window, QPoint(450, 450));
+        QTest::qWait(30);
+        const auto beforeMedia = media->mapToScene(QPointF());
+        const auto beforeCaption = caption->mapToScene(QPointF());
+        const auto beforeCard = card->mapRectToScene(card->boundingRect());
+        const auto target = card->mapToScene(QPointF(100, 60)).toPoint();
+        QTest::mouseMove(window, target);
+        QTRY_VERIFY(card->property("hovered").toBool());
+        QTRY_VERIFY(qAbs(media->mapToScene(QPointF()).y() - beforeMedia.y() + 4) < .01);
+        QCOMPARE(caption->mapToScene(QPointF()), beforeCaption);
+        QCOMPARE(card->mapRectToScene(card->boundingRect()), beforeCard);
+        if (!person) {
+            auto *title = find(find, card, "contentCardTitle");
+            QVERIFY(title);
+            QCOMPARE(title->property("maximumLineCount").toInt(), 2);
+            QCOMPARE(title->property("lineCount").toInt(), 2);
+        }
+        if (kind == "video") {
+            auto *play = find(find, card, "contentCardPlayIndicator");
+            QVERIFY(play && play->isVisible());
+            QVERIFY(play->mapRectToScene(play->boundingRect())
+                        .intersects(media->mapRectToScene(media->boundingRect())));
+        }
+        QSignalSpy opened(card, SIGNAL(openRequested(QString)));
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, target);
+        QCOMPARE(opened.size(), 1);
+        QCOMPARE(opened.first().first().toString(), QString("42"));
+        card->setProperty("resourceActive", false);
+        QTRY_VERIFY(qAbs(media->mapToScene(QPointF()).y() - beforeMedia.y()) < .01);
+        QCOMPARE(caption->mapToScene(QPointF()), beforeCaption);
+        theme.setMotionEnabled(false);
+        card->setProperty("resourceActive", true);
+        QCOMPARE(media->mapToScene(QPointF()).y(), beforeMedia.y() - 4);
+        QTest::mouseMove(window, QPoint(450, 450));
+        QTRY_VERIFY(!card->property("hovered").toBool());
+        QCOMPARE(media->mapToScene(QPointF()), beforeMedia);
+        if (kind == "user") {
+            card->setProperty("singer", false);
+            QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, target);
+            QCOMPARE(opened.size(), 1); // Followed users still have no target route.
+        }
+        theme.setMotionEnabled(true);
+        QTest::mouseMove(window, QPoint(450, 450));
+        QTest::mouseMove(window, target);
+        QTest::qWait(20);
+        auto *animation = card->findChild<QObject *>("contentArtworkLift");
+        QVERIFY(animation && animation->property("running").toBool());
+        window->hide();
+        QTRY_VERIFY(!animation->property("running").toBool());
+        QCOMPARE(warnings.size(), 0);
+    }
+
     void fixedSongListModelReplacementKeepsRoles()
     {
         QTemporaryDir dir;

@@ -8,6 +8,7 @@
 #include <QColor>
 namespace EchoMusic
 {
+class QmlImageNetworkFactory;
 struct ArtworkResult
 {
     QByteArray png;
@@ -19,7 +20,7 @@ class PlaybackArtwork final : public QObject
 {
     Q_OBJECT
 public:
-    explicit PlaybackArtwork(QObject *parent = nullptr);
+    explicit PlaybackArtwork(QObject *parent = nullptr, QmlImageNetworkFactory *images = nullptr);
     ~PlaybackArtwork() override;
     void load(const QString &url, quint64 sequence);
     void cancel();
@@ -29,7 +30,7 @@ signals:
     void ready(quint64 sequence, const QByteArray &png, const QColor &dominant);
 
 private:
-    QNetworkAccessManager m_network;
+    QNetworkAccessManager *m_network;
     QPointer<QNetworkReply> m_reply;
     QThreadPool m_pool;
     quint64 m_sequence = 0, m_generation = 0;

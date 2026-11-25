@@ -25,6 +25,7 @@ EchoActionButton {
     property int size: EchoControlSize.Standard
     property string glyph: ""
     property real glyphSize: 16
+    property bool glyphAfterText: false
     property bool accent: false
     property bool danger: false
     property bool plain: false
@@ -64,6 +65,7 @@ EchoActionButton {
         visible: !button.publicPart.replaced
         spacing: button.size === EchoControlSize.Small ? 6 : 8
         glyph: button.glyph
+        glyphAfterText: button.glyphAfterText
         glyphSize: button.glyphSize
         loading: button.loading
         text: button.display === AbstractButton.IconOnly ? "" : button.text

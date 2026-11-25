@@ -1,6 +1,7 @@
 #include <QtQml/qqmlextensionplugin.h>
 Q_IMPORT_QML_PLUGIN(EchoMusic_ThemesPlugin)
 #include "EchoPluginAssets.h"
+#include "QmlImageNetworkFactory.h"
 #include "EchoPluginImageDropArea.h"
 #include <QDragEnterEvent>
 #include <QMimeData>
@@ -24,6 +25,11 @@ namespace
 struct AssetsFixture
 {
     Host host;
+    explicit AssetsFixture(bool imageCache = false) : host({}, imageCache)
+    {
+        if (imageCache)
+            host.network->enableImageCache(host.temporary.path() + "/online-images");
+    }
     QJSValueList roots;
     EchoPluginContext *scope = nullptr;
     bool activate(const std::function<void(const QString &)> &prepare = {})
@@ -65,6 +71,7 @@ struct CoverServer
     QList<QPointer<QTcpSocket>> waiting;
     bool hold = false;
     bool trickle = false;
+    int requests = 0;
     CoverServer()
     {
         QImage image(1, 1, QImage::Format_RGBA8888);
@@ -84,6 +91,7 @@ struct CoverServer
                     if (!request.contains("\r\n\r\n") || socket->property("handled").toBool())
                         return;
                     socket->setProperty("handled", true);
+                    ++requests;
                     if (hold)
                         waiting.append(socket);
                     else
@@ -106,7 +114,8 @@ struct CoverServer
             timer->start(1000);
             return;
         }
-        socket->write("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: " +
+        socket->write("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nCache-Control: public, "
+                      "max-age=3600\r\nContent-Length: " +
                       QByteArray::number(png.size()) + "\r\nConnection: close\r\n\r\n" + png);
         socket->disconnectFromHost();
     }
@@ -169,6 +178,7 @@ private slots:
     void cancelAcceptedImportBeforePublication_data();
     void cancelAcceptedImportBeforePublication();
     void realCurrentCoverNetworkAndSourceRevisionCancellation();
+    void currentCoverSamplingSharesHostImageCache();
     void tamperedPersistentFontIsRejectedBeforeRegistration();
     void trickleCoverHasAbsoluteNetworkDeadline();
     void batchFontStagingNeverExceedsInstallationBudget();
@@ -778,6 +788,49 @@ void PluginAssetsTest::realCurrentCoverNetworkAndSourceRevisionCancellation()
     QCOMPARE(completed.count(), 1);
     QVERIFY(!pending->result().isValid());
 }
+void PluginAssetsTest::currentCoverSamplingSharesHostImageCache()
+{
+    AssetsFixture fixture(true);
+    QVERIFY(fixture.activate());
+    CoverServer server;
+    const auto cover = server.url();
+    fixture.host.playback.setVolume(0);
+    fixture.host.playback.playTracks({coverTrack(fixture, "cached-cover", cover)}, 0, "Assets",
+                                     "assets");
+    QTRY_COMPARE(fixture.host.playback.coverColor(), QColor(24, 48, 72));
+    std::unique_ptr<QNetworkAccessManager> warmer(
+        fixture.host.network->imageNetworkFactory()->createImageClient(nullptr, 8 * 1024 * 1024));
+    auto *reply = warmer->get(QNetworkRequest(cover));
+    QSignalSpy downloaded(reply, &QNetworkReply::finished);
+    QTRY_COMPARE(downloaded.size(), 1);
+    QCOMPARE(reply->error(), QNetworkReply::NoError);
+    delete reply;
+    const int requests = server.requests;
+    for (int i = 0; i < 2; ++i) {
+        auto *sample = fixture.retain(fixture.scope->assets()->sampleImage(cover, 1, 1));
+        QTRY_COMPARE_WITH_TIMEOUT(sample->state(), EchoPluginOperation::Succeeded, 15000);
+        QCOMPARE(sample->result().toMap()["pixels"].toList(), QVariantList({24, 48, 72, 255}));
+    }
+    QCOMPARE(server.requests, requests);
+    server.hold = true;
+    const QUrl cold(cover.toString() + "?uncached=1");
+    fixture.host.playback.playTracks({coverTrack(fixture, "pending-cache-cover", cold)}, 0,
+                                     "Assets", "assets");
+    QTRY_COMPARE(fixture.scope->player()->coverUrl(), cold);
+    auto *pending = fixture.retain(fixture.scope->assets()->sampleImage(cold, 1, 1));
+    QSignalSpy completed(pending, &EchoPluginOperation::completed);
+    QTRY_VERIFY(server.waiting.size() >= 2);
+    fixture.host.playback.playTracks({coverTrack(fixture, "replacement-cache-cover", cover)}, 0,
+                                     "Assets", "assets");
+    QTRY_COMPARE(pending->state(), EchoPluginOperation::Canceled);
+    QTRY_VERIFY(fixture.scope->assets()->isDrained());
+    for (const auto &socket : server.waiting)
+        if (socket)
+            server.respond(socket);
+    QTest::qWait(50);
+    QCOMPARE(completed.size(), 1);
+    QVERIFY(!pending->result().isValid());
+}
 
 void PluginAssetsTest::tamperedPersistentFontIsRejectedBeforeRegistration()
 {
@@ -817,7 +870,7 @@ void PluginAssetsTest::tamperedPersistentFontIsRejectedBeforeRegistration()
 
 void PluginAssetsTest::trickleCoverHasAbsoluteNetworkDeadline()
 {
-    AssetsFixture fixture;
+    AssetsFixture fixture(true);
     QVERIFY(fixture.activate());
     CoverServer server;
     QVERIFY(server.server.isListening());

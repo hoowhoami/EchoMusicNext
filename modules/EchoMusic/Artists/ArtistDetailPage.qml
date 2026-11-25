@@ -98,7 +98,7 @@ RoutePage {
             model: page.detail.albums
             readonly property int columns: Math.max(1, Math.floor(width / (180 + 20)))
             readonly property real cardWidth: Math.max(1, width / columns - 20)
-            readonly property real cardHeight: (cardWidth - 22) / 1 + 66
+            readonly property real cardHeight: cardWidth + 70
             cellWidth: cardWidth + 20
             cellHeight: cardHeight + 20
             ScrollBar.vertical: EchoPageScrollBar {

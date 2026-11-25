@@ -1,4 +1,5 @@
 #include "AppContext_p.h"
+#include "QmlImageNetworkFactory.h"
 #include "SingleInstance.h"
 #include "ApplicationUrlHandler.h"
 #include "AboutService.h"
@@ -50,6 +51,7 @@ void AppContext::createPlugins()
     auto &shareCommands = *m_shareCommands;
     m_engine = std::make_unique<QQmlApplicationEngine>();
     auto &engine = *m_engine;
+    engine.setNetworkAccessManagerFactory(network.imageNetworkFactory());
     theme.attachToEngine(engine);
     const auto pluginRoot =
         (smoke ? smokeDirectory.path()

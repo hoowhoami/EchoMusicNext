@@ -18,6 +18,22 @@ Item {
     required property var entry
     required property SongCatalogActions commands
     property bool resourceActive: true
+    property bool promoteMore: false
+    readonly property Action moreAction: Action {
+        text: qsTr("更多")
+        enabled: (group.entry.song_count || 0) > 0 && group.streamable
+        onTriggered: {
+            const query = {
+                group: String(group.index)
+            };
+            if (group.card.key === "3103") {
+                query.tag = String(group.entry.id);
+                query.label = group.entry.title || "";
+                query.description = group.entry.description || "";
+            }
+            group.router.navigate("recommendation-detail", query, group.card.key);
+        }
+    }
     activeFocusOnTab: true
     readonly property bool streamable: card.key !== "3103" || entry.id !== undefined && entry.id !== null && String(entry.id).length > 0
     readonly property string queueKey: card.key === "3103" ? service.feedQueueKey(3103, String(entry.id)) : card.groupQueueKey(index)
@@ -56,7 +72,7 @@ Item {
                 enabled: !loading && (group.entry.song_count || 0) > 0 && group.streamable
                 visible: group.resourceActive && (groupHover.hovered || group.activeFocus || hovered || visualFocus || group.pending)
                 background: Rectangle {
-                    radius: Theme.controlRadius
+                    radius: width / 2
                     color: "#66000000"
                 }
                 onClicked: {
@@ -88,22 +104,17 @@ Item {
                 EchoSoftButton {
                     objectName: "recommendationGroupMore-" + group.card.key + "-" + group.index
                     text: qsTr("更多")
-                    glyph: "list"
-                    glyphSize: 12
+                    Accessible.name: qsTr("更多")
+                    glyph: "chevron-right"
+                    glyphAfterText: true
+                    glyphSize: 14
+                    plain: true
+                    leftPadding: 4
+                    rightPadding: 0
                     size: EchoControlSize.Small
-                    accent: true
-                    enabled: (group.entry.song_count || 0) > 0 && group.streamable
-                    onClicked: {
-                        const query = {
-                            group: String(group.index)
-                        };
-                        if (group.card.key === "3103") {
-                            query.tag = String(group.entry.id);
-                            query.label = group.entry.title || "";
-                            query.description = group.entry.description || "";
-                        }
-                        group.router.navigate("recommendation-detail", query, group.card.key);
-                    }
+                    enabled: group.moreAction.enabled
+                    onClicked: group.moreAction.trigger()
+                    visible: !group.promoteMore
                 }
             }
             Label {

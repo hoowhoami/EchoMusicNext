@@ -28,6 +28,10 @@ public:
     {
         return !model.m_fallback.isEmpty();
     }
+    static bool ready(const ArtistDirectoryModel &model, int row)
+    {
+        return model.m_hot.peek(row).has_value();
+    }
     static void original(ArtistDirectoryModel &model, int row, QObject *consumer,
                          JsonRecordStore::Completion done)
     {
@@ -66,6 +70,33 @@ class ArtistDirectoryModelTest final : public QObject
 {
     Q_OBJECT
 private slots:
+    void adjacentColdDemandsShareOneRead()
+    {
+        QTemporaryDir dir;
+        SessionDatabase database(dir.filePath("session"));
+        {
+            ArtistDirectoryModel model;
+            model.attach(&database);
+            model.replace(artists());
+            QTRY_VERIFY(ArtistDirectoryModelTestAccess::persisted(model));
+            QSignalSpy changes(&model, &QAbstractItemModel::dataChanged);
+            for (int row = 0; row < 20; ++row)
+                QVERIFY(!model.index(row).data(SongCatalogModel::PresentationReady).toBool());
+            QTRY_VERIFY(ArtistDirectoryModelTestAccess::ready(model, 0));
+            int publishedRows = 0;
+            for (const auto &change : changes)
+                publishedRows +=
+                    change[1].value<QModelIndex>().row() - change[0].value<QModelIndex>().row() + 1;
+            qInfo() << "20 adjacent cold artist demands published rows:" << publishedRows;
+            QVERIFY2(publishedRows <= 32, "Adjacent demands repeatedly read overlapping batches");
+            for (int row = 0; row < 20; ++row)
+                QCOMPARE(model.index(row).data(SongCatalogModel::Title).toString(),
+                         QString("歌手 %1").arg(row + 1));
+        }
+        QSignalSpy closed(&database, &SessionDatabase::closed);
+        database.shutdown();
+        QTRY_COMPARE(closed.size(), 1);
+    }
     void sqlWindowRetainsOriginalRecordsAndBoundsPresentation()
     {
         QTemporaryDir dir;

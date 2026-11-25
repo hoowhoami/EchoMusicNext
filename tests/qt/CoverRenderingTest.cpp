@@ -1,5 +1,6 @@
 #include "ThemeStore.h"
 #include "SceneGraphConfiguration.h"
+#include "QmlImageNetworkFactory.h"
 #include <QSGTexture>
 #include <QFile>
 #include <QBuffer>
@@ -61,13 +62,20 @@ private slots:
     {
         configureSceneGraph();
     }
+    void scrollReturnDoesNotReplayArtworkReveal_data()
+    {
+        QTest::addColumn<bool>("diskCache");
+        QTest::newRow("memory-hit") << false;
+        QTest::newRow("disk-after-memory-eviction") << true;
+    }
     void scrollReturnDoesNotReplayArtworkReveal()
     {
+        QFETCH(bool, diskCache);
         QTemporaryDir directory;
         SettingsStore settings(directory.filePath("settings.ini"));
         ThemeStore theme(settings);
-        theme.setMotionEnabled(true);
-        QImage artwork(128, 128, QImage::Format_RGB32);
+        theme.setMotionEnabled(!diskCache);
+        QImage artwork(diskCache ? 512 : 128, diskCache ? 512 : 128, QImage::Format_RGB32);
         artwork.fill(QColor("#20c060"));
         QByteArray png;
         QBuffer encoded(&png);
@@ -92,7 +100,10 @@ private slots:
             });
             connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
         });
+        QmlImageNetworkFactory factory(directory.filePath("images"));
         QQmlEngine engine;
+        if (diskCache)
+            engine.setNetworkAccessManagerFactory(&factory);
         theme.attachToEngine(engine);
         QSignalSpy warnings(&engine, &QQmlEngine::warnings);
         QQmlComponent component(&engine);
@@ -103,7 +114,8 @@ Window {
  id: host
  visible: true; width: 240; height: 240; color: "black"
  required property url artwork
- EchoCover { objectName: "probe"; anchors.centerIn: parent; width: 96; height: 96; source: host.artwork }
+ property real coverExtent: 96
+ EchoCover { objectName: "probe"; anchors.centerIn: parent; width: host.coverExtent; height: width; source: host.artwork }
 })",
                           QUrl("qrc:/cover-scroll-return.qml"));
         QScopedPointer<QObject> root(component.createWithInitialProperties(
@@ -117,6 +129,20 @@ Window {
         QTRY_COMPARE(cover->property("status").toInt(), 1);
         QTRY_COMPARE(cover->property("revealOpacity").toReal(), 1.);
         QCOMPARE(requests, 1);
+        if (diskCache) {
+            root->setProperty("coverExtent", 320);
+            for (int i = 0; i < 32; ++i) {
+                root->setProperty("artwork", QUrl(QString("http://127.0.0.1:%1/pressure-%2.png")
+                                                      .arg(server.serverPort())
+                                                      .arg(i)));
+                QTRY_COMPARE(requests, i + 2);
+                QTRY_COMPARE(cover->property("status").toInt(), 1);
+            }
+            cover->setProperty("resourceActive", false);
+            root->setProperty(
+                "artwork", QUrl(QString("http://127.0.0.1:%1/cover.png").arg(server.serverPort())));
+        }
+        const int expectedRequests = diskCache ? 33 : 1;
         for (int cycle = 0; cycle < 6; ++cycle) {
             cover->setProperty("resourceActive", false);
             auto *image = cover->findChild<QQuickItem *>("coverImage");
@@ -126,7 +152,7 @@ Window {
             QTRY_COMPARE(cover->property("status").toInt(), 1);
             qInfo() << "cover return" << cycle << "HTTP requests" << requests << "opacity"
                     << cover->property("revealOpacity");
-            QCOMPARE(requests, 1);
+            QCOMPARE(requests, expectedRequests);
             QCOMPARE(cover->property("revealOpacity").toReal(), 1.);
             const auto pixels = frame(*window);
             QVERIFY(!pixels.isNull());
@@ -135,9 +161,10 @@ Window {
         // A reused delegate must still transition a genuinely new, slow URL.
         root->setProperty(
             "artwork", QUrl(QString("http://127.0.0.1:%1/another.png").arg(server.serverPort())));
-        QTRY_COMPARE(requests, 2);
+        QTRY_COMPARE(requests, expectedRequests + 1);
         QTRY_COMPARE(cover->property("status").toInt(), 1);
-        QVERIFY(cover->property("revealOpacity").toReal() < 1.);
+        if (!diskCache)
+            QVERIFY(cover->property("revealOpacity").toReal() < 1.);
         QTRY_COMPARE(cover->property("revealOpacity").toReal(), 1.);
         QCOMPARE(warnings.size(), 0);
     }

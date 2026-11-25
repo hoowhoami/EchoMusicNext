@@ -20,7 +20,7 @@ GridView {
     signal openRequested(string id)
     readonly property int columns: Math.max(1, Math.floor(width / (180 + 20)))
     readonly property real cardWidth: Math.max(1, width / columns - 20)
-    readonly property real cardHeight: (cardWidth - 26) + 70
+    readonly property real cardHeight: cardWidth + 52
     cellWidth: cardWidth + 20
     cellHeight: cardHeight + 20
     clip: true
@@ -85,6 +85,7 @@ GridView {
             property bool pooled: false
             width: grid.cardWidth
             height: grid.cardHeight
+            artist: true
             resourceActive: grid.pageActive && grid.visible && !pooled
             GridView.onPooled: pooled = true
             GridView.onReused: pooled = false

@@ -34,6 +34,7 @@
 #include <QQmlIncubationController>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QQuickImageProvider>
 #include <QWheelEvent>
 #include <QPersistentModelIndex>
 #include "SettingsStore.h"
@@ -102,6 +103,11 @@ public:
 class DetailsTestAccess
 {
 public:
+    static void poster(MvDetailContext &context, const QString &url)
+    {
+        context.m_detail["cover_url"] = url;
+        emit context.changed();
+    }
     static void verifySharedCommentSource(CommentsController &c)
     {
         auto source = row(1);
@@ -515,6 +521,94 @@ class DetailsTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void mvPosterFollowsSharedDensityAndReleasesWhenInactive()
+    {
+        class Provider final : public QQuickImageProvider
+        {
+        public:
+            Provider() : QQuickImageProvider(Image) {}
+            QImage requestImage(const QString &, QSize *size, const QSize &) override
+            {
+                *size = QSize(64, 36);
+                QImage image(*size, QImage::Format_RGB32);
+                image.fill(Qt::green);
+                return image;
+            }
+        };
+        QTemporaryDir dir;
+        SettingsStore preferences(dir.filePath("preferences.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        PlaybackService playback(api, preferences, nullptr, dir.filePath("playback.sqlite"));
+        RouteController router;
+        DetailsService service(api, playback, router, false);
+        service.registerRoutes(router);
+        QVERIFY(router.navigate("mv-detail", {}, "33958"));
+        auto *detail = service.mvFor(router.current());
+        DetailsTestAccess::poster(*detail, "image://mv-poster/first");
+        ShellSettings settings(preferences);
+        settings.setMvBarrageEnabled(false);
+        ThemeStore theme(preferences);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        engine.addImageProvider("mv-poster", new Provider);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Details
+import EchoMusic.Shell
+Window {
+    id: host
+    required property MvDetailContext detail
+    required property ShellSettings settings
+    property real edge: 160
+    property real zoom: 1
+    visible: true; width: 800; height: 600
+    Item {
+        scale: host.zoom; transformOrigin: Item.TopLeft
+        MvVideoSurface {
+            objectName: "posterSurface"
+            width: host.edge; height: width * 9 / 16
+            detail: host.detail; settings: host.settings
+        }
+    }
+})",
+                          QUrl("qrc:/mv-poster-density.qml"));
+        QScopedPointer<QObject> root(
+            component.createWithInitialProperties({{"detail", QVariant::fromValue(detail)},
+                                                   {"settings", QVariant::fromValue(&settings)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window && QTest::qWaitForWindowExposed(window));
+        auto *surface = root->findChild<QQuickItem *>("posterSurface");
+        auto *image = surface->findChild<QQuickItem *>("mvPosterImage");
+        QVERIFY(image);
+        const auto requiredWidth = [&](qreal edge, qreal zoom) {
+            return qBound(32, qCeil(edge * zoom * window->effectiveDevicePixelRatio() / 32) * 32,
+                          1600);
+        };
+        QTRY_COMPARE(image->property("status").toInt(), 1);
+        QCOMPARE(image->property("sourceSize").toSize().width(), requiredWidth(160, 1));
+        root->setProperty("zoom", 1.25);
+        QTRY_COMPARE(image->property("sourceSize").toSize().width(), requiredWidth(160, 1.25));
+        surface->setProperty("presented", false);
+        QTRY_VERIFY(image->property("source").toUrl().isEmpty());
+        root->setProperty("edge", 64);
+        DetailsTestAccess::poster(*detail, "image://mv-poster/second");
+        surface->setProperty("presented", true);
+        QTRY_COMPARE(image->property("status").toInt(), 1);
+        QCOMPARE(image->property("sourceSize").toSize().width(), requiredWidth(64, 1.25));
+        surface->setProperty("outputActive", false);
+        QTRY_VERIFY(image->property("source").toUrl().isEmpty());
+        QCOMPARE(warnings.size(), 0);
+        root.reset();
+        service.shutdown();
+        router.shutdown();
+        QSignalSpy drained(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(drained.size(), 1, 15000);
+        api.shutdown();
+    }
     void commentsProjectionSharesCanonicalPayloadAndKeepsGeometryText()
     {
         ApiClient api;

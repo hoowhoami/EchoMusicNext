@@ -16,6 +16,8 @@ add_library(
     NetworkConfiguration.h
     NetworkBootstrap.cpp
     NetworkBootstrap.h
+    QmlImageNetworkFactory.cpp
+    QmlImageNetworkFactory.h
     NetworkPreferences.cpp
     NetworkPreferences.h
     ProxyRouting.cpp
@@ -40,8 +42,8 @@ add_library(
 target_include_directories(echo_network PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(
     echo_network
-    PUBLIC echo_bridge echo_credentials echo_cache
-    PRIVATE echo_build_options Qt6::Network Qt6::Qml Qt6::Concurrent CURL::libcurl
+    PUBLIC echo_bridge echo_credentials echo_cache Qt6::Qml
+    PRIVATE echo_build_options Qt6::Network Qt6::Concurrent CURL::libcurl
 )
 qt_extract_metatypes(echo_network)
 if(WIN32)

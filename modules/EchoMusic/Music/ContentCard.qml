@@ -7,7 +7,9 @@ import EchoMusic.Controls
 
 ItemDelegate {
     id: card
-    EchoActionCursor {}
+    EchoActionCursor {
+        enabled: card.navigationAllowed
+    }
     objectName: "contentDelegate"
     required property string title
     required property string artistText
@@ -19,29 +21,19 @@ ItemDelegate {
     property bool video: false
     property bool resourceActive: true
     property bool navigationAvailable: false
+    property bool navigationAllowed: navigationAvailable && resourceId.length > 0
     signal openRequested(string id)
-    // Include the original transparent 1px border in the content inset.
-    padding: artist ? 13 : video ? 9 : 11
+    // The media has its own lift gutter; hit geometry and captions never move.
+    padding: 0
+    topPadding: 4
+    implicitHeight: topPadding + width / (video ? 1.78 : 1) + 8 + (artist ? 40 : 58)
     hoverEnabled: true
     Accessible.name: title
     onClicked: {
-        if (navigationAvailable)
+        if (navigationAllowed)
             openRequested(resourceId);
     }
-    transform: Translate {
-        y: card.resourceActive && card.hovered && Theme.normalDuration > 0 ? -1 : 0
-        Behavior on y {
-            enabled: card.resourceActive
-            NumberAnimation {
-                duration: Theme.normalDuration
-                easing.type: Easing.BezierSpline
-                easing.bezierCurve: Theme.easeStandard
-            }
-        }
-    }
-    background: Rectangle {
-        radius: Theme.cardRadius
-        color: Theme.mutedSurface
+    background: Item {
         Loader {
             anchors.fill: parent
             active: card.visualFocus && card.resourceActive
@@ -55,9 +47,29 @@ ItemDelegate {
         }
     }
     contentItem: ColumnLayout {
-        spacing: card.artist ? 6 : 8
+        spacing: 8
         Item {
             id: media
+            objectName: "contentCardMedia"
+            transform: Translate {
+                y: card.resourceActive && card.hovered ? -4 : 0
+                Behavior on y {
+                    enabled: motion.allowed
+                    NumberAnimation {
+                        id: lift
+                        objectName: "contentArtworkLift"
+                        duration: Theme.normalDuration
+                        easing.type: Easing.BezierSpline
+                        easing.bezierCurve: Theme.easeStandard
+                    }
+                }
+            }
+            EchoMotionScope {
+                id: motion
+                target: card
+                active: card.resourceActive
+                animations: [lift]
+            }
             Layout.fillWidth: true
             Layout.preferredHeight: width / (card.video ? 1.78 : 1)
             EchoCover {
@@ -75,41 +87,20 @@ ItemDelegate {
                 sourceComponent: Item {
                     objectName: "contentCardVideoDetails"
                     Rectangle {
-                        anchors.fill: parent
-                        radius: Theme.controlRadius
-                        color: "#4d000000"
-                        opacity: card.resourceActive && card.hovered ? 1 : 0
-                        Behavior on opacity {
-                            enabled: card.resourceActive
-                            NumberAnimation {
-                                duration: Theme.normalDuration
-                                easing.type: Easing.BezierSpline
-                                easing.bezierCurve: Theme.easeStandard
-                            }
-                        }
-                        Rectangle {
+                        objectName: "contentCardPlayIndicator"
+                        anchors.centerIn: parent
+                        width: 36
+                        height: 36
+                        radius: 18
+                        color: "#e6ffffff"
+                        visible: card.hovered || card.visualFocus
+                        EchoIcon {
                             anchors.centerIn: parent
-                            width: 36
-                            height: 36
-                            radius: 18
-                            color: "#e6ffffff"
-                            scale: card.resourceActive && card.hovered ? 1 : 0.75
-                            Behavior on scale {
-                                enabled: card.resourceActive
-                                NumberAnimation {
-                                    duration: Theme.normalDuration
-                                    easing.type: Easing.BezierSpline
-                                    easing.bezierCurve: Theme.easeStandard
-                                }
-                            }
-                            EchoIcon {
-                                anchors.centerIn: parent
-                                width: 14
-                                height: 14
-                                name: "play"
-                                color: "black"
-                                resourceActive: card.resourceActive
-                            }
+                            width: 14
+                            height: 14
+                            name: "play"
+                            color: "black"
+                            resourceActive: card.resourceActive
                         }
                     }
                     Rectangle {
@@ -135,32 +126,40 @@ ItemDelegate {
         }
         ColumnLayout {
             Layout.fillWidth: true
-            Layout.leftMargin: 2
-            Layout.rightMargin: 2
-            Layout.preferredHeight: card.artist ? 38 : 36
-            spacing: card.artist ? 3 : 2
+            objectName: "contentCardCaption"
+            Layout.preferredHeight: card.artist ? 40 : 58
+            Layout.minimumHeight: Layout.preferredHeight
+            Layout.maximumHeight: Layout.preferredHeight
+            spacing: 4
             Text {
                 Layout.fillWidth: true
+                objectName: "contentCardTitle"
+                Layout.preferredHeight: card.artist ? 18 : 36
+                Layout.minimumHeight: Layout.preferredHeight
+                Layout.maximumHeight: Layout.preferredHeight
                 text: card.title
                 color: Theme.text
                 font: Theme.font(13, Theme.semiboldWeight)
                 textFormat: Text.PlainText
                 lineHeightMode: Text.FixedHeight
-                lineHeight: font.pixelSize * (card.artist ? 1.15 : 1.1)
+                lineHeight: 18
+                wrapMode: card.artist ? Text.NoWrap : Text.Wrap
+                maximumLineCount: card.artist ? 1 : 2
+                horizontalAlignment: card.artist ? Text.AlignHCenter : Text.AlignLeft
                 elide: Text.ElideRight
             }
             Text {
                 Layout.fillWidth: true
-                text: card.video ? card.artistText : card.extraText
+                objectName: "contentCardSecondary"
+                Layout.preferredHeight: 18
+                text: card.video || !card.extraText.length ? card.artistText : card.extraText
+                horizontalAlignment: card.artist ? Text.AlignHCenter : Text.AlignLeft
                 textFormat: Text.PlainText
                 color: Theme.secondaryText
-                font: Theme.font(11, Theme.semiboldWeight)
+                font: Theme.font(12, Theme.regularWeight)
                 lineHeightMode: Text.FixedHeight
-                lineHeight: 16.5
+                lineHeight: 18
                 elide: Text.ElideRight
-            }
-            Item {
-                Layout.fillHeight: true
             }
         }
     }

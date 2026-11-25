@@ -1221,6 +1221,255 @@ Window {
         QTRY_COMPARE(closed.size(), 1);
         api.shutdown();
     }
+    void rankingCatalogGroupsKeepServerOrderAndIntroduction_data()
+    {
+        QTest::addColumn<bool>("failFirst");
+        QTest::addColumn<bool>("topFirst");
+        QTest::addColumn<bool>("dark");
+        QTest::newRow("catalog-first-light") << false << false << false;
+        QTest::newRow("recommendations-first-dark") << false << true << true;
+        QTest::newRow("retry-directory") << true << false << false;
+    }
+    void rankingCatalogGroupsKeepServerOrderAndIntroduction()
+    {
+        QFETCH(bool, failFirst);
+        QFETCH(bool, topFirst);
+        QFETCH(bool, dark);
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        prefs.setValue("playback/volume", 0.);
+        ApiClient api(DeviceIdentity::temporary());
+        QList<QJsonObject> requests;
+        QHash<QString, QList<ApiInterceptDone>> pending;
+        const auto interceptor = api.addInterceptor(
+            1, [&](const QJsonObject &request, ApiInterceptNext, ApiInterceptDone done) {
+                const auto operation = request["operation"].toString();
+                if (operation == "rank_list" || operation == "rank_top" ||
+                    operation == "rank_audio") {
+                    requests.append(request);
+                    pending[operation].append(std::move(done));
+                } else
+                    QTimer::singleShot(0, &api, [done = std::move(done)] { done({1, "{}"}); });
+                return std::function<void()>{};
+            });
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        AccountService account(api);
+        DiscoveryService service(api, playback, account);
+        RouteController router;
+        DiscoveryRouteCoordinator routes(service, router, true);
+        ThemeStore theme(prefs);
+        theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
+        theme.setMotionEnabled(false);
+        ShellSettings settings(prefs);
+        settings.acceptUserAgreement();
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine);
+        component.setData(R"(import QtQuick
+import QtQuick.Controls.Basic
+import EchoMusic.Shell
+ApplicationWindow {
+ id: host
+ required property RouteController router
+ required property ShellSettings settings
+ visible: true; width: 1100; height: 800
+ RouteHost { anchors.fill: parent; router: host.router; settings: host.settings }
+})",
+                          QUrl("qrc:/ranking-complete-catalog.qml"));
+        QScopedPointer<QObject> root(
+            component.createWithInitialProperties({{"router", QVariant::fromValue(&router)},
+                                                   {"settings", QVariant::fromValue(&settings)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window);
+        QVERIFY(router.navigate("ranking"));
+        QTRY_COMPARE(pending["rank_list"].size(), 1);
+        QTRY_COMPARE(pending["rank_top"].size(), 1);
+        QCOMPARE(requests.size(), 2);
+        const auto deliver = [&](const QString &operation, const QJsonValue &data,
+                                 bool failed = false) {
+            auto done = pending[operation].takeFirst();
+            done({failed ? 1 : 0,
+                  (data.isArray() ? QJsonDocument(data.toArray()) : QJsonDocument(data.toObject()))
+                      .toJson()});
+        };
+        if (failFirst) {
+            deliver("rank_list", QJsonObject{{"message", "目录请求失败"}}, true);
+            QTRY_COMPARE(service.state(DiscoveryService::RankCatalog), DiscoveryService::Error);
+            QQuickItem *page = nullptr;
+            QTRY_VERIFY((page = findVisual(window->contentItem(), "rankingPage")));
+            QTRY_COMPARE(page->property("part").toInt(), int(DiscoveryService::RankCatalog));
+            service.retry(DiscoveryService::RankCatalog);
+            QTRY_COMPARE(pending["rank_list"].size(), 1);
+            QCOMPARE(requests.last()["operation"].toString(), QString("rank_list"));
+        }
+        QJsonArray catalog;
+        const QString description = "酷狗音乐人原创作品官方榜单，以推荐优秀原创作品为目的。";
+        for (int i = 1; i <= 56; ++i)
+            catalog.append(QJsonObject{{"id", i},
+                                       {"title", QString("完整目录榜单 %1").arg(i)},
+                                       {"description", description},
+                                       {"category", i % 2 + 1},
+                                       {"published_at", "2026-11-25 10:10:02"},
+                                       {"update_frequency", "每天"}});
+        const QJsonArray recommended{catalog[16], catalog[2], catalog[8]};
+        deliver(topFirst ? "rank_top" : "rank_list", topFirst ? recommended : catalog);
+        QTest::qWait(10);
+        QVERIFY(pending["rank_audio"].isEmpty());
+        // The first recommendation can be any rank. No city/name/id is pinned.
+        deliver(topFirst ? "rank_list" : "rank_top", topFirst ? catalog : recommended);
+        QTRY_COMPARE(service.recommendedRanks().size(), 3);
+        QCOMPARE(service.recommendedRanks()[0].toMap()["id"].toInt(), 17);
+        QCOMPARE(service.recommendedRanks()[1].toMap()["id"].toInt(), 3);
+        QCOMPARE(service.recommendedRanks()[2].toMap()["id"].toInt(), 9);
+        QTRY_COMPARE(service.ranks().size(), 56);
+        QCOMPARE(service.ranks()[0].toMap()["id"].toInt(), 17);
+        QCOMPARE(service.ranks()[3].toMap()["id"].toInt(), 1);
+        QTRY_COMPARE(pending["rank_audio"].size(), 1);
+        QCOMPARE(requests.last()["query"].toObject()["rank_id"].toInt(), 17);
+        deliver("rank_audio", QJsonObject{{"songs", QJsonArray{domainSong(17)}}, {"total", 100}});
+        QQuickItem *intro = nullptr, *header = nullptr;
+        QTRY_VERIFY((intro = findVisual(window->contentItem(), "rankingIntroduction")));
+        QTRY_VERIFY((header = findVisual(window->contentItem(), "songDetailHeader")));
+        QCOMPARE(header->property("heading").toString(), QString("排行榜"));
+        QCOMPARE(header->property("subtitle").toString(), QString());
+        QCOMPARE(header->property("description").toString(), QString());
+        QCOMPARE(intro->property("text").toString(), description);
+        QCOMPARE(intro->property("font").value<QFont>().weight(), QFont::DemiBold);
+        QVERIFY(!findVisual(header, "songDetailDescription")->isVisible());
+        auto *metadata = findVisual(header, "songDetailSecondaryDetails");
+        QVERIFY(metadata);
+        QVERIFY(intro->mapToItem(header, QPointF()).y() <
+                metadata->mapToItem(header, QPointF()).y());
+        QCOMPARE(header->property("expandedHeight").toReal(), 176.);
+        QVERIFY(QMetaObject::invokeMethod(intro, "clicked"));
+        QPointer<QObject> introDialog;
+        QTRY_VERIFY((introDialog = findVisualOwnerObject(window->contentItem(),
+                                                         "rankingIntroductionDialog")));
+        QTRY_VERIFY(introDialog->property("opened").toBool());
+        QCOMPARE(introDialog->property("text").toString(), description);
+        QVERIFY(QMetaObject::invokeMethod(introDialog, "close"));
+        QTRY_VERIFY(introDialog.isNull());
+        auto *choose = findVisual(window->contentItem(), "discoveryChooseRank");
+        QVERIFY(choose);
+        QVERIFY(QMetaObject::invokeMethod(choose, "clicked"));
+        QPointer<QObject> selector;
+        QTRY_VERIFY(
+            (selector = findVisualOwnerObject(window->contentItem(), "discoveryRankSelector")));
+        QTRY_VERIFY(selector->property("opened").toBool());
+        auto *options = findVisual(window->contentItem(), "discoveryRankOptions");
+        QVERIFY(options);
+        QCOMPARE(selector->property("activeTab").toInt(), 0);
+        const auto capture = [&](const QString &phase) {
+            const auto output = qEnvironmentVariable("ECHO_RANK_GROUP_ARTIFACTS");
+            if (output.isEmpty())
+                return;
+            QVERIFY(QDir().mkpath(output));
+            QImage frame;
+            QTRY_VERIFY(!(frame = window->grabWindow()).isNull());
+            QVERIFY(frame.save(output + QString("/%1-%2-%3.png")
+                                            .arg(dark ? "dark" : "light")
+                                            .arg(failFirst ? "retry" : "ready")
+                                            .arg(phase)));
+        };
+        capture("recommended");
+        auto *groups = findVisual(window->contentItem(), "discoveryRankGroups");
+        QVERIFY(groups);
+        QVERIFY(QMetaObject::invokeMethod(groups, "picked", Q_ARG(int, 1)));
+        QTRY_COMPARE(selector->property("activeTab").toInt(), 1);
+        QTRY_VERIFY(options->property("count").toInt() > 1);
+        capture("all");
+        QVERIFY(options->inherits("QQuickListView"));
+        const auto rowCount = options->property("count").toInt();
+        QVERIFY(rowCount > 0 && rowCount < service.ranks().size());
+        // Variable-width choices are packed into native virtual rows rather than
+        // stretching every name into two fixed columns or constructing all 56.
+        QVERIFY(countVisual(window->contentItem(), "discoveryRankOption") < 40);
+        QVERIFY(QMetaObject::invokeMethod(options, "positionViewAtEnd"));
+        QQuickItem *lastRow = nullptr;
+        QTRY_VERIFY(QMetaObject::invokeMethod(options, "itemAtIndex",
+                                              Q_RETURN_ARG(QQuickItem *, lastRow),
+                                              Q_ARG(int, rowCount - 1)) &&
+                    lastRow);
+        QQuickItem *last = nullptr;
+        QTRY_VERIFY(([&] {
+            QList<QQuickItem *> pendingItems{lastRow};
+            while (!pendingItems.isEmpty()) {
+                auto *item = pendingItems.takeLast();
+                if (item->objectName() == "discoveryRankOption" &&
+                    item->property("rankId").toInt() == 56) {
+                    last = item;
+                    return true;
+                }
+                pendingItems.append(item->childItems());
+            }
+            return false;
+        })());
+        QVERIFY(QMetaObject::invokeMethod(last, "clicked"));
+        QTRY_VERIFY(selector.isNull());
+        QTRY_COMPARE(pending["rank_audio"].size(), 1);
+        QCOMPARE(service.selectedRank()["id"].toInt(), 56);
+        QCOMPARE(requests.last()["query"].toObject()["rank_id"].toInt(), 56);
+        deliver("rank_audio", QJsonObject{{"songs", QJsonArray{domainSong(56)}}, {"total", 10}});
+        int directories = 0, recommendations = 0;
+        for (const auto &request : requests) {
+            directories += request["operation"] == "rank_list";
+            recommendations += request["operation"] == "rank_top";
+        }
+        QCOMPARE(directories, failFirst ? 2 : 1);
+        QCOMPARE(recommendations, 1);
+        QCOMPARE(warnings.size(), 0);
+        root.reset();
+        service.shutdown();
+        api.removeInterceptor(interceptor);
+        QSignalSpy closed(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE(closed.size(), 1);
+        api.shutdown();
+    }
+    void rankingDirectoryFallbackAndRecommendationRefreshKeepSelection()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        AccountService account(api);
+        DiscoveryService service(api, playback, account);
+        service.setPage("ranking", "ranking-fallback", false);
+        DiscoveryServiceTestAccess::pending(service, DiscoveryService::RankTop, 101);
+        DiscoveryServiceTestAccess::pending(service, DiscoveryService::RankCatalog, 102);
+        const QJsonArray catalog{
+            QJsonObject{{"id", 1}, {"title", "榜一"}}, QJsonObject{{"id", 2}, {"title", "榜二"}},
+            QJsonObject{{"id", 3}, {"title", "榜三"}, {"published_at", "2026-11-25"}}};
+        DiscoveryServiceTestAccess::complete(service, DiscoveryService::RankCatalog, catalog, 102);
+        QVERIFY(service.ranks().isEmpty());
+        DiscoveryServiceTestAccess::fail(service, DiscoveryService::RankTop, 101);
+        QCOMPARE(service.ranks().size(), 3);
+        QVERIFY(service.recommendedRanks().isEmpty());
+        QCOMPARE(service.selectedRank()["id"].toInt(), 1);
+        const QJsonObject third{{"id", 3}, {"title", "榜三"}};
+        const QJsonObject second{{"id", 2}, {"title", "榜二"}};
+        DiscoveryServiceTestAccess::complete(service, DiscoveryService::RankTop,
+                                             QJsonArray{third, second, third}, 103);
+        QCOMPARE(service.ranks().size(), 3);
+        QCOMPARE(service.recommendedRanks().size(), 2);
+        QCOMPARE(service.recommendedRanks()[0].toMap()["id"].toInt(), 3);
+        QCOMPARE(service.recommendedRanks()[0].toMap()["published_at"].toString(),
+                 QString("2026-11-25"));
+        QCOMPARE(service.ranks()[2].toMap()["id"].toInt(), 1);
+        QCOMPARE(service.selectedRank()["id"].toInt(), 1);
+        DiscoveryServiceTestAccess::complete(service, DiscoveryService::RankTop,
+                                             QJsonArray{second, third}, 104);
+        QCOMPARE(service.recommendedRanks()[0].toMap()["id"].toInt(), 2);
+        QCOMPARE(service.selectedRank()["id"].toInt(), 1);
+        service.shutdown();
+        QSignalSpy drained(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE(drained.size(), 1);
+        api.shutdown();
+    }
+
     void recommendationFeedsPageDeduplicateRetryAndCancel_data()
     {
         QTest::addColumn<int>("cardId");
@@ -1790,6 +2039,25 @@ ApplicationWindow {
         QVERIFY(groupPanel);
         QVERIFY(!findVisual(groupPanel, "recommendationViewAll"));
         QVERIFY(!findVisual(groupPanel, "recommendationPlayAll"));
+        auto *singlePanel = findVisual(window->contentItem(), "recommendationPanel-3102");
+        QVERIFY(singlePanel);
+        QQuickItem *singleMore = nullptr;
+        QTRY_VERIFY((singleMore = findVisual(singlePanel, "recommendationViewAll")) &&
+                    singleMore->isEnabled());
+        auto *singleLocalMore = findVisual(singlePanel, "recommendationGroupMore-3102-0");
+        QVERIFY(singleLocalMore && !singleLocalMore->isVisible());
+        auto *singleHeading = findVisual(singlePanel, "recommendationHeading-3102");
+        QVERIFY(singleHeading);
+        const auto singleMoreBounds = singleMore->mapRectToScene(singleMore->boundingRect());
+        const auto singleTitleBounds = singleHeading->mapRectToScene(singleHeading->boundingRect());
+        QVERIFY(singleMoreBounds.top() < singleTitleBounds.bottom());
+        QVERIFY(singleMoreBounds.bottom() > singleTitleBounds.top());
+        QTest::mouseClick(
+            window, Qt::LeftButton, Qt::NoModifier,
+            singleMore->mapToScene(QPointF(singleMore->width() / 2, singleMore->height() / 2))
+                .toPoint());
+        QTRY_COMPARE(router.current()->resourceId(), QString("3102"));
+        QCOMPARE(router.current()->query().value("group"), QString("0"));
         auto *groupMore = findVisual(groupPanel, "recommendationGroupMore-3103-0");
         auto *groupPlay = findVisual(groupPanel, "recommendationGroupPlay-3103-0");
         QVERIFY(groupMore && groupPlay);
@@ -1885,9 +2153,11 @@ ApplicationWindow {
             features->mapToScene(QPointF(features->width() / 2, features->height() / 2)).toPoint());
         QTRY_VERIFY(next->isVisible());
         QVERIFY(!previous->isVisible());
-        QCOMPARE(next->size(), QSizeF(36, 36));
+        QCOMPARE(next->size(), QSizeF(40, 48));
+        QCOMPARE(next->property("padding").toReal(), 6.);
+        QCOMPARE(next->property("topPadding").toReal(), 10.);
         QCOMPARE(next->parentItem(), features->parentItem());
-        QCOMPARE(next->mapToItem(features, QPointF()).x(), features->width());
+        QCOMPARE(next->mapToItem(features, QPointF()).x(), features->width() + 8);
         // Native centered anchors round an odd-height viewport to a logical
         // pixel; retain that snapping rather than shifting the product arrow.
         QVERIFY(std::abs(next->mapToItem(features, QPointF(0, next->height() / 2)).y() -
@@ -1901,7 +2171,7 @@ ApplicationWindow {
             next->mapToScene(QPointF(next->width() / 2, next->height() / 2)).toPoint());
         QTRY_COMPARE(features->property("currentIndex").toInt(), 1);
         QTRY_VERIFY(previous->isVisible());
-        QCOMPARE(previous->mapToItem(features, QPointF(previous->width(), 0)).x(), 0.);
+        QCOMPARE(previous->mapToItem(features, QPointF(previous->width(), 0)).x(), -8.);
         QVERIFY(!previous->property("background").value<QQuickItem *>());
         QTest::mouseMove(window, QPoint(4, 4));
         QTRY_VERIFY(!next->isVisible() && !previous->isVisible());
@@ -1968,6 +2238,7 @@ ApplicationWindow {
         QTRY_VERIFY(slide->property("running").toBool());
         const auto resumeIndex = features->property("currentIndex").toInt();
         const auto resumePosition = slide->property("to").toReal();
+        const auto resumeOrigin = features->property("originX").toReal();
         root->setProperty("showPanels", false);
         QTRY_VERIFY(features.isNull() && slide.isNull());
         root->setProperty("showPanels", true);
@@ -1975,6 +2246,16 @@ ApplicationWindow {
             (features = findVisual(window->contentItem(), "recommendationFeatureCarousel-3006")));
         QTRY_COMPARE(features->property("currentIndex").toInt(), resumeIndex);
         QTRY_COMPARE(features->property("contentX").toReal(), resumePosition);
+        QQuickItem *resumedItem = nullptr;
+        QTRY_VERIFY(QMetaObject::invokeMethod(features, "itemAtIndex",
+                                              Q_RETURN_ARG(QQuickItem *, resumedItem),
+                                              Q_ARG(int, resumeIndex)) &&
+                    resumedItem);
+        QTRY_VERIFY(qAbs(resumedItem->mapToItem(features, QPointF()).x()) < .5);
+        qInfo() << "restored-carousel origin/position before" << resumeOrigin << resumePosition
+                << "after" << features->property("originX").toReal()
+                << features->property("contentX").toReal() << "visibleOffset"
+                << resumedItem->mapToItem(features, QPointF()).x();
         const auto artifacts = qEnvironmentVariable("ECHO_CONTENT_UI_ARTIFACTS");
         if (!artifacts.isEmpty()) {
             QDir().mkpath(artifacts);
@@ -2306,6 +2587,34 @@ ApplicationWindow { id:host; required property RouteController router; required 
         auto *card = service.recommendationCards()->find(key);
         QVERIFY(card);
         QVERIFY(card->status() != int(DiscoveryService::Ready));
+        auto *surface = findVisual(panel, "recommendationSectionSurface");
+        QVERIFY(surface);
+        QCOMPARE(surface->width(), panel->width());
+        QCOMPARE(surface->height(), panel->height());
+        if (key != "3102" && key != "3103") {
+            auto *more = findVisual(panel, "recommendationViewAll");
+            auto *play = findVisual(panel, "recommendationPlayAll");
+            auto *heading = findVisual(panel, "recommendationHeading-" + key);
+            QVERIFY(more && play && heading);
+            QVERIFY(more->property("plain").toBool());
+            QCOMPARE(more->property("text").toString(), QString("更多"));
+            QCOMPARE(more->property("glyph").toString(), QString("chevron-right"));
+            QVERIFY(more->property("glyphAfterText").toBool());
+            QQuickItem *moreGlyph = nullptr, *moreLabel = nullptr;
+            QTRY_VERIFY((moreGlyph = findVisual(more, "buttonGlyph")) &&
+                        (moreLabel = findVisual(more, "buttonLabel")));
+            QVERIFY(moreGlyph->mapRectToScene(moreGlyph->boundingRect()).left() >=
+                    moreLabel->mapRectToScene(moreLabel->boundingRect()).right());
+            QCOMPARE(play->width(), play->height());
+            const auto playRect = play->mapRectToScene(play->boundingRect());
+            const auto headingRect = heading->mapRectToScene(heading->boundingRect());
+            const auto moreRect = more->mapRectToScene(more->boundingRect());
+            QVERIFY(playRect.left() >= headingRect.left());
+            QVERIFY(playRect.right() <= headingRect.right() + 1);
+            QVERIFY(playRect.right() < moreRect.left());
+            QVERIFY(qAbs(more->mapToItem(panel, QPointF(more->width(), 0)).x() -
+                         (panel->width() - 16)) < 1);
+        }
         const auto loadingHeight = panel->height();
         QVERIFY(loadingHeight >= 252);
         QJsonArray songs;
@@ -3894,6 +4203,68 @@ ApplicationWindow { id:host; required property RouteController router; required 
         api.shutdown();
     }
 
+    void recommendedAndCategoryRoutesLoadOnlyTheirCatalogs()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        QStringList operations;
+        const auto interceptor = api.addInterceptor(1, [&](const QJsonObject &request,
+                                                           ApiInterceptNext,
+                                                           ApiInterceptDone done) {
+            const auto operation = request["operation"].toString();
+            operations.append(operation);
+            QByteArray payload = "[]";
+            if (operation == "top_album")
+                payload =
+                    R"({"regions":{"chn":[{"id":"A","title":"Album"}],"eur":[{"id":"B","title":"Other"}]}})";
+            else if (operation == "playlist_tags")
+                payload = R"([{"name":"分类","children":[{"id":"sample","name":"分类一"}]}])";
+            else if (operation == "top_playlist" || operation == "top_ip")
+                payload = R"([{"id":"P","title":"Playlist"}])";
+            QTimer::singleShot(0, &api, [done = std::move(done), payload] { done({0, payload}); });
+            return std::function<void()>{};
+        });
+        AccountService account(api);
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        RouteController router;
+        DiscoveryService discovery(api, playback, account);
+        DiscoveryRouteCoordinator routes(discovery, router, true);
+        ExploreService service(api, playback, router, true);
+        service.setDiscovery(&discovery);
+        service.registerRoutes(router);
+        QVERIFY(router.navigate("explore"));
+        QTRY_COMPARE(service.albums()->count(), 2);
+        QTRY_COMPARE(discovery.playlists()->count(), 1);
+        QTRY_COMPARE(discovery.editors()->count(), 1);
+        QCOMPARE(operations.count("playlist_tags"), 0);
+        QCOMPARE(operations.count("top_playlist"), 1);
+        QCOMPARE(operations.count("top_album"), 1);
+        service.selectRegion("chn");
+        QCOMPARE(service.albums()->count(), 1);
+        QTest::qWait(20);
+        QCOMPARE(operations.count("top_album"), 1);
+        QVERIFY(router.navigate("playlist-categories"));
+        QTRY_COMPARE(service.category(), QString("sample"));
+        QTRY_COMPARE(service.cards()->count(), 1);
+        QCOMPARE(operations.count("playlist_tags"), 1);
+        QCOMPARE(operations.count("top_playlist"), 2);
+        QCOMPARE(operations.count("top_album"), 1);
+        router.back();
+        QTest::qWait(30);
+        QCOMPARE(service.region(), QString("chn"));
+        QCOMPARE(operations.count("playlist_tags"), 1);
+        QCOMPARE(operations.count("top_playlist"), 2);
+        QCOMPARE(operations.count("top_album"), 1);
+        discovery.shutdown();
+        service.shutdown();
+        api.removeInterceptor(interceptor);
+        QSignalSpy drain(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE(drain.size(), 1);
+        api.shutdown();
+    }
+
     void exploreProjectionsTabIdentityAndRetiredRequests()
     {
         QTemporaryDir dir;
@@ -3908,6 +4279,8 @@ ApplicationWindow { id:host; required property RouteController router; required 
         service.registerRoutes(router);
         QVERIFY(router.navigate("explore"));
         QCOMPARE(service.tab(), 0);
+        QVERIFY(router.navigate("playlist-categories"));
+        QCOMPARE(service.tab(), 1);
         ExploreServiceTestAccess::complete(
             service, ExploreService::Playlists,
             QJsonArray{QJsonObject{{"id", "P"}, {"title", "Playlist"}}});
@@ -3933,7 +4306,7 @@ ApplicationWindow { id:host; required property RouteController router; required 
         QCOMPARE(service.artists()->count(), 1);
         QCOMPARE(service.artists()->index(0).data(SongCatalogModel::ResourceId).toString(), "20");
         router.back();
-        QCOMPARE(service.tab(), 0);
+        QCOMPARE(service.tab(), 1);
         QCOMPARE(service.cards()->item(0)["resourceId"].toString(), "P");
         api.advanceSession();
         QCOMPARE(service.cards()->count(), 0);
@@ -3944,6 +4317,85 @@ ApplicationWindow { id:host; required property RouteController router; required 
         playback.shutdown();
         QTRY_COMPARE_WITH_TIMEOUT(drain.size(), 1, 15000);
         api.shutdown();
+    }
+
+    void playlistCarouselRestoresAndStaysSingleRow()
+    {
+        if (QGuiApplication::platformName() != "offscreen")
+            QSKIP("Nonintrusive carousel regression");
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ThemeStore theme(prefs);
+        theme.setMotionEnabled(false);
+        SongCatalogModel cards;
+        QJsonArray entries;
+        for (int i = 0; i < 1000; ++i)
+            entries.append(QJsonObject{{"id", QString::number(i + 1)},
+                                       {"title", QString("Playlist %1").arg(i)},
+                                       {"cover_url", QString("image://home/item-%1").arg(i)}});
+        cards.replaceCards(entries);
+        RouteController router;
+        EchoPageStateStore state;
+        state.save("playlist-carousel-test", {{"index", 600}});
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        auto *images = new ArtistImageRequests;
+        engine.addImageProvider("home", images);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Controls
+import EchoMusic.Discovery
+import EchoMusic.Shell
+import EchoMusic.Music
+Window {
+ id: host; visible: true; width: 1100; height: 500
+ required property SongCatalogModel cards
+ required property RouteController router
+ required property var stateStore
+ Item {
+  anchors.fill: parent; EchoPageState.scope: host.stateStore
+  Flickable {
+   id: scroll; anchors.fill: parent; contentHeight: 1000
+   PlaylistCollectionSection {
+    objectName: "strip"; x:40; width:1000; height:implicitHeight
+    stateKey:"test"; heading:"推荐歌单"; collection:host.cards
+    router:host.router; scrollView:scroll; contentTop:0
+   }
+  }
+ }
+})",
+                          QUrl("qrc:/playlist-carousel-test.qml"));
+        QScopedPointer<QObject> root(
+            component.createWithInitialProperties({{"cards", QVariant::fromValue(&cards)},
+                                                   {"router", QVariant::fromValue(&router)},
+                                                   {"stateStore", QVariant::fromValue(&state)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QQuickItem *view = nullptr;
+        QTRY_VERIFY((view = findVisual(window->contentItem(), "playlistCarousel-test")));
+        QTRY_COMPARE(view->property("currentIndex").toInt(), 600);
+        QTRY_VERIFY(!images->requested().isEmpty());
+        for (const auto &id : images->requested())
+            QVERIFY2(id.mid(QString("item-").size()).toInt() >= 598, qPrintable(id));
+        auto *strip = findVisual(window->contentItem(), "strip");
+        QVERIFY(strip);
+        QVERIFY(strip->height() < 400);
+        auto *card = findVisual(view, "contentDelegate");
+        QVERIFY(card);
+        QCOMPARE(card->height(), strip->property("cardWidth").toReal() + 70);
+        QVERIFY(QMetaObject::invokeMethod(view, "step", Q_ARG(int, 1)));
+        QTRY_COMPARE(state.load("playlist-carousel-test")["index"].toInt(), 601);
+        strip->setProperty("loading", true);
+        QTest::qWait(20);
+        QCOMPARE(view->property("currentIndex").toInt(), 601);
+        strip->setProperty("resourceActive", false);
+        QTRY_VERIFY(!findVisual(window->contentItem(), "playlistCarousel-test"));
+        strip->setProperty("resourceActive", true);
+        QTRY_VERIFY((view = findVisual(window->contentItem(), "playlistCarousel-test")));
+        QTRY_COMPARE(view->property("currentIndex").toInt(), 601);
+        QCOMPARE(warnings.size(), 0);
     }
 
     void playlistGridStartsAtRestoredViewport()
@@ -4059,27 +4511,28 @@ Window {id:host;required property RouteController router;required property Shell
             cards.append(QJsonObject{{"id", QString::number(i + 1)}, {"title", "Playlist"}});
         DiscoveryServiceTestAccess::complete(discovery, DiscoveryService::Playlists, cards);
         DiscoveryServiceTestAccess::complete(discovery, DiscoveryService::Editors, cards);
-        ExploreServiceTestAccess::complete(service, ExploreService::Playlists, cards);
         ExploreServiceTestAccess::complete(service, ExploreService::Albums,
                                            QJsonObject{{"regions", QJsonObject{{"chn", cards}}}});
+        QTRY_VERIFY(findVisual(window->contentItem(), "playlistSquareView"));
+        QVERIFY(!findVisual(window->contentItem(), "playlistCategoryPickerButton"));
+        auto *entry = findVisual(window->contentItem(), "playlistCategoriesEntry");
+        QVERIFY(entry);
+        QVERIFY(Test::prepareNativeInput(window));
+        QTest::mouseClick(
+            window, Qt::LeftButton, Qt::NoModifier,
+            entry->mapToScene(QPointF(entry->width() / 2, entry->height() / 2)).toPoint());
+        QTRY_COMPARE(router.current()->name(), QString("playlist-categories"));
+        QTRY_VERIFY(findVisual(window->contentItem(), "playlistCategoriesPage"));
+        QVERIFY(!findVisual(window->contentItem(), "playlistSquareView"));
+        ExploreServiceTestAccess::complete(service, ExploreService::Playlists, cards);
         ExploreServiceTestAccess::complete(
             service, ExploreService::Categories,
             QJsonArray{QJsonObject{
                 {"name", "分类"},
                 {"children", QJsonArray{QJsonObject{{"id", "sample-a"}, {"name", "分类一"}},
                                         QJsonObject{{"id", "sample-b"}, {"name", "分类二"}}}}}});
-        QTRY_VERIFY(findVisual(window->contentItem(), "playlistSquareView"));
-        auto *scroll = findVisual(window->contentItem(), "playlistSquareView");
-        QTRY_VERIFY(scroll->property("contentHeight").toReal() > scroll->height());
-        QVERIFY(!findVisual(window->contentItem(), "exploreNavigationTabs"));
-        QVERIFY(!findVisual(window->contentItem(), "exploreNewSongsTitle"));
-        scroll->setProperty("contentY",
-                            scroll->property("contentHeight").toReal() - scroll->height());
-        QTest::qWait(50);
         auto *categoryButton = findVisual(window->contentItem(), "playlistCategoryPickerButton");
         QVERIFY(categoryButton);
-        scroll->setProperty("contentY", scroll->property("contentY").toReal() +
-                                            categoryButton->mapToScene(QPointF(0, 0)).y() - 80);
         QVERIFY(Test::prepareNativeInput(window));
         Test::FrameSpy pickerFrame(window);
         QTest::mouseClick(
@@ -4455,7 +4908,7 @@ Window {
                                 if (item->isVisible())
                                     rows.append(item);
                             }
-                            QCOMPARE(rows.size(), intro ? 5 : 4);
+                            QCOMPARE(rows.size(), route == "ranking" && !intro ? 3 : 4);
                             for (auto *row : rows) {
                                 const auto rect = row->mapRectToItem(header, row->boundingRect());
                                 QVERIFY2(rect.right() <= header->width() - 23,

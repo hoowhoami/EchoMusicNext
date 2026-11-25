@@ -64,7 +64,7 @@ void ExploreService::cancelAll()
 }
 ExploreService::Part ExploreService::activePart() const
 {
-    return m_tab == 4 ? Artists : Playlists;
+    return m_tab == 4 ? Artists : m_tab == 0 ? Albums : Playlists;
 }
 bool ExploreService::loading() const
 {
@@ -73,7 +73,9 @@ bool ExploreService::loading() const
 }
 QString ExploreService::errorMessage() const
 {
-    return m_states[activePart()] == Error ? m_errors[activePart()] : QString{};
+    if (m_states[activePart()] == Error)
+        return m_errors[activePart()];
+    return m_tab == 1 && m_states[Categories] == Error ? m_errors[Categories] : QString{};
 }
 QStringList ExploreService::artistLetters() const
 {
@@ -84,7 +86,8 @@ void ExploreService::activate(RouteContext *context)
 {
     if (m_closed)
         return;
-    if (!context || (context->name() != "explore" && context->name() != "artist-recommendations")) {
+    if (!context || (context->name() != "explore" && context->name() != "playlist-categories" &&
+                     context->name() != "artist-recommendations")) {
         m_active = false;
         m_artists.setActive(false);
         cancelAll();
@@ -94,7 +97,13 @@ void ExploreService::activate(RouteContext *context)
     if (m_instances.value(context->name()) != context->instanceId()) {
         m_instances.insert(context->name(), context->instanceId());
         if (context->name() == "explore") {
-            for (auto part : {Categories, Playlists, Albums}) {
+            cancel(Albums);
+            m_states[Albums] = Idle;
+            m_errors[Albums].clear();
+            m_albumRegions = {};
+            m_albums.clear();
+        } else if (context->name() == "playlist-categories") {
+            for (auto part : {Categories, Playlists}) {
                 cancel(part);
                 m_states[part] = Idle;
                 m_errors[part].clear();
@@ -102,8 +111,6 @@ void ExploreService::activate(RouteContext *context)
             m_categories = {};
             m_playlistCards = {};
             m_cards.clear();
-            m_albumRegions = {};
-            m_albums.clear();
             m_category = "0";
             m_categoryLabel = tr("全部");
         } else {
@@ -115,7 +122,9 @@ void ExploreService::activate(RouteContext *context)
             m_typeFilters = {};
         }
     }
-    const int next = context->name() == "artist-recommendations" ? 4 : 0;
+    const int next = context->name() == "artist-recommendations" ? 4
+                     : context->name() == "playlist-categories"  ? 1
+                                                                 : 0;
     if (next >= 0 && next != m_tab) {
         cancelAll();
         m_tab = next;
@@ -145,7 +154,8 @@ void ExploreService::reset()
 
     if (m_active && m_router.current() &&
         (m_router.current()->name() == "explore" ||
-         m_router.current()->name() == "artist-recommendations"))
+         m_router.current()->name() == "artist-recommendations" ||
+         m_router.current()->name() == "playlist-categories"))
         loadCurrent();
     emit changed();
 }
@@ -155,15 +165,23 @@ void ExploreService::loadCurrent()
     if (!m_active || !m_network || m_closed)
         return;
     if (m_tab == 0) {
-        for (auto part : {Categories, Playlists, Albums})
-            if (m_states[part] == Idle)
-                request(part);
+        if (m_states[Albums] == Idle)
+            request(Albums);
+    } else if (m_tab == 1) {
+        if (m_states[Categories] == Idle)
+            request(Categories);
+        if (m_states[Categories] != Idle && m_states[Categories] != Loading &&
+            m_states[Playlists] == Idle)
+            request(Playlists);
     } else if (m_states[Artists] == Idle)
         request(Artists);
 }
 void ExploreService::request(Part p)
 {
     if (!m_active || !m_network || m_closed)
+        return;
+    if (!((m_tab == 0 && p == Albums) || (m_tab == 1 && (p == Categories || p == Playlists)) ||
+          (m_tab == 4 && p == Artists)))
         return;
     cancel(p);
     m_errors[p].clear();
@@ -215,6 +233,8 @@ void ExploreService::accept(quint64 id, const QByteArray &bytes)
             if (!children.isEmpty())
                 selectCategory(children.first().toObject()["id"].toString());
         }
+        if (m_tab == 1 && m_states[Playlists] == Idle)
+            request(Playlists);
         break;
     case Playlists:
         m_playlistCards = d.array();
@@ -247,6 +267,8 @@ void ExploreService::fail(quint64 id, const QByteArray &bytes)
     m_errors[p.part] = ApiClient::errorMessage(bytes, tr("内容加载失败"));
     if (p.part == Artists)
         m_artists.finishRecovery();
+    if (p.part == Categories && m_tab == 1 && m_states[Playlists] == Idle)
+        request(Playlists);
     emit changed();
 }
 void ExploreService::selectCategory(const QString &id)
@@ -276,7 +298,8 @@ void ExploreService::selectRegion(const QString &id)
         return;
     m_region = id;
     projectAlbums();
-    request(Albums);
+    if (m_states[Albums] != Ready)
+        request(Albums);
     emit changed();
 }
 void ExploreService::selectSex(const QString &id)
@@ -312,6 +335,11 @@ void ExploreService::retry()
         emit changed();
         return;
     }
+    if (m_tab == 1 && m_states[Categories] == Error) {
+        request(Categories);
+        if (m_states[Playlists] != Error && m_states[Playlists] != Idle)
+            return;
+    }
     request(activePart());
 }
 void ExploreService::projectCards()
@@ -336,6 +364,14 @@ void ExploreService::registerRoutes(RouteController &router)
     router.registerPage({"artist-recommendations",
                          "/main/artists",
                          QUrl("qrc:/qt/qml/EchoMusic/Discovery/ArtistRecommendationsPage.qml"),
+                         {},
+                         true,
+                         true,
+                         false,
+                         {{"service", QVariant::fromValue(this)}}});
+    router.registerPage({"playlist-categories",
+                         "/main/playlist-categories",
+                         QUrl("qrc:/qt/qml/EchoMusic/Discovery/PlaylistCategoriesPage.qml"),
                          {},
                          true,
                          true,

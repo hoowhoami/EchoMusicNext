@@ -1,5 +1,6 @@
 #include "SettingsKeys.h"
 #include "NetworkPreferences.h"
+#include "QmlImageNetworkFactory.h"
 #include "SystemNetworkMonitor.h"
 #include <QThread>
 #include <QFileInfo>
@@ -16,6 +17,12 @@
 
 namespace EchoMusic
 {
+NetworkPreferences::~NetworkPreferences() = default;
+void NetworkPreferences::enableImageCache(const QString &directory)
+{
+    if (!m_imageNetwork)
+        m_imageNetwork = std::make_unique<QmlImageNetworkFactory>(directory);
+}
 void NetworkPreferences::eraseCredentialForReset(std::function<void(QString)> complete)
 {
     if (m_busy) {

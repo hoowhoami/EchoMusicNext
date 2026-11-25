@@ -144,8 +144,8 @@ SettingsSection {
     }
     SettingsDivider {}
     SettingsRow {
-        heading: qsTr("屏蔽浏览器默认按键行为")
-        description: qsTr("关闭后，空格、方向键等恢复默认滚动或激活行为")
+        heading: qsTr("屏蔽默认按键行为")
+        description: qsTr("非输入状态下屏蔽方向键、Home/End、PageUp/PageDown 的默认操作；空格始终用于播放/暂停")
         EchoSwitch {
             checked: section.shortcuts.suppressDefault
             colors: Theme.floating

@@ -17,7 +17,7 @@ GridView {
     property bool presentationReady: false
     readonly property int columns: Math.max(1, Math.floor(width / ((video ? 220 : 180) + 20)))
     readonly property real cardWidth: Math.max(1, width / columns - 20)
-    readonly property real cardHeight: (cardWidth - (artist ? 26 : video ? 18 : 22)) / (video ? 1.78 : 1) + (artist ? 70 : video ? 62 : 66)
+    readonly property real cardHeight: cardWidth / (video ? 1.78 : 1) + (artist ? 52 : 70)
     signal openRequested(string id)
     /// Optional load-more sentinel for paginated grids. Defaults off.
     property bool hasMore: false
@@ -93,6 +93,7 @@ GridView {
             width: grid.cardWidth
             height: grid.cardHeight
             video: grid.video
+            artist: grid.artist
             resourceActive: grid.pageActive && !pooled
             GridView.onPooled: pooled = true
             GridView.onReused: pooled = false

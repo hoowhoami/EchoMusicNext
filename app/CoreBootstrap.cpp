@@ -28,6 +28,10 @@ void AppContext::createNetworkPlayback()
     auto &api = *m_api;
     m_network = std::make_unique<NetworkPreferences>(settings, api);
     auto &network = *m_network;
+    network.enableImageCache(
+        (smoke ? smokeDirectory.path()
+               : QStandardPaths::writableLocation(QStandardPaths::CacheLocation)) +
+        QStringLiteral("/online-images-v1"));
     if (network.transportAvailable())
         network.installApplicationTransport();
     m_about = std::make_unique<AboutService>(settings, network);

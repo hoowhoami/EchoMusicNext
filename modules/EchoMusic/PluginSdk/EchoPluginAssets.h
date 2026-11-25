@@ -90,7 +90,7 @@ private:
                                               bool countPending = true);
     EchoPluginContext &m_scope;
     std::shared_ptr<EchoPluginAssetStore> m_store;
-    QNetworkAccessManager m_network;
+    QNetworkAccessManager *m_network;
     QList<std::shared_ptr<EchoPluginAssetJob>> m_jobs;
     QPointer<EchoFileDialog> m_dialog;
     QSet<QString> m_fontReferences;

@@ -19,7 +19,7 @@ GridView {
     property Component emptyFooter
     readonly property int columns: Math.max(1, Math.floor(width / 200))
     readonly property real cardWidth: Math.max(1, width / columns - 20)
-    readonly property real cardHeight: cardWidth + 40
+    readonly property real cardHeight: cardWidth + 44
     readonly property int featuredCount: featured.count
     signal openRequested(string id)
     cellWidth: width / columns
