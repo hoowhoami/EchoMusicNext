@@ -1,6 +1,7 @@
 #pragma once
 #include <QImage>
 #include <QObject>
+#include "TaskbarThumbnailLayout.h"
 namespace EchoMusic
 {
 /// Windows taskbar hover preview (DWM iconic bitmaps). The preview normally
@@ -18,8 +19,14 @@ public:
     ~WindowsTaskbarThumbnail() override;
     /// False when the DWM interface is unavailable (composition disabled).
     bool available() const;
-    /// Shows the cover as the preview. An empty image restores the system's
-    /// live preview so a failed decode never leaves a blank thumbnail.
+    /// Shows the cover as the preview. Re-applying to the same window keeps the
+    /// subclass and the iconic opt-in installed and only invalidates the cached
+    /// bitmaps, because torn-down attributes hand the hover preview back to
+    /// Explorer's live snapshot mid-transition.
+    ///
+    /// A null cover is a no-op that keeps whatever preview is already showing:
+    /// callers substitute their own placeholder, and tearing the opt-in down
+    /// here would leave the window with an empty preview until the next apply.
     bool apply(quintptr hwnd, const QImage &cover);
     /// Restores the live preview and releases the window subclass.
     void clear();
@@ -28,16 +35,26 @@ public:
 
 private:
     void releaseBitmaps();
-    /// Cached HBITMAP for one of the two DWM requests, kept alive because DWM
-    /// reads it after the call returns.
+    /// Cached HBITMAP for one of the two DWM requests. DWM copies the pixels
+    /// when it is handed the handle, so the cache is not needed for correctness;
+    /// it exists because DWM may ask again for the same size (the peek window
+    /// and the card repeat), and rebuilding would mean another DIB section and
+    /// blit for pixels that did not change. The generation makes a new cover
+    /// with the same tile size still rebuild: a stale cover would otherwise be
+    /// handed back.
     struct Bitmap
     {
         quintptr handle = 0;
-        int width = 0;
-        int height = 0;
+        QSize size;
+        quint64 generation = 0;
     };
+    bool canReuse(const Bitmap &cache, QSize tile) const;
     quintptr m_hwnd = 0;
     QImage m_cover;
+    quint64 m_generation = 0;
+    /// DWM calls sendBitmap synchronously, so the environment is read once here
+    /// rather than on every request.
+    bool m_diagnostics = false;
     Bitmap m_thumbnail;
     Bitmap m_preview;
     bool m_subclassed = false;

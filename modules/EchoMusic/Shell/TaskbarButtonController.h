@@ -66,7 +66,8 @@ private:
     void refreshThumbar();
     QImage icon(const QString &glyph, const QColor &tint = QColor(), int size = 0);
     /// The application's own no-artwork placeholder, mirrored from EchoCover:
-    /// a muted surface with a low-opacity music glyph.
+    /// a muted surface with a low-opacity music glyph. Cached per appearance,
+    /// because the taskbar only scales it down.
     QImage placeholderCover();
     quintptr handle() const;
     EchoMusic::SettingsStore &m_settings;
@@ -84,6 +85,10 @@ private:
     QElapsedTimer m_clock;
     /// Icons are vector-rendered once per size; a rebuild only re-tints.
     QHash<QString, QImage> m_icons;
+    /// The no-artwork tile, built once per appearance. Holds a share of the
+    /// same image the taskbar is showing, so a track change does not allocate
+    /// and repaint it again.
+    QImage m_placeholder;
     bool m_available = false;
     bool m_progressEnabled = false;
     bool m_coverEnabled = false;

@@ -3,6 +3,7 @@
 #include "PlaybackLibraryActions.h"
 #include "PlaybackService.h"
 #include "SettingsKeys.h"
+#include "TaskbarThumbnailLayout.h"
 #include <QPainter>
 #include <QQuickWindow>
 #include <QSvgRenderer>
@@ -20,8 +21,10 @@ constexpr auto GlyphPause = "pause";
 constexpr auto GlyphFavorite = "heart";
 constexpr auto GlyphFavoriteOn = "heart-filled";
 /// Fallback preview when a track has no artwork: the same placeholder cover the
-/// library uses, rendered natively for the taskbar.
-constexpr int PlaceholderCoverSize = 512;
+/// library uses, rendered natively for the taskbar. Matches the largest tile DWM
+/// can ask for (MaximumTaskbarTileSide), so the peek window never upscales it;
+/// bigger would only cost memory, since nothing displays it larger.
+constexpr int PlaceholderCoverSize = MaximumTaskbarTileSide;
 constexpr int PlaceholderGlyphRatio = 34;
 constexpr auto GlyphPlaceholder = "music";
 /// A favourited track keeps the accent red of the original toolbar instead of
@@ -106,7 +109,14 @@ void TaskbarButtonController::setDark(bool dark)
         return;
     m_dark = dark;
     m_icons.clear();
+    // The placeholder is tinted from m_dark, so it belongs to the old appearance.
+    // The cover key does not include the appearance, so it has to be dropped as
+    // well: otherwise refreshCover would see an unchanged track and keep the
+    // preview built from the old tile.
+    m_placeholder = {};
+    m_coverKey.clear();
     m_thumbarBuilt = false;
+    refreshCover();
     refreshThumbar();
 }
 void TaskbarButtonController::attach(QQuickWindow *window)
@@ -213,6 +223,13 @@ QImage TaskbarButtonController::placeholderCover()
     // Mirrors EchoCover's placeholder (a hover-tinted surface with a
     // low-opacity music glyph) so a track without artwork still reads as a
     // cover instead of the application icon.
+    //
+    // Built once per appearance and reused: every track change without artwork
+    // would otherwise allocate and repaint a fresh tile, and the taskbar only
+    // ever scales it down. The cache is dropped on setDark, which is the one
+    // input besides the glyph that changes the result.
+    if (!m_placeholder.isNull())
+        return m_placeholder;
     QImage tile(PlaceholderCoverSize, PlaceholderCoverSize, QImage::Format_ARGB32_Premultiplied);
     tile.fill(m_dark ? QColor(0x2f, 0x2f, 0x2f) : QColor(0xea, 0xea, 0xea));
     const QColor glyphColor = m_dark ? QColor(Qt::white) : QColor(Qt::black);
@@ -226,7 +243,8 @@ QImage TaskbarButtonController::placeholderCover()
     painter.drawImage(
         QPoint((PlaceholderCoverSize - glyphSize) / 2, (PlaceholderCoverSize - glyphSize) / 2),
         glyph);
-    return tile;
+    m_placeholder = tile;
+    return m_placeholder;
 }
 void TaskbarButtonController::refreshProgress()
 {
