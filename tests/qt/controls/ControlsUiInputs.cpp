@@ -712,6 +712,7 @@ void ControlsUiTest::selectProjectionKeepsTypedValuesAndTracksModelChanges()
     QCOMPARE(model.nextEnabled(0, 1), 2);
     model.setQuery("bETA");
     QCOMPARE(model.count(), 1);
+    QCOMPARE(model.totalCount(), 3);
     QCOMPARE(model.option(0).value("sourceIndex").toInt(), 2);
     QStringListModel live({"One", "Two"});
     model.setQuery({});
@@ -719,6 +720,7 @@ void ControlsUiTest::selectProjectionKeepsTypedValuesAndTracksModelChanges()
     QCOMPARE(model.count(), 2);
     live.setStringList({"Three"});
     QCOMPARE(model.count(), 1);
+    QCOMPARE(model.totalCount(), 1);
     QCOMPARE(model.option(0).value("label").toString(), QString("Three"));
 }
 
@@ -760,6 +762,17 @@ void ControlsUiTest::selectSearchMultiKeyboardPlacementAndVirtualization()
     QTRY_VERIFY((popup = selector->property("popup").value<QObject *>()));
     QTRY_VERIFY(popup->property("opened").toBool());
     QTRY_COMPARE(selector->property("searchTerm").toString(), QString("Beta"));
+    QTRY_COMPARE(projection->count(), 1);
+    selector->setProperty("searchTerm", "missing");
+    QTRY_COMPARE(projection->count(), 0);
+    QTRY_VERIFY(session.item("selectEmptyText"));
+    QCOMPARE(session.item("selectEmptyText")->property("text").toString(), QString("无匹配项"));
+    const auto originalOptions = session.root->property("items");
+    session.root->setProperty("items", QVariantList{});
+    QTRY_COMPARE(projection->totalCount(), 0);
+    QCOMPARE(session.item("selectEmptyText")->property("text").toString(), QString("暂无可选项"));
+    session.root->setProperty("items", originalOptions);
+    selector->setProperty("searchTerm", "Beta");
     QTRY_COMPARE(projection->count(), 1);
     const auto searchPoint =
         input->mapToScene(QPointF(input->width() / 2, input->height() / 2)).toPoint();

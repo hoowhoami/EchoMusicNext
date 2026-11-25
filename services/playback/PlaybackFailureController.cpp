@@ -54,7 +54,7 @@ PlaybackFailureController::PlaybackFailureController(PlaybackService &playback)
             p.m_personalFm->advance(false, false, true);
             return;
         }
-        if (p.sourceKey() == DiscoverQueueController::queueKey()) {
+        if (p.m_discoverQueue->handlesCurrent()) {
             ++m_attempts;
             const auto next = p.m_transition->nextIndex(false);
             if (next >= 0) {
@@ -124,11 +124,10 @@ void PlaybackFailureController::failed()
     // usable old source and must keep it. Normal user pause keeps its idle policy.
     if (!p.m_playing && !p.loading() && !p.m_seamless)
         p.m_engine.command(AudioEngine::Stop);
-    const bool scheduled =
-        !p.m_playing && p.m_autoplay && p.m_preferences.autoNext() &&
-        (p.m_personalFm->active() || p.sourceKey() == DiscoverQueueController::queueKey() ||
-         p.queue()->rowCount() > 1) &&
-        m_attempts < p.m_preferences.autoNextMaxAttempts();
+    const bool scheduled = !p.m_playing && p.m_autoplay && p.m_preferences.autoNext() &&
+                           (p.m_personalFm->active() || p.m_discoverQueue->handlesCurrent() ||
+                            p.queue()->rowCount() > 1) &&
+                           m_attempts < p.m_preferences.autoNextMaxAttempts();
     const auto sequence = p.m_sequence;
     const auto session = p.m_api.sessionRevision();
     const auto reason = presentationReason(p.m_error);

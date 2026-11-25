@@ -113,7 +113,7 @@ EchoDialog {
             }
         }
         Rectangle {
-            visible: dialog.service.error.length > 0 && dialog.service.entries.count > 0
+            visible: dialog.service.error.length > 0 && dialog.service.entries.count > 0 && !dialog.service.hasMore
             Layout.fillWidth: true
             Layout.rightMargin: 24
             Layout.bottomMargin: 8
@@ -176,20 +176,33 @@ EchoDialog {
                 ListView.onReused: pooled = false
             }
             header: dialog.service.entries.count === 0 ? emptyState : null
-            footer: Item {
+            EchoScrollLoadMore {
+                view: list
+                active: dialog.visible
+                itemCount: dialog.service.entries.count
+                hasMore: dialog.service.hasMore
+                loading: dialog.service.loading || dialog.service.removing
+                failed: dialog.service.error.length > 0
+                onLoadMoreRequested: dialog.service.loadMore()
+            }
+            footer: Loader {
                 width: list.width - 24
-                height: dialog.service.hasMore ? 52 : 0
-                visible: dialog.service.hasMore
-                EchoButton {
-                    objectName: "contentBlacklistLoadMore"
-                    anchors.centerIn: parent
-                    text: qsTr("加载更多")
-                    accent: false
-                    colors: Theme.floating
-                    loading: dialog.service.loading
-                    enabled: !dialog.service.loading && !dialog.service.removing
-                    onClicked: dialog.service.loadMore()
+                active: dialog.visible && dialog.service.entries.count > 0 && dialog.service.hasMore && dialog.service.error.length > 0
+                sourceComponent: EchoLoadError {
+                    message: dialog.service.error
+                    onRetryRequested: dialog.service.loadMore()
                 }
+            }
+            EchoSpinner {
+                objectName: "contentBlacklistMoreSpinner"
+                parent: list
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: 12
+                width: 18
+                height: 18
+                visible: dialog.visible && dialog.service.loading && dialog.service.entries.count > 0
+                resourceActive: visible
             }
         }
         Component {

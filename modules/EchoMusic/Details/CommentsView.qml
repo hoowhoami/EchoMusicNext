@@ -334,13 +334,13 @@ Item {
                             spacing: 8
                             EchoSpinner {
                                 visible: threadStateItem.loading
-                                Layout.preferredWidth: 14
-                                Layout.preferredHeight: 14
+                                Layout.preferredWidth: 18
+                                Layout.preferredHeight: 18
                                 resourceActive: root.resourceActive && visible
                             }
                             Label {
-                                visible: threadStateItem.loading || threadStateItem.error || threadStateItem.rowState.empty || !threadStateItem.rowState.hasMore
-                                text: threadStateItem.loading ? qsTr("加载中…") : threadStateItem.rowState.error || (threadStateItem.rowState.empty ? qsTr("暂无回复") : qsTr("已加载全部回复"))
+                                visible: !threadStateItem.loading && (threadStateItem.error || threadStateItem.rowState.empty || !threadStateItem.rowState.hasMore)
+                                text: threadStateItem.rowState.error || (threadStateItem.rowState.empty ? qsTr("暂无回复") : qsTr("已加载全部回复"))
                                 font: Theme.font(threadStateItem.loading || threadStateItem.error || threadStateItem.rowState.empty ? 12 : 11, Theme.semiboldWeight)
                                 color: Theme.secondaryText
                             }
@@ -386,26 +386,36 @@ Item {
                 Layout.bottomMargin: 12
                 spacing: 10
                 EchoSpinner {
-                    Layout.preferredWidth: 16
-                    Layout.preferredHeight: 16
+                    Layout.preferredWidth: 18
+                    Layout.preferredHeight: 18
                     visible: root.listLoading
                     resourceActive: root.resourceActive
                 }
                 EchoTextTagRow {
-                    text: root.listLoading ? qsTr("加载中...") : qsTr("已加载全部评论")
+                    visible: !root.listLoading
+                    text: qsTr("已加载全部评论")
                     color: Theme.secondaryText
                     font: Theme.font(12, Theme.semiboldWeight)
                 }
             }
             Label {
-                visible: !root.compact
+                visible: !root.compact && !root.listLoading
                 Layout.fillWidth: true
                 Layout.topMargin: 18
                 horizontalAlignment: Text.AlignHCenter
-                text: root.listLoading ? qsTr("加载中…") : root.controller.errorMessage || (list.count === 0 ? qsTr("暂无评论") : !root.controller.hasMore ? qsTr("已加载全部评论") : "")
+                text: root.controller.errorMessage || (list.count === 0 ? qsTr("暂无评论") : !root.controller.hasMore ? qsTr("已加载全部评论") : "")
                 color: Theme.secondaryText
                 font: Theme.font(12, Theme.semiboldWeight)
                 wrapMode: Text.Wrap
+            }
+            EchoSpinner {
+                objectName: "commentsMoreSpinner"
+                visible: !root.compact && root.listLoading
+                Layout.alignment: Qt.AlignHCenter
+                Layout.topMargin: 18
+                Layout.preferredWidth: 18
+                Layout.preferredHeight: 18
+                resourceActive: root.resourceActive && visible
             }
             EchoSoftButton {
                 Layout.alignment: Qt.AlignHCenter

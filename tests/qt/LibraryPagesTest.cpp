@@ -958,6 +958,76 @@ Window {
         QCOMPARE(root->property("retries").toInt(), 1);
         QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
     }
+    void catalogEmptyStateSeparatesSourceFilterAndPendingPages()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        SongCatalogModel songs;
+        SongCatalogActions actions(songs, playback);
+        ThemeStore theme(prefs);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        songs.setQuery("target");
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Controls
+import EchoMusic.Music
+Window {
+ id: host; visible: true; width: 900; height: 600
+ required property SongCatalogModel songs
+ required property SongCatalogActions actions
+ property bool busy: false
+ property bool more: false
+ property string error: ""
+ property int requests: 0
+ EchoPageScrollContainer {
+  id: page; anchors.fill: parent; scrollView: body.listView
+  CatalogSongList {
+   id: body; objectName: "emptyCatalog"; anchors.fill: parent
+   collection: host.songs; actions: host.actions; pageContainer: page
+   loadingMore: host.busy; hasMore: host.more; errorMessage: host.error
+   emptyComponent: Component { Item { objectName: "customEmpty"; implicitHeight: 200 } }
+   onLoadMoreRequested: { host.requests++; host.busy = true; }
+  }
+ }
+})",
+                          QUrl("qrc:/catalog-empty-states.qml"));
+        QScopedPointer<QObject> root(component.createWithInitialProperties(
+            {{"songs", QVariant::fromValue(&songs)}, {"actions", QVariant::fromValue(&actions)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window);
+        const auto visual = [&](const QString &name) {
+            return root->findChild<QQuickItem *>(name);
+        };
+        QTRY_VERIFY(visual("customEmpty")); // A query cannot turn an empty source into no matches.
+        songs.replaceSongs({QJsonObject{{"id", "1"}, {"title", "Other"}}});
+        QTRY_VERIFY(visual("songCatalogEmptyText") && visual("songCatalogEmptyText")->isVisible());
+        QCOMPARE(visual("songCatalogEmptyText")->property("text").toString(),
+                 QString("未找到匹配歌曲"));
+        QTRY_VERIFY(
+            !visual("customEmpty")); // Page upload/purchase prompts never replace filter feedback.
+        root->setProperty("more", true);
+        QTRY_COMPARE(root->property("requests").toInt(), 1);
+        QVERIFY(!visual("songCatalogEmptyText")->isVisible());
+        QVERIFY(visual("catalogMoreSpinner")->isVisible());
+        root->setProperty("error", "Continuation failed");
+        root->setProperty("busy", false);
+        QTRY_VERIFY(visual("loadErrorRetry"));
+        QVERIFY(!visual("songCatalogEmptyText")->isVisible());
+        QTest::qWait(30);
+        QCOMPARE(root->property("requests").toInt(), 1);
+        root->setProperty("more", false);
+        root->setProperty("error", "");
+        songs.appendSongs({QJsonObject{{"id", "2"}, {"title", "Target"}}});
+        QTRY_COMPARE(songs.count(), 1);
+        QVERIFY(!visual("songCatalogEmptyText")->isVisible());
+        QCOMPARE(warnings.count(), 0);
+    }
     void songListPrefetchesShortPagesAndBeforeTheEndWithoutMovingTheAnchor()
     {
         QTemporaryDir dir;
@@ -4064,6 +4134,12 @@ Window {
         };
         FavoritesServiceTestAccess::acceptFollow(favorites, follow);
         QCOMPARE(favorites.singers()->count(), 2);
+        QCOMPARE(favorites.singerTotal(), 2);
+        favorites.setSingerQuery("missing");
+        QCOMPARE(favorites.singers()->count(), 0);
+        QCOMPARE(favorites.singerTotal(), 2);
+        favorites.setSingerQuery("");
+        QCOMPARE(favorites.singers()->count(), 2);
         QCOMPARE(favorites.users()->count(), 1);
         QCOMPARE(favorites.users()
                      ->data(favorites.users()->index(0), EchoMusic::SocialUserModel::UserId)
@@ -4513,6 +4589,57 @@ Window {
         QVERIFY(!purchased.loading());
     }
 
+    void contentGridFilteredEmptyKeepsAutomaticContinuation()
+    {
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ThemeStore theme(prefs);
+        SongCatalogModel cards;
+        QJsonArray rows;
+        for (int i = 0; i < 30; ++i)
+            rows.append(QJsonObject{{"id", i + 1}, {"title", QString("Album %1").arg(i)}});
+        cards.replaceCards(rows);
+        cards.setQuery("missing keyword");
+        QCOMPARE(cards.count(), 0);
+        QCOMPARE(cards.totalCount(), 30);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Music
+Window {
+ id: host; visible: true; width: 800; height: 600
+ required property SongCatalogModel cards
+ property int requests: 0
+ ContentGrid {
+  id: grid; objectName: "filteredGrid"; anchors.fill: parent
+  sourceModel: host.cards; loadedItemCount: host.cards.totalCount
+  hasMore: true
+  onLoadMoreRequested: { host.requests++; loadingMore = true; }
+ }
+})",
+                          QUrl("qrc:/filtered-grid-continuation.qml"));
+        QScopedPointer<QObject> root(
+            component.createWithInitialProperties({{"cards", QVariant::fromValue(&cards)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        QTRY_COMPARE(root->property("requests").toInt(), 1);
+        auto *grid = root->findChild<QQuickItem *>("filteredGrid");
+        QVERIFY(grid);
+        QCOMPARE(grid->property("count").toInt(), 0);
+        auto *spinner = grid->findChild<QQuickItem *>("gridMoreSpinner");
+        QVERIFY(spinner && spinner->isVisible());
+        grid->setProperty("errorMessage", "read failed");
+        grid->setProperty("loadingMore", false);
+        QTest::qWait(40);
+        QCOMPARE(root->property("requests").toInt(), 1);
+        grid->setProperty("hasMore", false);
+        grid->setProperty("errorMessage", "");
+        cards.setQuery("");
+        QTRY_COMPARE(grid->property("count").toInt(), 30);
+        QCOMPARE(warnings.count(), 0);
+    }
     void contentGridLoadingTransitionsKeepDelegateRoles_data()
     {
         QTest::addColumn<bool>("artist");

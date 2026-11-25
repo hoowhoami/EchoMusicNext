@@ -150,17 +150,22 @@ Item {
             onSourceChanged: {
                 reveal.stop();
                 control.revealOpacity = 1;
-                revealPending = source.toString().length > 0;
             }
             sourceSize: metrics.decodeSize
             onStatusChanged: {
-                if (status === Image.Ready) {
+                // A Ready cache hit has no loading interval. Recycled covers
+                // should show it immediately instead of fading in again.
+                if (status === Image.Loading) {
+                    revealPending = true;
+                } else if (status === Image.Ready) {
                     previouslyReady = true;
                     if (revealPending && !control.retainWhileLoading && revealScope.allowed)
                         reveal.restart();
                     revealPending = false;
-                } else if (status !== Image.Loading)
+                } else {
                     previouslyReady = false;
+                    revealPending = false;
+                }
                 if (status === Image.Error)
                     coverSource.reject(metrics.requestSource);
             }

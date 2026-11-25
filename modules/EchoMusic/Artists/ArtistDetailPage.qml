@@ -70,6 +70,7 @@ RoutePage {
             // Switching tabs must not move Qt's origin before scroll restoration.
             topMargin: page.expandedHeaderHeight + page.songToolbarRowHeight + 44
             loading: page.detail.songsLoading && !page.detail.songs.totalCount
+            loadingMore: page.detail.songsLoading && page.detail.songs.totalCount > 0
             errorMessage: page.detail.errorMessage
             menuSongId: page.menuSongId
             resourceActive: page.pageActive && visible
@@ -144,13 +145,14 @@ RoutePage {
             footer: Item {
                 objectName: "artistAlbumEmptyState"
                 width: albumGrid.width
-                visible: !page.detail.albumsLoading && page.detail.albums.count === 0
+                visible: !page.detail.albumsLoading && !page.detail.albums.querying && page.detail.albums.count === 0
                 height: visible ? 156 : 0
                 ColumnLayout {
                     anchors.centerIn: parent
                     spacing: 8
                     Text {
-                        text: page.detail.albumError.length > 0 ? page.detail.albumError : qsTr("暂无专辑")
+                        objectName: "artistAlbumEmptyText"
+                        text: page.detail.albumError.length > 0 ? page.detail.albumError : page.detail.albums.totalCount > 0 && page.detail.albums.query.trim().length ? qsTr("未找到匹配专辑") : qsTr("暂无专辑")
                         textFormat: Text.PlainText
                         color: Theme.secondaryText
                         font: Theme.font(12, Theme.regularWeight)

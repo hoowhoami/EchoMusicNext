@@ -92,6 +92,13 @@ public:
         model.active().state = SearchModel::State::Loading;
         emit model.changed();
     }
+    static void moreLoading(SearchModel &model, bool loading)
+    {
+        model.active().state =
+            loading ? SearchModel::State::LoadingMore : SearchModel::State::Ready;
+        model.active().total = 1000;
+        emit model.changed();
+    }
     static void showError(SearchModel &model)
     {
         model.active().state = SearchModel::State::Error;
@@ -260,6 +267,107 @@ Window {
         QTRY_VERIFY(retry.isNull());
         QVERIFY2(warnings.isEmpty(),
                  qPrintable(warnings.isEmpty() ? QString{} : warnings.first().first().toString()));
+    }
+    void scrollPreloadStopsOnFailureAndInactiveView()
+    {
+        QTemporaryDir dir;
+        SettingsStore preferences(dir.filePath("prefs.ini"));
+        ThemeStore theme(preferences);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Controls
+Window {
+ id: host; visible: true; width: 500; height: 240
+ property int rows: 30
+ property int requests: 0
+ property bool busy: false
+ property bool failed: false
+ property bool resources: true
+ property bool more: true
+ ListView {
+  id: view; objectName: "preloadView"; anchors.fill: parent
+  model: host.rows
+  delegate: Item { width: view.width; height: 40 }
+ }
+ EchoScrollLoadMore {
+  view: view; itemCount: host.rows; active: host.resources
+  loading: host.busy; failed: host.failed; hasMore: host.more
+  onLoadMoreRequested: { host.requests++; host.busy = true; }
+ }
+})",
+                          QUrl("qrc:/scroll-load-more-test.qml"));
+        QScopedPointer<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window);
+        auto *view = findVisual(window->contentItem(), "preloadView");
+        QVERIFY(view);
+        QTest::qWait(30);
+        QCOMPARE(root->property("requests").toInt(), 0);
+        QVERIFY(QMetaObject::invokeMethod(view, "positionViewAtEnd"));
+        QTRY_COMPARE(root->property("requests").toInt(), 1);
+        root->setProperty("failed", true);
+        root->setProperty("busy", false);
+        view->setProperty("contentY", view->property("contentY").toDouble() - 1);
+        QTest::qWait(30);
+        QCOMPARE(root->property("requests").toInt(), 1);
+        root->setProperty("resources", false);
+        root->setProperty("failed", false);
+        QTest::qWait(30);
+        QCOMPARE(root->property("requests").toInt(), 1);
+        root->setProperty("resources", true);
+        QTRY_COMPARE(root->property("requests").toInt(), 2);
+        root->setProperty("more", false);
+        root->setProperty("busy", false);
+        QTest::qWait(30);
+        QCOMPARE(root->property("requests").toInt(), 2);
+        root->setProperty("rows", 2);
+        window->hide();
+        root->setProperty("more", true);
+        QTest::qWait(30);
+        QCOMPARE(root->property("requests").toInt(), 2);
+        window->show();
+        QTRY_COMPARE(root->property("requests").toInt(), 3);
+    }
+    void localSearchFilterSeparatesEmptySourceAndPendingPages()
+    {
+        Session s;
+        SearchModelTestAccess::populate(s.search, SearchModel::Kind::Song, 3);
+        QVERIFY(s.create());
+        s.search.results()->setQuery("missing keyword");
+        QTRY_COMPARE(s.search.results()->rowCount(), 0);
+        QQuickItem *text = nullptr;
+        QTRY_VERIFY((text = s.item("searchSongsEmptyText")) && text->isVisible());
+        QCOMPARE(text->property("text").toString(), QString("未找到匹配歌曲"));
+        SearchModelTestAccess::moreLoading(s.search, true);
+        QTRY_VERIFY(!text->isVisible());
+        SearchModelTestAccess::populate(s.search, SearchModel::Kind::Song, 0);
+        QTRY_VERIFY(text->isVisible());
+        QCOMPARE(text->property("text").toString(), QString("暂无搜索结果"));
+    }
+    void allSearchKindsUseTheSameLoadMoreSpinner()
+    {
+        Session s;
+        QVERIFY(s.create());
+        for (auto kind :
+             {SearchModel::Kind::Song, SearchModel::Kind::Album, SearchModel::Kind::Playlist,
+              SearchModel::Kind::Artist, SearchModel::Kind::Mv, SearchModel::Kind::Lyric}) {
+            SearchModelTestAccess::populate(s.search, kind, 20);
+            SearchModelTestAccess::moreLoading(s.search, true);
+            QTRY_VERIFY(s.item("searchPage"));
+            const bool songs = kind == SearchModel::Kind::Song || kind == SearchModel::Kind::Lyric;
+            QQuickItem *spinner = nullptr;
+            QTRY_VERIFY((spinner = s.item(songs ? "searchMoreSpinner" : "gridMoreSpinner")));
+            QTRY_VERIFY(spinner->isVisible());
+            QCOMPARE(spinner->width(), 18.);
+            QCOMPARE(spinner->height(), 18.);
+            QCOMPARE(spinner->property("rotationDuration").toInt(), 800);
+            SearchModelTestAccess::moreLoading(s.search, false);
+            QTRY_VERIFY(!spinner->isVisible());
+        }
     }
     void skeletonLayoutsAcrossThemesAndWidths()
     {

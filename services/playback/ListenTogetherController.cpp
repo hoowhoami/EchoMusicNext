@@ -398,10 +398,12 @@ void ListenTogetherController::setSearch(const QString &text)
 void ListenTogetherController::updateRoomsProjection()
 {
     QVariantList rows;
+    int sourceCount = 0;
     for (const auto &row : m_scope ? m_ownedRooms : m_publicRooms) {
         const auto room = row.toMap();
         if (m_dissolved.contains(room.value("id").toString()))
             continue;
+        ++sourceCount;
         const auto owner = room.value("owner").toMap();
         const auto song = room.value("current_song").toMap().value("song").toMap();
         QString searchable = room.value("name").toString() + " " + owner.value("name").toString() +
@@ -414,6 +416,7 @@ void ListenTogetherController::updateRoomsProjection()
             continue;
         rows.append(row);
     }
+    m_roomSourceCount = sourceCount;
     m_rooms.replace(rows);
     emit changed();
 }

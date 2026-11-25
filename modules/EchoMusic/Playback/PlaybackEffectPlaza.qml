@@ -287,20 +287,6 @@ Item {
                     ListView.onReused: pooled = false
                     resourceActive: plaza.resourceActive && !pooled
                 }
-                footer: Item {
-                    width: effects.width - 24
-                    height: 36
-                    EchoSoftButton {
-                        colors: Theme.floating
-                        anchors.centerIn: parent
-                        width: parent.width
-                        implicitHeight: 30
-                        visible: plaza.catalog.hasMore
-                        enabled: !plaza.catalog.loading
-                        text: plaza.catalog.loading ? qsTr("加载中…") : qsTr("加载更多")
-                        onClicked: plaza.catalog.loadMore()
-                    }
-                }
                 ScrollBar.vertical: EchoPopupScrollBar {
                     surface: plaza.surface
                     view: effects
@@ -403,20 +389,6 @@ Item {
                     }
                     onClicked: plaza.catalog.activateKey(brand.effect.key)
                 }
-                footer: Item {
-                    width: brands.width - 24
-                    height: 36
-                    EchoSoftButton {
-                        colors: Theme.floating
-                        anchors.centerIn: parent
-                        width: parent.width
-                        implicitHeight: 30
-                        visible: plaza.catalog.hasMore
-                        enabled: !plaza.catalog.loading
-                        text: plaza.catalog.loading ? qsTr("加载中…") : qsTr("更多品牌")
-                        onClicked: plaza.catalog.loadMore()
-                    }
-                }
                 ScrollBar.vertical: EchoPopupScrollBar {
                     surface: plaza.surface
                     view: brands
@@ -425,10 +397,21 @@ Item {
                         plaza.stopRestore()
                 }
             }
+            EchoSpinner {
+                objectName: "effectCatalogMoreSpinner"
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: 12
+                width: 18
+                height: 18
+                visible: plaza.resourceActive && plaza.catalog.loading && plaza.catalog.cachedCount > 0
+                resourceActive: visible
+            }
             Label {
                 anchors.centerIn: parent
                 visible: plaza.catalog.resultCount === 0 && !plaza.catalog.errorMessage.length
-                text: plaza.catalog.searching ? qsTr("正在搜索…") : plaza.catalog.query.trim().length > 0 ? plaza.catalog.complete ? qsTr("没有匹配的音效") : qsTr("已缓存目录中暂无匹配") : plaza.catalog.loading ? qsTr("正在加载音效…") : qsTr("暂无缓存音效")
+                objectName: "effectCatalogEmptyText"
+                text: plaza.catalog.searching ? qsTr("正在搜索…") : plaza.catalog.cachedCount === 0 ? (plaza.catalog.loading ? qsTr("正在加载音效…") : plaza.catalog.complete ? qsTr("暂无音效") : qsTr("暂无缓存音效")) : plaza.catalog.query.trim().length > 0 ? (plaza.catalog.complete ? qsTr("没有匹配的音效") : qsTr("已缓存目录中暂无匹配")) : plaza.catalog.loading ? qsTr("正在加载音效…") : qsTr("暂无缓存音效")
                 color: Theme.floating.secondaryText
                 font: Theme.font(11, Theme.regularWeight)
             }
@@ -447,15 +430,15 @@ Item {
             color: Theme.floating.secondaryText
             font: Theme.font(9, Theme.regularWeight)
         }
-        Label {
-            visible: plaza.catalog.errorMessage.length > 0
+        Loader {
             Layout.fillWidth: true
             Layout.leftMargin: 14
             Layout.rightMargin: 14
-            text: plaza.catalog.errorMessage
-            color: Theme.floating.dangerText
-            font: Theme.font(11, Theme.regularWeight)
-            wrapMode: Text.Wrap
+            active: plaza.resourceActive && plaza.catalog.errorMessage.length > 0
+            sourceComponent: EchoLoadError {
+                message: plaza.catalog.errorMessage
+                onRetryRequested: plaza.catalog.loadMore()
+            }
         }
         RowLayout {
             Layout.fillHeight: false

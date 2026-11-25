@@ -9,7 +9,7 @@ EchoDialog {
     id: popup
     required property RecommendationCards layout
     objectName: "recommendationConfigPopup"
-    heading: qsTr("添加卡片")
+    heading: qsTr("管理推荐")
     preferredWidth: 520
     maximumHeight: parent ? parent.height / uiScale - 24 : 620
     modal: false
@@ -51,7 +51,7 @@ EchoDialog {
                 spacing: 16
                 Label {
                     Layout.fillWidth: true
-                    text: qsTr("拖动卡片调整顺序，第一张显示在首屏；至少保留一张卡片。")
+                    text: qsTr("拖动调整推荐顺序，首项显示在页面顶部；至少保留一项推荐。")
                     wrapMode: Text.Wrap
                     font: Theme.font(12, Theme.regularWeight)
                     color: Theme.floatingSecondaryText
@@ -61,7 +61,7 @@ EchoDialog {
                     Layout.bottomMargin: 16
                     Label {
                         Layout.fillWidth: true
-                        text: qsTr("我的卡片")
+                        text: qsTr("已选推荐")
                         font: Theme.font(17, Theme.semiboldWeight)
                         color: Theme.floatingText
                     }
@@ -108,7 +108,7 @@ EchoDialog {
                         Layout.preferredHeight: 30
                         objectName: "recommendationRemove-" + cardRow.card.key
                         glyph: "minus"
-                        text: qsTr("移除卡片")
+                        text: qsTr("移除推荐")
                         colors: Theme.floating
                         enabled: popup.layout.count > 1
                         onClicked: popup.layout.toggle(cardRow.card.key)
@@ -199,7 +199,7 @@ EchoDialog {
                                 Layout.preferredHeight: 30
                                 objectName: "recommendationAdd-" + option.modelData.key
                                 glyph: "plus"
-                                text: qsTr("添加卡片")
+                                text: qsTr("添加推荐")
                                 colors: Theme.floating
                                 onClicked: popup.layout.toggle(option.modelData.key)
                             }

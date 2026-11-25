@@ -1590,7 +1590,7 @@ void DesktopPagesTest::productionContentBlacklistKeepsPreferencesDraftAndVirtual
     QTRY_VERIFY((blacklist = page->findChild<QObject *>("contentBlacklistDialog")));
     QTRY_VERIFY(blacklist->property("opened").toBool());
     auto &service = *session.profile.blacklist();
-    const auto populate = [&](int category, int count) {
+    const auto populate = [&](int category, int count, int total = -1) {
         QJsonArray items;
         for (int i = 0; i < count; ++i)
             items.append(QJsonObject{
@@ -1603,8 +1603,10 @@ void DesktopPagesTest::productionContentBlacklistKeepsPreferencesDraftAndVirtual
         const auto read = ContentBlacklistTestAccess::read(service, session.api, category);
         ContentBlacklistTestAccess::complete(
             service, session.api, read,
-            QJsonDocument(
-                QJsonObject{{"page", 1}, {"page_size", 30}, {"total", count}, {"items", items}})
+            QJsonDocument(QJsonObject{{"page", 1},
+                                      {"page_size", qMax(1, count)},
+                                      {"total", total < 0 ? count : total},
+                                      {"items", items}})
                 .toJson());
     };
     QPointer<QQuickItem> list = visual(session.window->contentItem(), "contentBlacklistList");
@@ -1631,6 +1633,34 @@ void DesktopPagesTest::productionContentBlacklistKeepsPreferencesDraftAndVirtual
     }
     QMetaObject::invokeMethod(retry, "clicked");
     QVERIFY(service.loading());
+    populate(0, 30, 60);
+    QVERIFY(QMetaObject::invokeMethod(list, "positionViewAtEnd"));
+    QTRY_VERIFY(service.loading());
+    auto continuation = ContentBlacklistTestAccess::request(service, 0);
+    QVERIFY(continuation);
+    QCOMPARE(ApiClientTestAccess::request(session.api, continuation)
+                 .value("query")
+                 .toObject()
+                 .value("page")
+                 .toInt(),
+             2);
+    ContentBlacklistTestAccess::fail(service, session.api, continuation);
+    QTRY_VERIFY(visual(list, "loadErrorRetry"));
+    QTest::qWait(60);
+    QVERIFY(!service.loading()); // Failure stays idle until the explicit retry.
+    QMetaObject::invokeMethod(visual(list, "loadErrorRetry"), "clicked");
+    QTRY_VERIFY(service.loading());
+    continuation = ContentBlacklistTestAccess::request(service, 0);
+    QCOMPARE(ApiClientTestAccess::request(session.api, continuation)
+                 .value("query")
+                 .toObject()
+                 .value("page")
+                 .toInt(),
+             2);
+    ContentBlacklistTestAccess::complete(service, session.api, continuation,
+                                         R"({"page":2,"page_size":30,"total":30,"items":[]})");
+    QVERIFY(!service.hasMore());
+    QCOMPARE(service.entries()->rowCount(), 30);
     for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
         session.theme.setMode(mode);
         for (const bool zoomed : {false, true}) {

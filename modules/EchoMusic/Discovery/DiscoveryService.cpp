@@ -184,6 +184,8 @@ void DiscoveryService::shutdown()
     if (m_closed)
         return;
     m_closed = true;
+    for (auto *feed : m_feeds)
+        feed->shutdown();
     cancelAll();
     cancelCardRequests();
     disconnect(&m_api, nullptr, this, nullptr);
@@ -240,6 +242,8 @@ void DiscoveryService::setPage(const QString &name, const QString &instance, boo
     m_playback.personalFm()->setPageActive(name == "personal-fm", networkEnabled);
     m_activePage = name;
     m_networkEnabled = networkEnabled;
+    for (auto *feed : m_feeds)
+        feed->setNetworkEnabled(networkEnabled);
     m_styleSongs.setMetadataActive(networkEnabled &&
                                    (name == "home" || name == "recommendation-detail"));
     m_dailySongs.setMetadataActive(networkEnabled && name == "recommend-songs");

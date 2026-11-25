@@ -2,6 +2,9 @@
 #include "SceneGraphConfiguration.h"
 #include <QSGTexture>
 #include <QFile>
+#include <QBuffer>
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <QImage>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -57,6 +60,86 @@ private slots:
     void initTestCase()
     {
         configureSceneGraph();
+    }
+    void scrollReturnDoesNotReplayArtworkReveal()
+    {
+        QTemporaryDir directory;
+        SettingsStore settings(directory.filePath("settings.ini"));
+        ThemeStore theme(settings);
+        theme.setMotionEnabled(true);
+        QImage artwork(128, 128, QImage::Format_RGB32);
+        artwork.fill(QColor("#20c060"));
+        QByteArray png;
+        QBuffer encoded(&png);
+        QVERIFY(encoded.open(QIODevice::WriteOnly) && artwork.save(&encoded, "PNG"));
+        QTcpServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        int requests = 0;
+        connect(&server, &QTcpServer::newConnection, &server, [&] {
+            auto *socket = server.nextPendingConnection();
+            connect(socket, &QTcpSocket::readyRead, socket, [&, socket] {
+                auto request = socket->property("request").toByteArray() + socket->readAll();
+                socket->setProperty("request", request);
+                if (!request.contains("\r\n\r\n") || socket->property("served").toBool())
+                    return;
+                socket->setProperty("served", true);
+                ++requests;
+                socket->write("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nCache-Control: "
+                              "public, max-age=3600\r\nContent-Length: " +
+                              QByteArray::number(png.size()) + "\r\nConnection: close\r\n\r\n" +
+                              png);
+                socket->disconnectFromHost();
+            });
+            connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+        });
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Controls
+Window {
+ id: host
+ visible: true; width: 240; height: 240; color: "black"
+ required property url artwork
+ EchoCover { objectName: "probe"; anchors.centerIn: parent; width: 96; height: 96; source: host.artwork }
+})",
+                          QUrl("qrc:/cover-scroll-return.qml"));
+        QScopedPointer<QObject> root(component.createWithInitialProperties(
+            {{"artwork",
+              QUrl(QString("http://127.0.0.1:%1/cover.png").arg(server.serverPort()))}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window && QTest::qWaitForWindowExposed(window));
+        auto *cover = root->findChild<QQuickItem *>("probe");
+        QVERIFY(cover);
+        QTRY_COMPARE(cover->property("status").toInt(), 1);
+        QTRY_COMPARE(cover->property("revealOpacity").toReal(), 1.);
+        QCOMPARE(requests, 1);
+        for (int cycle = 0; cycle < 6; ++cycle) {
+            cover->setProperty("resourceActive", false);
+            auto *image = cover->findChild<QQuickItem *>("coverImage");
+            QTRY_VERIFY(image->property("source").toUrl().isEmpty());
+            QVERIFY(!frame(*window).isNull());
+            cover->setProperty("resourceActive", true);
+            QTRY_COMPARE(cover->property("status").toInt(), 1);
+            qInfo() << "cover return" << cycle << "HTTP requests" << requests << "opacity"
+                    << cover->property("revealOpacity");
+            QCOMPARE(requests, 1);
+            QCOMPARE(cover->property("revealOpacity").toReal(), 1.);
+            const auto pixels = frame(*window);
+            QVERIFY(!pixels.isNull());
+            QVERIFY(pixels.pixelColor(pixels.width() / 2, pixels.height() / 2).green() > 180);
+        }
+        // A reused delegate must still transition a genuinely new, slow URL.
+        root->setProperty(
+            "artwork", QUrl(QString("http://127.0.0.1:%1/another.png").arg(server.serverPort())));
+        QTRY_COMPARE(requests, 2);
+        QTRY_COMPARE(cover->property("status").toInt(), 1);
+        QVERIFY(cover->property("revealOpacity").toReal() < 1.);
+        QTRY_COMPARE(cover->property("revealOpacity").toReal(), 1.);
+        QCOMPARE(warnings.size(), 0);
     }
     void imageAtlasBudgetAndLargeImageFallback()
     {

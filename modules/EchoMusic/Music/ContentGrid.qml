@@ -22,15 +22,19 @@ GridView {
     /// Optional load-more sentinel for paginated grids. Defaults off.
     property bool hasMore: false
     property bool loadingMore: false
+    property string errorMessage: ""
+    // Local filtering can hide every loaded row while later pages still exist.
+    property int loadedItemCount: count
     signal loadMoreRequested
-    function checkLoadMore(): void {
-        if (!grid.hasMore || grid.loadingMore || grid.loading || !grid.visible)
-            return;
-        if (grid.atYEnd && grid.contentHeight > grid.height)
-            grid.loadMoreRequested();
+    EchoScrollLoadMore {
+        view: grid
+        active: grid.pageActive && grid.visible
+        hasMore: grid.hasMore
+        loading: grid.loading || grid.loadingMore
+        failed: grid.errorMessage.length > 0
+        itemCount: grid.loadedItemCount
+        onLoadMoreRequested: grid.loadMoreRequested()
     }
-    onMovementEnded: checkLoadMore()
-    onAtYEndChanged: checkLoadMore()
     cellWidth: cardWidth + 20
     cellHeight: cardHeight + 20
     clip: true
@@ -93,5 +97,17 @@ GridView {
             GridView.onPooled: pooled = true
             GridView.onReused: pooled = false
         }
+    }
+    EchoSpinner {
+        objectName: "gridMoreSpinner"
+        parent: grid
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 12
+        width: 18
+        height: 18
+        z: 2
+        visible: grid.pageActive && grid.visible && grid.loadingMore && !grid.loading
+        resourceActive: visible
     }
 }

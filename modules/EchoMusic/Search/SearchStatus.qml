@@ -26,9 +26,9 @@ Item {
     RowLayout {
         anchors.horizontalCenter: parent.horizontalCenter
         y: root.listPadding + 8
-        visible: !root.failed && !root.continuousSongs
+        visible: !root.failed && !root.continuousSongs && root.service.state !== SearchModel.LoadingMore
         Text {
-            text: root.service.state === SearchModel.LoadingMore ? qsTr("加载更多中...") : root.service.hasMore ? qsTr("继续下滑加载更多") : root.service.count > 0 ? qsTr("没有更多结果了") : ""
+            text: root.service.hasMore ? qsTr("继续下滑加载更多") : root.service.count > 0 ? qsTr("没有更多结果了") : ""
             color: Theme.secondaryText
             font: Theme.font(13, Theme.mediumWeight)
         }

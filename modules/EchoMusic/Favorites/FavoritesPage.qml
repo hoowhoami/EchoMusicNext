@@ -194,6 +194,7 @@ RoutePage {
                         Layout.preferredWidth: 160
                         Layout.minimumWidth: 80
                         placeholderText: qsTr("搜索歌手...")
+                        text: page.service.singerQuery
                         clearable: true
                         onTextEdited: page.service.setSingerQuery(text)
                     }
@@ -231,7 +232,7 @@ RoutePage {
             // Hidden song views retain their own column-header space.
             topMargin: page.expandedHeaderHeight + page.toolbarRowHeight + 44
             loading: page.service.loading && page.service.songs.totalCount === 0
-            loadingMore: page.service.loading && page.service.songs.count > 0
+            loadingMore: page.service.loading && page.service.songs.totalCount > 0
             hasMore: page.service.hasMore
             errorMessage: page.service.errorMessage
             resourceActive: page.pageActive && visible
@@ -274,7 +275,7 @@ RoutePage {
             collection: page.service.singers
             loading: page.service.loading && page.service.singers.count === 0
             singer: true
-            emptyText: qsTr("暂无关注歌手")
+            emptyText: page.service.singerTotal > 0 && page.service.singerQuery.trim().length ? qsTr("未找到匹配歌手") : qsTr("暂无关注歌手")
             navigationAvailable: page.router.available("artist-detail")
             onOpenRequested: id => page.router.navigate("artist-detail", {}, id)
         }
@@ -306,16 +307,18 @@ RoutePage {
             pageActive: page.pageActive
             pageContainer: viewport
             sourceModel: page.service.albums
+            loading: page.service.loading && page.service.albums.totalCount === 0
             navigationAvailable: page.router.available("album-detail")
             onOpenRequested: id => page.router.navigate("album-detail", {}, id)
             footer: Item {
                 width: albumsGrid.width - 20
-                height: albumsGrid.count === 0 && albumsGrid.visible && !albumsGrid.loading ? 320 : 0
+                height: albumsGrid.count === 0 && albumsGrid.visible && !page.service.loading && !page.service.albums.querying ? 320 : 0
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
                     y: 150
-                    visible: albumsGrid.count === 0 && !albumsGrid.loading
-                    text: qsTr("暂无收藏专辑")
+                    objectName: "favoritesAlbumEmptyText"
+                    visible: parent.height > 0
+                    text: page.service.albums.totalCount > 0 && page.service.albums.query.trim().length ? qsTr("未找到匹配专辑") : qsTr("暂无收藏专辑")
                     textFormat: Text.PlainText
                     color: Theme.secondaryText
                     font: Theme.font(14, Theme.mediumWeight)
@@ -335,10 +338,12 @@ RoutePage {
             pageContainer: viewport
             video: true
             sourceModel: page.service.videos
-            loading: page.service.loading && page.service.videos.count === 0
+            loadedItemCount: page.service.videos.totalCount
+            loading: page.service.loading && loadedItemCount === 0
             // The production MV route resolves this video ID through video_detail.
             hasMore: page.service.hasMore
-            loadingMore: page.service.loading && page.service.videos.count > 0
+            loadingMore: page.service.loading && loadedItemCount > 0
+            errorMessage: page.service.errorMessage
             navigationAvailable: page.router.available("mv-detail")
             onLoadMoreRequested: page.service.loadMore()
             onOpenRequested: id => page.router.navigate("mv-detail", {}, id)
@@ -346,13 +351,22 @@ RoutePage {
                 id: videosFooter
                 width: videosGrid.width - 20
                 readonly property int rows: page.service.videos.count
-                readonly property bool emptyState: videosFooter.rows === 0 && videosGrid.visible && !videosGrid.loading
-                height: videosFooter.emptyState ? 320 : videosFooter.rows > 0 && !videosGrid.loading ? 64 : 0
+                readonly property bool emptyState: videosFooter.rows === 0 && videosGrid.visible && !videosGrid.loading && !videosGrid.loadingMore && !videosGrid.hasMore && !page.service.videos.querying
+                height: videoError.active ? videoError.implicitHeight : videosFooter.emptyState ? 320 : videosFooter.rows > 0 && !videosGrid.loading ? 64 : 0
+                Loader {
+                    id: videoError
+                    width: parent.width
+                    active: page.videosTab && page.service.errorMessage.length > 0
+                    sourceComponent: EchoLoadError {
+                        message: page.service.errorMessage
+                        onRetryRequested: page.service.loadMore()
+                    }
+                }
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
                     y: 150
-                    visible: videosFooter.emptyState
-                    text: qsTr("暂无收藏视频")
+                    visible: videosFooter.emptyState && !videoError.active
+                    text: page.service.videos.totalCount > 0 && page.service.videos.query.trim().length ? qsTr("未找到匹配视频") : qsTr("暂无收藏视频")
                     textFormat: Text.PlainText
                     color: Theme.secondaryText
                     font: Theme.font(14, Theme.mediumWeight)
@@ -360,9 +374,9 @@ RoutePage {
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
                     y: 24
-                    // 有后续页时保留加载入口；加载中和耗尽时分别显示相应状态。
-                    visible: videosFooter.rows > 0 && !videosGrid.loading
-                    text: page.service.hasMore ? (videosGrid.loadingMore ? qsTr("加载更多中...") : qsTr("继续下滑加载更多")) : qsTr("没有更多了")
+                    // Busy feedback belongs to the shared viewport spinner.
+                    visible: videosFooter.rows > 0 && !videosGrid.loading && !videosGrid.loadingMore && !videoError.active
+                    text: page.service.hasMore ? qsTr("继续下滑加载更多") : qsTr("没有更多了")
                     textFormat: Text.PlainText
                     color: Theme.secondaryText
                     font: Theme.font(12, Theme.regularWeight)

@@ -235,12 +235,12 @@ RoutePage {
             contentInset: 24
             // Hidden song views retain their own column-header space.
             topMargin: page.expandedHeaderHeight + page.toolbarRowHeight + 44
-            loading: page.service.songsLoading && page.service.songs.count === 0
-            loadingMore: page.service.songsLoading && page.service.songs.count > 0
+            loading: page.service.songsLoading && page.service.songs.totalCount === 0
+            loadingMore: page.service.songsLoading && page.service.songs.totalCount > 0
             errorMessage: page.service.errorMessage
             resourceActive: page.pageActive && visible
             menuSongId: page.menuSongId
-            emptyComponent: page.service.errorMessage.length || page.service.songs.query.length ? null : purchasedSongEmpty
+            emptyComponent: purchasedSongEmpty
             onRetryRequested: page.service.loadMore()
             onMoreRequested: (id, sceneX, sceneY) => page.showSongMenu(id, sceneX, sceneY)
         }
@@ -256,16 +256,21 @@ RoutePage {
             pageActive: page.pageActive
             pageContainer: viewport
             sourceModel: page.service.albums
-            loading: page.service.albumsLoading && page.service.albums.count === 0
+            loadedItemCount: page.service.albums.totalCount
+            loading: page.service.albumsLoading && loadedItemCount === 0
+            loadingMore: page.service.albumsLoading && loadedItemCount > 0
+            hasMore: page.service.hasMore
+            errorMessage: page.service.errorMessage
+            onLoadMoreRequested: page.service.loadMore()
             navigationAvailable: page.router.available("album-detail")
             onOpenRequested: id => page.router.navigate("album-detail", {}, id)
             footer: Item {
                 id: albumsFooter
                 width: albumsGrid.width - 20
                 readonly property int rows: page.service.albums.count
-                // 空状态和加载更多入口独立显示。
+                // Reserve room for continuation feedback separately from the empty state.
                 readonly property bool hasError: page.service.errorMessage.length > 0 && !page.service.albumsLoading
-                readonly property bool emptyState: albumsFooter.rows === 0 && albumsGrid.visible && !albumsGrid.loading && !hasError
+                readonly property bool emptyState: albumsFooter.rows === 0 && albumsGrid.visible && !albumsGrid.loading && !albumsGrid.loadingMore && !albumsGrid.hasMore && !page.service.albums.querying && !hasError
                 readonly property bool showMore: page.service.hasMore && !albumsGrid.loading && albumsGrid.visible
                 height: albumsFooter.hasError ? 160 : albumsFooter.emptyState ? (albumsFooter.showMore ? 384 : 320) : albumsFooter.rows > 0 && albumsFooter.showMore ? 64 : 0
                 ColumnLayout {
@@ -309,26 +314,17 @@ RoutePage {
                     Text {
                         Layout.alignment: Qt.AlignHCenter
                         Layout.topMargin: 16
-                        text: page.service.albums.query.length ? qsTr("未找到匹配专辑") : qsTr("暂无已购专辑")
+                        text: page.service.albums.totalCount > 0 && page.service.albums.query.trim().length ? qsTr("未找到匹配专辑") : qsTr("暂无已购专辑")
                         color: Theme.text
                         font: Theme.font(18, Theme.semiboldWeight)
                     }
                     Text {
                         Layout.alignment: Qt.AlignHCenter
                         Layout.topMargin: 8
-                        text: page.service.albums.query.length ? qsTr("试试其它搜索关键词") : qsTr("购买的专辑会展示在这里")
+                        text: page.service.albums.totalCount > 0 && page.service.albums.query.trim().length ? qsTr("试试其它搜索关键词") : qsTr("购买的专辑会展示在这里")
                         color: Theme.secondaryText
                         font: Theme.font(13, Theme.mediumWeight)
                     }
-                }
-                EchoSoftButton {
-                    objectName: "purchasedAlbumsLoadMore"
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    y: albumsFooter.emptyState ? 336 : 24
-                    visible: albumsFooter.showMore && !albumsFooter.hasError
-                    text: page.service.albumsLoading ? qsTr("加载中...") : qsTr("加载更多")
-                    enabled: !page.service.albumsLoading
-                    onClicked: page.service.loadMore()
                 }
             }
         }

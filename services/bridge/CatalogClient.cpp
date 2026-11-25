@@ -84,6 +84,16 @@ quint64 ApiClient::CatalogClient::discoveryCard(quint32 cardId, const QString &s
         {{"operation", "discovery_card_single"},
          {"query", QJsonObject{{"card_id", int(cardId)}, {"source_mixsong", sourceMixsong}}}});
 }
+quint64 ApiClient::CatalogClient::recommendationFeed(quint32 cardId, const QString &tag,
+                                                     quint32 page, quint32 pageSize)
+{
+    return api.submit({{"operation", "discovery_card_single"},
+                       {"query", QJsonObject{{"card_id", int(cardId)},
+                                             {"detail", true},
+                                             {"tagid", tag},
+                                             {"page", int(page)},
+                                             {"pagesize", int(pageSize)}}}});
+}
 quint64 ApiClient::CatalogClient::freeListenSongs()
 {
     return api.submit({{"operation", "ai_recommend_song"}});

@@ -60,6 +60,7 @@ class RecommendationCard final : public QObject
     QML_ELEMENT
     QML_UNCREATABLE("Owned by DiscoveryService")
     Q_PROPERTY(QString key READ key CONSTANT)
+    Q_PROPERTY(int preparingGroup READ preparingGroup NOTIFY groupPlaybackChanged)
     Q_PROPERTY(QString title READ title NOTIFY changed)
     Q_PROPERTY(QString subtitle READ subtitle NOTIFY changed)
     Q_PROPERTY(int status READ status NOTIFY changed)
@@ -103,13 +104,27 @@ public:
     {
         return &m_groups;
     }
+    Q_INVOKABLE EchoMusic::RecommendationCard *groupCard(int index, QObject *owner);
+    Q_INVOKABLE void playGroup(int index);
+    Q_INVOKABLE QString groupQueueKey(int index) const;
+    int preparingGroup() const
+    {
+        return m_preparingGroup;
+    }
     void setState(int state, QString error = {});
     void accept(const QJsonObject &);
     void clear();
 signals:
     void changed();
+    void groupPlaybackChanged();
 
 private:
+    void syncGroup();
+    void cancelGroupPlay();
+    PlaybackService &m_playback;
+    QPointer<RecommendationCard> m_groupParent;
+    QPointer<QObject> m_groupRead, m_groupPlayRead;
+    int m_groupIndex = -1, m_groupFirst = 0, m_groupCount = 0, m_preparingGroup = -1;
     const QString m_key, m_title;
     QString m_providerTitle, m_subtitle, m_error;
     int m_status = 0;

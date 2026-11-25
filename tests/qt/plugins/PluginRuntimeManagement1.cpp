@@ -1105,6 +1105,47 @@ void PluginRuntimeTest::sourceCatalogNetworkCacheAndOfficialProtection()
     QVERIFY(manager.sourceError().isEmpty());
     manager.setSearch("nothing");
     QCOMPARE(manager.catalog()->rowCount(), 0);
+    ShellSettings settings(host.settings);
+    QVERIFY(host.router.registerPage({"plugin-management",
+                                      "/plugins",
+                                      QUrl("qrc:/unused.qml"),
+                                      {"view"},
+                                      true,
+                                      false,
+                                      false,
+                                      {}}));
+    QVERIFY(host.router.navigate("plugin-management", {{"view", "marketplace"}}));
+    QQmlComponent component(&host.engine);
+    component.setData(R"(
+import QtQuick
+import EchoMusic.Plugins
+import EchoMusic.Shell
+Window {
+ id: host; visible: true; width: 900; height: 700
+ required property PluginManager manager
+ required property RouteController router
+ required property ShellSettings settings
+ PluginManagementPage { anchors.fill: parent; manager: host.manager; router: host.router; context: host.router.current; settings: host.settings }
+})",
+                      QUrl("qrc:/plugin-filter-empty.qml"));
+    QScopedPointer<QObject> view(
+        component.createWithInitialProperties({{"manager", QVariant::fromValue(&manager)},
+                                               {"router", QVariant::fromValue(&host.router)},
+                                               {"settings", QVariant::fromValue(&settings)}}));
+    QVERIFY2(view, qPrintable(component.errorString()));
+    QTRY_VERIFY(!manager.catalogLoading());
+    auto *window = qobject_cast<QQuickWindow *>(view.data());
+    QVERIFY(window);
+    auto *empty = visual(window->contentItem(), "pluginEmptyText");
+    QVERIFY(empty);
+    QTRY_COMPARE(empty->property("text").toString(), QString("未找到匹配插件"));
+    const auto entries = manager.m_entries;
+    manager.m_entries.clear();
+    manager.rebuild();
+    QTRY_COMPARE(empty->property("text").toString(), QString("暂无在线插件"));
+    manager.m_entries = entries;
+    manager.rebuild();
+    view.reset();
     manager.setSearch("Runtime");
     QCOMPARE(manager.catalog()->rowCount(), 1);
     QVERIFY(!manager.removeSource("github:hoowhoami/echomusicnextplugins"));

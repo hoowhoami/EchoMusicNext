@@ -34,7 +34,10 @@ DiscoveryRouteCoordinator::DiscoveryRouteCoordinator(DiscoveryService &service,
     connect(&router, &RouteController::pageActivated, this,
             [&service, networkEnabled](RouteContext *context) {
                 if (context->name() == "recommendation-detail")
-                    service.setDetailCard(context->resourceId());
+                    service.setDetailCard(context->resourceId() == "3107" ||
+                                                  context->query().contains("tag")
+                                              ? QString{}
+                                              : context->resourceId());
                 service.setPage(context->name(), context->instanceId(), networkEnabled);
             });
 }

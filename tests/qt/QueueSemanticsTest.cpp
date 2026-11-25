@@ -693,6 +693,53 @@ private slots:
         QVERIFY(f.api.setAccount(9, "domain-only-account"));
         QCOMPARE(TrackTransitionControllerTestAccess::historySize(*order), 0);
     }
+    void externalRecommendationFeedWaitsAtTailAndRejectsOtherSources()
+    {
+        Fixture f;
+        auto *provider = f.playback->discoverQueue();
+        QObject owner;
+        int requests = 0;
+        const QString key = "queue:recommendation-stream:3103:9";
+        f.playback->playTracks(tracks(), 2, "摇滚", key);
+        provider->bindFeed(key, &owner, [&] {
+            ++requests;
+            return true;
+        });
+        QVERIFY(provider->handlesCurrent());
+        QVERIFY(provider->replenish());
+        QVERIFY(provider->replenish());
+        QCOMPARE(requests, 1);
+        f.playback->next(true);
+        f.playback->next(true);
+        QCOMPARE(f.playback->trackId(), QString("e"));
+        f.playback->next(true); // Wait instead of wrapping to the first preview.
+        QCOMPARE(f.playback->trackId(), QString("e"));
+        f.playback->queueCatalog()->appendTo(key, {track("f"), track("g")});
+        provider->completeFeed(&owner, true);
+        QCOMPARE(f.playback->trackId(), QString("f"));
+        f.playback->playTracks(tracks(), 0, "Other", "ordinary");
+        QVERIFY(!provider->handlesCurrent());
+        const auto before = f.playback->queue()->rowCount();
+        provider->completeFeed(&owner, true);
+        QCOMPARE(f.playback->queue()->rowCount(), before);
+        QCOMPARE(f.playback->trackId(), QString("a"));
+    }
+    void externalRecommendationFeedPauseRevokesTailAdvance()
+    {
+        Fixture f;
+        QObject owner;
+        auto *provider = f.playback->discoverQueue();
+        const QString key = "queue:recommendation-stream:3107:";
+        f.playback->playTracks({track("a")}, 0, "AI", key);
+        provider->bindFeed(key, &owner, [] { return true; });
+        f.playback->next();
+        f.playback->pause();
+        f.playback->queueCatalog()->appendTo(key, {track("b")});
+        provider->completeFeed(&owner, true);
+        QCOMPARE(f.playback->trackId(), QString("a"));
+        provider->unbindFeed(&owner);
+        QVERIFY(!provider->handlesCurrent());
+    }
     void discoverReplenishesOffPageAndRejectsStaleResults()
     {
         Fixture f;

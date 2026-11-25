@@ -1,5 +1,6 @@
 #pragma once
 #include "ApiClient.h"
+#include "ArtistDirectoryModel.h"
 #include "SongCatalogModel.h"
 #include "SongCatalogActions.h"
 #include "RouteController.h"
@@ -22,6 +23,7 @@ class ExploreService final : public QObject
     Q_PROPERTY(bool loading READ loading NOTIFY changed)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY changed)
     Q_PROPERTY(EchoMusic::SongCatalogModel *cards READ cards CONSTANT)
+    Q_PROPERTY(EchoMusic::ArtistDirectoryModel *artists READ artists CONSTANT)
     Q_PROPERTY(EchoMusic::PlaybackService *playback READ playback CONSTANT)
     Q_PROPERTY(QVariantList categories READ categories NOTIFY changed)
     Q_PROPERTY(QVariantList sexFilters READ sexFilters NOTIFY changed)
@@ -74,6 +76,10 @@ public:
     {
         return &m_cards;
     }
+    ArtistDirectoryModel *artists()
+    {
+        return &m_artists;
+    }
     PlaybackService *playback()
     {
         return &m_playback;
@@ -93,7 +99,7 @@ public:
     QStringList artistLetters() const;
     QString artistLetter() const
     {
-        return m_letter;
+        return m_artists.letter();
     }
     QString categoryLabel() const
     {
@@ -154,6 +160,7 @@ private:
     void accept(quint64, const QByteArray &);
     void fail(quint64, const QByteArray &);
     void projectCards();
+    void projectAlbums();
     void loadCurrent();
     ApiClient &m_api;
     PlaybackService &m_playback;
@@ -161,14 +168,14 @@ private:
     DiscoveryService *m_discovery = nullptr;
     SongCatalogModel m_albums;
     SongCatalogModel m_cards;
+    ArtistDirectoryModel m_artists;
     QHash<quint64, Pending> m_pending;
     std::array<State, PartCount> m_states{};
     std::array<QString, PartCount> m_errors{};
-    QJsonArray m_categories, m_playlistCards, m_artistGroups, m_sexFilters, m_typeFilters;
+    QJsonArray m_categories, m_playlistCards, m_sexFilters, m_typeFilters;
     QJsonObject m_albumRegions;
     QHash<QString, QString> m_instances;
-    QString m_category = "0", m_categoryLabel, m_region = "all", m_sex = "0", m_artistType = "0:0",
-            m_letter;
+    QString m_category = "0", m_categoryLabel, m_region = "all", m_sex = "0", m_artistType = "0:0";
     int m_tab = 0;
     bool m_network = false, m_active = false, m_closed = false;
 };

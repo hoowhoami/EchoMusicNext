@@ -38,6 +38,7 @@ EchoPageScrollContainer {
         Qt.callLater(songList.animateInsertion)
     readonly property bool initialError: hasQuery && service.state === SearchModel.Error && service.count === 0
     readonly property bool showResults: hasQuery && !initialLoading && !initialError
+    readonly property bool emptyResultsReady: service.results.count === 0 && !service.hasMore && service.state === SearchModel.Ready && !service.cacheRecovering
     readonly property bool showAlbum: viewportWidth >= 768
     scrollView: showResults ? (songs ? songList : grid) : staticScroll
     coordinatedViews: [songList, grid]
@@ -209,10 +210,11 @@ EchoPageScrollContainer {
             width: songList.width
             height: (page.service.results.count === 0 ? 180 : 0) + status.implicitHeight
             Text {
+                objectName: "searchSongsEmptyText"
                 anchors.horizontalCenter: parent.horizontalCenter
                 y: 80
-                visible: page.service.results.count === 0
-                text: page.service.results.query.trim().length ? qsTr("未找到相关歌曲") : qsTr("暂无歌曲")
+                visible: page.emptyResultsReady
+                text: page.service.count > 0 && page.service.results.query.trim().length ? qsTr("未找到匹配歌曲") : qsTr("暂无搜索结果")
                 color: Theme.secondaryText
                 font: Theme.decoratedFont(14, Theme.regularWeight, 0, true, false)
             }
@@ -249,6 +251,7 @@ EchoPageScrollContainer {
         pageContainer: page
         artist: page.service.kind === SearchModel.Artist
         video: page.service.kind === SearchModel.Mv
+        loadingMore: page.service.state === SearchModel.LoadingMore
         navigationAvailable: page.resultNavigationAvailable
         onOpenRequested: id => page.resultOpenRequested(id)
         topMargin: page.pinned ? 72 : page.resultStart
@@ -256,9 +259,10 @@ EchoPageScrollContainer {
             width: grid.width - 20
             height: (page.service.results.count === 0 ? 320 : 0) + gridStatus.implicitHeight
             Text {
+                objectName: "searchGridEmptyText"
                 anchors.horizontalCenter: parent.horizontalCenter
                 y: 150
-                visible: page.service.results.count === 0
+                visible: page.emptyResultsReady
                 text: qsTr("暂无搜索结果")
                 color: Theme.secondaryText
                 font: Theme.font(14, Theme.regularWeight)

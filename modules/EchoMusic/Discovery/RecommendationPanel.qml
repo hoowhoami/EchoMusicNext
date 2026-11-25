@@ -17,8 +17,21 @@ Item {
     property real uiScale: 1
     property int previewIndex: 0
     property string demandKey: ""
-    readonly property bool grouped: card.key === "3102" || card.key === "3103"
-    readonly property real bodyHeight: card.collection.count === 0 ? 96 : grouped ? 240 : card.key === "3006" ? 300 : card.key === "3004" ? 240 : Math.ceil(Math.min(6, card.collection.count) / 2) * 84
+    readonly property bool grouped: card.groups.count > 0 || card.key === "3102" || card.key === "3103"
+    readonly property bool hasContent: card.collection.count > 0 || card.groups.count > 0
+    readonly property bool emptyBody: !hasContent && (card.status === 2 || card.status === 3)
+    // A section reserves its full preview extent while it is still loading.
+    // Retained content keeps its own extent through refresh/error states. The
+    // outer ListView only estimates unmeasured delegates, so a section that grew
+    // from a short loading body to the loaded body would otherwise shift every
+    // section below it and leave blank space at the viewport bottom.
+    readonly property int previewSongs: card.collection.count > 0 ? Math.min(6, card.collection.count) : 6
+    // The sleeve follows the reference aspect ratio; captions have two fixed
+    // single-line slots, so upstream paragraph breaks cannot shrink artwork.
+    readonly property real vipPreviewWidth: Math.min(206, width * .48)
+    readonly property real vipSleeveHeight: Math.ceil(vipPreviewWidth * 1.34)
+    readonly property real vipCaptionHeight: Theme.font(12, Theme.regularWeight).pixelSize * 1.5 + 4 + Theme.font(10, Theme.regularWeight).pixelSize * 1.5
+    readonly property real bodyHeight: emptyBody ? 96 : grouped ? 240 : card.key === "3006" ? vipSleeveHeight + 8 + vipCaptionHeight : card.key === "3004" ? 240 : Math.ceil(previewSongs / 2) * 84
     implicitHeight: contentLayout.implicitHeight
     function rememberIndex(index: int): void {
         previewIndex = Math.max(0, index);
@@ -29,6 +42,11 @@ Item {
     readonly property bool loading: card.status === 0 || card.status === 1
     readonly property bool style: card.key === "style"
     readonly property bool daily: card.key === "daily"
+    readonly property bool hasInformation: daily || style || card.key === "3014"
+    // A stable reading budget keeps late subtitles/tags from changing rows.
+    // Only the available header width determines whether information wraps.
+    readonly property real headingBudget: headingTitle.implicitWidth - headingBadge.implicitWidth + headingBadge.horizontalPadding * 2 + headingBadge.font.pixelSize * 2
+    readonly property bool inlineInformation: hasInformation && width - (width >= 340 ? headerActions.implicitWidth + 8 : 0) >= headingBudget + 12 + (style ? 168 : 120)
     readonly property string information: {
         if (!daily)
             return card.subtitle;
@@ -80,73 +98,57 @@ Item {
         RowLayout {
             Layout.fillWidth: true
             spacing: 8
-            EchoTextTagRow {
+            ColumnLayout {
                 Layout.fillWidth: true
                 Layout.minimumWidth: 0
-                text: panel.card.title
-                font: Theme.font(15, Theme.semiboldWeight)
-                color: Theme.text
-                spacing: 4
-                EchoBadge {
-                    count: panel.card.collection.totalCount > 99 ? "99+" : panel.card.collection.totalCount
-                    tone: EchoBadge.Neutral
+                spacing: 8
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 12
+                    EchoTextTagRow {
+                        id: headingTitle
+                        objectName: "recommendationHeading-" + panel.card.key
+                        Layout.fillWidth: !panel.inlineInformation
+                        Layout.minimumWidth: 0
+                        text: panel.card.title
+                        font: Theme.font(15, Theme.semiboldWeight)
+                        color: Theme.text
+                        spacing: 4
+                        wrapTags: false
+                        EchoBadge {
+                            id: headingBadge
+                            count: panel.card.collection.totalCount > 99 ? "99+" : panel.card.collection.totalCount
+                            tone: EchoBadge.Neutral
+                        }
+                    }
+                    Loader {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        active: panel.inlineInformation
+                        visible: active
+                        sourceComponent: HeaderInformation {}
+                    }
+                }
+                Loader {
+                    Layout.fillWidth: true
+                    active: panel.hasInformation && !panel.inlineInformation
+                    visible: active
+                    sourceComponent: HeaderInformation {}
                 }
             }
             Loader {
-                active: panel.width >= 340
+                id: headerActions
+                active: !panel.grouped && panel.width >= 340
                 visible: active
+                Layout.alignment: Qt.AlignTop
                 sourceComponent: cardActions
             }
         }
         Loader {
             Layout.alignment: Qt.AlignRight
-            active: panel.width < 340
+            active: !panel.grouped && panel.width < 340
             visible: active
             sourceComponent: cardActions
-        }
-        Item {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 28
-            visible: panel.daily || panel.style || panel.card.key === "3014"
-            Item {
-                anchors.left: parent.left
-                anchors.verticalCenter: parent.verticalCenter
-                width: Math.min(implicitWidth, parent.width)
-                implicitWidth: informationRow.implicitWidth + 16
-                height: 28
-                visible: !panel.style
-                RowLayout {
-                    id: informationRow
-                    anchors.fill: parent
-                    spacing: 6
-                    EchoIcon {
-                        Layout.preferredWidth: 12
-                        Layout.preferredHeight: 12
-                        name: panel.informationGlyph
-                        color: Theme.secondaryText
-                    }
-                    EchoTextLine {
-                        objectName: "recommendationInformation-" + panel.card.key
-                        Layout.fillWidth: true
-                        Layout.minimumWidth: 0
-                        text: panel.information.length ? panel.information : panel.informationFallback
-                        font: Theme.font(11, Theme.regularWeight)
-                        color: Theme.secondaryText
-                    }
-                }
-            }
-            EchoSoftButton {
-                objectName: panel.style ? "styleRecommendationFilters" : ""
-                anchors.left: parent.left
-                anchors.verticalCenter: parent.verticalCenter
-                width: Math.min(implicitWidth, parent.width)
-                visible: panel.style
-                text: qsTr("筛选：%1").arg(panel.service.styleSummary)
-                glyph: "chevron-down"
-                size: EchoControlSize.Small
-                enabled: panel.service.styleGroups.length > 0
-                onClicked: stylePicker.open()
-            }
         }
         Loader {
             objectName: "recommendationBody"
@@ -157,6 +159,48 @@ Item {
             active: panel.resourceActive
             asynchronous: true
             sourceComponent: panel.card.groups.count > 0 ? groupContent : panel.card.key === "3004" || panel.card.key === "3006" ? featureContent : songContent
+        }
+    }
+    component HeaderInformation: Item {
+        implicitHeight: 28
+        Item {
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            width: Math.min(implicitWidth, parent.width)
+            implicitWidth: informationRow.implicitWidth + 16
+            height: 28
+            visible: !panel.style
+            RowLayout {
+                id: informationRow
+                anchors.fill: parent
+                spacing: 6
+                EchoIcon {
+                    Layout.preferredWidth: 12
+                    Layout.preferredHeight: 12
+                    name: panel.informationGlyph
+                    color: Theme.secondaryText
+                }
+                EchoTextLine {
+                    objectName: "recommendationInformation-" + panel.card.key
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    text: panel.information.length ? panel.information : panel.informationFallback
+                    font: Theme.font(11, Theme.regularWeight)
+                    color: Theme.secondaryText
+                }
+            }
+        }
+        EchoSoftButton {
+            objectName: panel.style ? "styleRecommendationFilters" : ""
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            width: Math.min(implicitWidth, parent.width)
+            visible: panel.style
+            text: qsTr("筛选：%1").arg(panel.service.styleSummary)
+            glyph: "chevron-down"
+            size: EchoControlSize.Small
+            enabled: panel.service.styleGroups.length > 0
+            onClicked: stylePicker.open()
         }
     }
     component CardAction: EchoSoftButton {
@@ -179,7 +223,12 @@ Item {
                 text: qsTr("播放")
                 glyph: "play"
                 enabled: panel.card.collection.count > 0
-                onClicked: panel.card.actions.play()
+                onClicked: {
+                    if (panel.card.key === "3107")
+                        panel.service.playFeed(3107);
+                    else
+                        panel.card.actions.play();
+                }
             }
         }
     }
@@ -223,11 +272,22 @@ Item {
             // down and rebuilding the same controls during each slide.
             active: panel.resourceActive && (preview.presentationMode !== 0 || preview.index < 6)
             asynchronous: true
-            sourceComponent: preview.presentationMode === 0 ? songRow : featureSong
+            sourceComponent: preview.presentationMode === 0 ? songRow : preview.presentationMode === 1 ? vipSong : featureSong
         }
         Component {
             id: songRow
             RecommendationSongRow {
+                customPlayback: panel.card.key === "3107"
+                onPlayRequested: panel.service.playFeed(3107, "", "", "", 0, 6, preview.index)
+                entry: preview.entry
+                commands: panel.card.actions
+                resourceActive: panel.resourceActive && !preview.pooled
+            }
+        }
+        Component {
+            id: vipSong
+            RecommendationVipSong {
+                sleeveHeight: panel.vipSleeveHeight
                 entry: preview.entry
                 commands: panel.card.actions
                 resourceActive: panel.resourceActive && !preview.pooled
@@ -238,7 +298,6 @@ Item {
             RecommendationFeatureSong {
                 entry: preview.entry
                 commands: panel.card.actions
-                portrait: preview.presentationMode === 1
                 resourceActive: panel.resourceActive && !preview.pooled
             }
         }
@@ -428,7 +487,9 @@ Item {
                 id: features
                 objectName: "recommendationFeatureCarousel-" + panel.card.key
                 anchors.fill: parent
-                model: panel.card.collection
+                // Do not enumerate the source while an initial zero-width
+                // slot still awaits its native layout.
+                model: width > 0 && previewWidth > 0 ? panel.card.collection : null
                 previewWidth: panel.card.key === "3006" ? Math.min(206, width * .48) : compositionWidth
                 delegate: SongPreview {
                     width: features.previewWidth
@@ -454,6 +515,10 @@ Item {
                 previewWidth: panel.card.groups.count > 1 ? compositionWidth : width
                 delegate: RecommendationGroupCard {
                     property bool pooled: false
+                    card: panel.card
+                    service: panel.service
+                    router: panel.router
+                    playback: panel.service.playback
                     width: groups.previewWidth
                     height: groups.height
                     commands: panel.card.actions

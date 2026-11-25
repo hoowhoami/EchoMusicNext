@@ -137,7 +137,7 @@ RoutePage {
                     Layout.preferredHeight: 36
                     Layout.alignment: Qt.AlignTop
                     glyph: "plus"
-                    text: qsTr("添加卡片")
+                    text: qsTr("管理推荐")
                     contentItem: Item {
                         EchoIcon {
                             anchors.centerIn: parent

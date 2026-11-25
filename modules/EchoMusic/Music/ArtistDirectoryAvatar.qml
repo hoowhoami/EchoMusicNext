@@ -13,6 +13,7 @@ ItemDelegate {
     required property string coverUrl
     required property string resourceId
     property bool resourceActive: true
+    property bool presentationReady: true
     property bool navigationAvailable: false
     signal openRequested(string id)
     padding: 0
@@ -23,6 +24,7 @@ ItemDelegate {
     onClicked: if (navigationAvailable)
         openRequested(resourceId)
     contentItem: ColumnLayout {
+        visible: entry.presentationReady
         spacing: 12
         EchoCover {
             coverScope: "artist"
@@ -51,6 +53,25 @@ ItemDelegate {
             color: entry.hovered ? Theme.accentText : Theme.text
             fillTextWidth: true
             horizontalAlignment: Text.AlignHCenter
+        }
+    }
+    Loader {
+        anchors.fill: parent
+        active: !entry.presentationReady && entry.resourceActive
+        sourceComponent: ColumnLayout {
+            spacing: 12
+            EchoSkeleton {
+                variant: EchoSkeleton.Circle
+                Layout.fillWidth: true
+                Layout.preferredHeight: width
+                animate: entry.resourceActive
+            }
+            EchoSkeleton {
+                Layout.alignment: Qt.AlignHCenter
+                Layout.preferredWidth: entry.width * .65
+                Layout.preferredHeight: 14
+                animate: entry.resourceActive
+            }
         }
     }
     EchoToolTip {

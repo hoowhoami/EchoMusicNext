@@ -304,7 +304,7 @@ RoutePage {
             contentInset: 24
             topMargin: page.expandedHeaderHeight + page.toolbarHeight
             loading: page.service.loading && page.service.songs.totalCount === 0
-            loadingMore: page.service.loading && page.service.songs.count > 0
+            loadingMore: page.service.loading && page.service.songs.totalCount > 0
             hasMore: page.service.hasMore
             errorMessage: page.service.errorMessage
             resourceActive: page.pageActive && visible

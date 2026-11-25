@@ -1,9 +1,11 @@
 #include "RecommendationCards.h"
 #include "SettingsKeys.h"
+#include "RouteController.h"
 #include "SongMetadataService.h"
 #include "CacheCost.h"
 #include <QJsonObject>
 #include <QQmlEngine>
+#include <QRandomGenerator>
 namespace EchoMusic
 {
 void RecommendationItemsModel::attach(SessionDatabase *database)
@@ -95,7 +97,7 @@ void RecommendationItemsModel::read(int row)
             return;
         m_reads.remove(row);
         QJsonObject view;
-        for (const auto &key : {"title", "cover_url", "url", "kind", "description", "color",
+        for (const auto &key : {"id", "title", "cover_url", "url", "kind", "description", "color",
                                 "start_index", "song_count"})
             view[key] = record[key];
         QJsonArray preview;
@@ -114,13 +116,15 @@ void RecommendationItemsModel::read(int row)
 RecommendationCard::RecommendationCard(QString key, QString title, PlaybackService &playback,
                                        SongCatalogModel *borrowed, SongCatalogActions *actions,
                                        QObject *parent)
-    : QObject(parent), m_key(std::move(key)), m_title(std::move(title)), m_collection(borrowed),
-      m_actions(actions)
+    : QObject(parent), m_playback(playback), m_key(std::move(key)), m_title(std::move(title)),
+      m_collection(borrowed), m_actions(actions)
 {
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
     QQmlEngine::setObjectOwnership(&m_groups, QQmlEngine::CppOwnership);
-    connect(&m_groups, &RecommendationItemsModel::readFailed, this,
-            [this](const QString &error) { setState(3, error); });
+    connect(&m_groups, &RecommendationItemsModel::readFailed, this, [this](const QString &error) {
+        cancelGroupPlay();
+        setState(3, error);
+    });
     if (!m_collection) {
         m_ownedCollection = std::make_unique<SongCatalogModel>();
         m_collection = m_ownedCollection.get();
@@ -135,6 +139,132 @@ RecommendationCard::RecommendationCard(QString key, QString title, PlaybackServi
         m_groups.attach(metadata->sessionDatabase());
     }
     m_actions->setQueueContext(m_title, "queue:recommendation:" + m_key);
+    connect(&m_groups, &QAbstractItemModel::modelReset, this, &RecommendationCard::cancelGroupPlay);
+    connect(m_collection, &SongCatalogModel::readFailed, this, [this] { cancelGroupPlay(); });
+}
+QString RecommendationCard::groupQueueKey(int index) const
+{
+    return "queue:recommendation:" + m_key + ":group:" + QString::number(index);
+}
+RecommendationCard *RecommendationCard::groupCard(int index, QObject *owner)
+{
+    if (!owner || m_groupParent || index < 0)
+        return nullptr;
+    const auto name = "recommendation-group-" + m_key + "-" + QString::number(index);
+    if (auto *existing = owner->findChild<RecommendationCard *>(name, Qt::FindDirectChildrenOnly))
+        return existing;
+    auto *result = new RecommendationCard(m_key + ":group:" + QString::number(index),
+                                          QStringLiteral("…"), m_playback, nullptr, nullptr, owner);
+    result->setObjectName(name);
+    result->m_groupParent = this;
+    result->m_groupIndex = index;
+    result->collection()->setMetadataActive(false);
+    if (auto *context = qobject_cast<RouteContext *>(owner)) {
+        result->collection()->setMetadataActive(context->presented());
+        connect(context, &RouteContext::presentationChanged, result, [context, result] {
+            result->collection()->setMetadataActive(context->presented());
+        });
+    }
+    connect(this, &RecommendationCard::changed, result, &RecommendationCard::syncGroup);
+    connect(this, &QObject::destroyed, result, [result] { result->clear(); });
+    connect(m_collection, &SongCatalogModel::storageReadyChanged, result, [result] {
+        if (result->m_groupParent && result->m_groupParent->collection()->storageReady())
+            result->syncGroup();
+    });
+    result->syncGroup();
+    return result;
+}
+void RecommendationCard::syncGroup()
+{
+    delete m_groupRead.data();
+    if (!m_groupParent)
+        return;
+    auto *parent = m_groupParent.data();
+    if (parent->status() != 2) {
+        if (!parent->collection()->totalCount())
+            m_collection->clear();
+        setState(parent->status(), parent->errorMessage());
+        return;
+    }
+    if (m_groupIndex >= parent->groups()->count()) {
+        m_collection->clear();
+        setState(3, tr("未找到这组推荐内容"));
+        return;
+    }
+    setState(1);
+    if (!parent->collection()->storageReady())
+        return;
+    m_groupRead = new QObject(this);
+    parent->groups()->requestItem(m_groupIndex, m_groupRead, [this](QJsonObject group) {
+        if (!m_groupParent)
+            return;
+        m_providerTitle = group["title"].toString();
+        m_subtitle = group["description"].toString();
+        m_groupFirst = group["start_index"].toInt();
+        m_groupCount = group["song_count"].toInt();
+        m_collection->replaceSourceRange(*m_groupParent->collection(), m_groupFirst, m_groupCount);
+        m_actions->setQueueContext(title(), "queue:recommendation:" + m_key);
+        setState(2);
+    });
+}
+void RecommendationCard::cancelGroupPlay()
+{
+    delete m_groupPlayRead.data();
+    if (m_preparingGroup != -1) {
+        m_preparingGroup = -1;
+        emit groupPlaybackChanged();
+    }
+}
+void RecommendationCard::playGroup(int index)
+{
+    if (index < 0 || index >= m_groups.count() || m_preparingGroup == index)
+        return;
+    cancelGroupPlay();
+    m_groupPlayRead = new QObject(this);
+    m_preparingGroup = index;
+    emit groupPlaybackChanged();
+    const auto sequence = m_playback.clock().value("trackSeq");
+    const QPointer<QObject> request = m_groupPlayRead;
+    m_groups.requestItem(index, request, [this, index, request, sequence](QJsonObject group) {
+        if (!request || request != m_groupPlayRead)
+            return;
+        if (sequence != m_playback.clock().value("trackSeq")) {
+            cancelGroupPlay();
+            return;
+        }
+        // A refreshed response may assign this position to another style.
+        // Only pause/resume the queue that still names this actual group.
+        if (m_playback.sourceKey() == groupQueueKey(index) &&
+            m_playback.queueTitle() == group["title"].toString()) {
+            cancelGroupPlay();
+            if (!m_playback.loading())
+                m_playback.toggle();
+            return;
+        }
+        QStringList ids;
+        const int first = qBound(0, group["start_index"].toInt(), m_collection->totalCount());
+        const int count =
+            qBound(0, group["song_count"].toInt(), m_collection->totalCount() - first);
+        for (int row = first; row < first + count; ++row)
+            ids.append(m_collection->sourceData(row, SongCatalogModel::ResourceId).toString());
+        const auto title = group["title"].toString();
+        m_collection->requestRows(
+            ids, request, [this, index, request, sequence, title](PlaybackTracks tracks) {
+                if (!request || request != m_groupPlayRead)
+                    return;
+                // Retire the read before playback emits new application state.
+                cancelGroupPlay();
+                if (sequence != m_playback.clock().value("trackSeq"))
+                    return;
+                tracks.removeIf([](const auto &track) { return !track.playable(); });
+                if (tracks.isEmpty())
+                    return;
+                const int start = m_playback.playMode() == PlaybackService::Shuffle
+                                      ? QRandomGenerator::global()->bounded(int(tracks.size()))
+                                      : 0;
+                m_playback.playTracks(tracks, start, title, groupQueueKey(index));
+            });
+    });
 }
 void RecommendationCard::setState(int state, QString error)
 {

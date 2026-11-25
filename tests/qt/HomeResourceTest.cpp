@@ -13,6 +13,7 @@
 #include "ThemeStore.h"
 #include "UiTypography.h"
 #include <QJsonArray>
+#include <QFile>
 #include <QQuickImageProvider>
 #include <QQuickRenderControl>
 #include <QQuickGraphicsConfiguration>
@@ -646,11 +647,23 @@ Rectangle {
                               {"curator", QJsonObject{{"name", "音乐推荐人"},
                                                       {"avatar_url", "image://home/avatar"}}}}}}}});
             }
+            const auto fixture = qEnvironmentVariable("ECHO_HOME_UI_FIXTURE");
+            if (key == "3006" && !fixture.isEmpty()) {
+                QFile file(fixture);
+                QVERIFY(file.open(QIODevice::ReadOnly));
+                const auto captured =
+                    QJsonDocument::fromJson(file.readAll()).object()["songs"].toArray();
+                QVERIFY(!captured.isEmpty());
+                for (int i = 0; i < std::min(captured.size(), songs.size()); ++i)
+                    songs[i] = captured[i];
+            }
             QJsonArray groups;
             if (key == "3102" || key == "3103")
                 for (int i = 0; i < 64; ++i)
                     groups.append(QJsonObject{
                         {"title", QString("主题 %1").arg(i)},
+                        {"start_index", i * 3},
+                        {"song_count", 3},
                         {"description", "国风 DNA 动了，单曲循环到上头"},
                         {"cover_url", QString("image://home/group-%1").arg(i)},
                         {"preview", QJsonArray{QJsonObject{{"id", "1"},
@@ -705,6 +718,50 @@ Rectangle {
                 maxScrollCommand = std::max(maxScrollCommand, command.nsecsElapsed() / 1000);
                 phase = QString("scroll-%1-%2").arg(pass).arg(index);
                 maxFrame = std::max(maxFrame, pump(60));
+                const auto artifacts = qEnvironmentVariable("ECHO_HOME_UI_ARTIFACTS");
+                if (pass == 0 && keys[index] == "3006" && !artifacts.isEmpty()) {
+                    QVERIFY(QDir().mkpath(artifacts));
+                    auto *vipCarousel =
+                        find(scene.window.contentItem(), "recommendationFeatureCarousel-3006");
+                    QVERIFY(vipCarousel);
+                    vipCarousel->setProperty("currentIndex", 0);
+                    QVERIFY(QMetaObject::invokeMethod(vipCarousel, "positionViewAtBeginning"));
+                    auto *item = qobject_cast<QQuickItem *>(root.get());
+                    item->setTransformOrigin(QQuickItem::TopLeft);
+                    for (const auto zoom : {1., 1.25})
+                        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+                            item->setScale(zoom);
+                            item->setWidth(scene.window.width() / zoom);
+                            item->setHeight(scene.window.height() / zoom);
+                            theme.setMode(mode);
+                            QVERIFY(QMetaObject::invokeMethod(view, "positionViewAtIndex",
+                                                              Q_ARG(int, index), Q_ARG(int, 0)));
+                            pump(400);
+                            scene.frame();
+                            auto *rhi = scene.control.rhi();
+                            QRhiReadbackResult result;
+                            auto *updates = rhi->nextResourceUpdateBatch();
+                            updates->readBackTexture(QRhiReadbackDescription(scene.color.get()),
+                                                     &result);
+                            QRhiCommandBuffer *commands = nullptr;
+                            QCOMPARE(rhi->beginOffscreenFrame(&commands), QRhi::FrameOpSuccess);
+                            commands->resourceUpdate(updates);
+                            rhi->endOffscreenFrame();
+                            rhi->finish();
+                            QVERIFY(!result.data.isEmpty());
+                            QImage image(reinterpret_cast<const uchar *>(result.data.constData()),
+                                         result.pixelSize.width(), result.pixelSize.height(),
+                                         QImage::Format_RGBA8888);
+                            QVERIFY(image.save(artifacts +
+                                               QString("/vip-%1-%2.png").arg(int(mode)).arg(zoom)));
+                            QVERIFY(!scene.window.handle());
+                        }
+                    item->setScale(1);
+                    item->setWidth(scene.window.width());
+                    item->setHeight(scene.window.height());
+                    theme.setMode(ThemeStore::Light);
+                    pump(80);
+                }
                 for (const auto &key : {"3004", "3006", "3102", "3103"})
                     if (auto *carousel =
                             find(scene.window.contentItem(),
@@ -770,6 +827,10 @@ Rectangle {
         playback.shutdown();
         QTRY_COMPARE(drained.size(), 1);
         api.shutdown();
+        // The embedded controller has no native animation loop to finish the
+        // last deferred constructions during service/model shutdown.
+        pump(100);
+        QCOMPARE(incubation.incubatingObjectCount(), 0);
     }
 };
 void HomeResourceTest::specialBackgroundsKeepDecodeBudgets()

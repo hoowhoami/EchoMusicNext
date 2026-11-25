@@ -129,6 +129,9 @@ public:
     /// Refresh only rows addressed by the shared identity index.
     void refreshMetadata(const QStringList &rows);
     void replaceSongs(const QJsonArray &songs, bool preserveSelection = false);
+    /// Borrow one committed source range: share payload leases and presentation
+    /// values, with independent filtering/selection and no duplicate SQL writes.
+    void replaceSourceRange(const SongCatalogModel &, int first, int count);
     void appendSongs(const QJsonArray &songs);
     /// Attach committed records owned by a shared account data source. No payload copy/write.
     void replaceCachedRows(const QList<SongDatasetStore::CachedRow> &,
@@ -138,6 +141,12 @@ public:
     /// Synchronous identity/display projection for predicates and public menus.
     /// Playback and commands must use requestTrack(s) for complete source facts.
     std::optional<PlaybackTrack> trackProjection(const QString &id) const;
+    /// Replacement/account retirement changes this identity; presentation,
+    /// selection and storage commits do not cancel an accepted command.
+    quint64 commandRevision() const
+    {
+        return m_commandEpoch;
+    }
     void requestTrack(const QString &id, QObject *consumer,
                       std::function<void(PlaybackTrack)> done);
     void requestTracks(bool selectedOnly, QObject *consumer,
@@ -266,6 +275,9 @@ private:
     qsizetype m_writeCursor = 0;
     quint64 m_storageEpoch = 0, m_commandEpoch = 0;
     bool m_writing = false, m_storageFailed = false, m_sharedSource = false;
+    QPointer<const SongCatalogModel> m_rangeSource;
+    quint64 m_rangeEpoch = 0, m_rangeTargetEpoch = 0;
+    int m_rangeFirst = -1, m_rangeCount = -1;
     QTimer m_presentationFlush;
     QSet<int> m_dirtyPresentations;
     bool m_presentationWriting = false, m_presentationFailed = false;

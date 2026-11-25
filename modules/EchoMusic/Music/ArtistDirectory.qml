@@ -8,7 +8,9 @@ import EchoMusic.Theme
 // followed by a virtual grid of names with no cover controls or image sources.
 GridView {
     id: directory
-    required property SongCatalogModel collection
+    // Both in-memory catalogs and windowed directory models provide these roles.
+    required property var collection
+    property string errorMessage: ""
     property int avatarLimit: 20
     property bool pageActive: true
     property bool navigationAvailable: false
@@ -64,6 +66,7 @@ GridView {
                 // This bounded prefix is deliberately not the full catalog.
                 model: featured
                 delegate: ArtistDirectoryAvatar {
+                    required presentationReady
                     objectName: "artistAvatarCard"
                     width: directory.cardWidth
                     height: directory.cardHeight
@@ -83,18 +86,20 @@ GridView {
     footer: Loader {
         width: directory.width - 20
         // The name slice can be empty while featured artists are present.
-        active: directory.collection.count === 0
+        active: directory.collection.count === 0 || directory.errorMessage.length > 0
         sourceComponent: directory.emptyFooter
     }
     delegate: EchoSoftButton {
         id: nameButton
         required property string title
         required property string resourceId
+        required property bool presentationReady
         property bool pooled: false
         objectName: "artistNameEntry"
         width: directory.cellWidth - 20
         height: 36
         plain: true
+        enabled: presentationReady
         text: title
         font: Theme.font(16, Theme.regularWeight)
         leftPadding: 0
@@ -107,6 +112,16 @@ GridView {
             color: nameButton.foreground
             fillTextWidth: true
             horizontalAlignment: Text.AlignHCenter
+            visible: nameButton.presentationReady
+        }
+        Loader {
+            anchors.centerIn: parent
+            width: parent.width * .65
+            height: 14
+            active: !nameButton.presentationReady && directory.pageActive && !nameButton.pooled
+            sourceComponent: EchoSkeleton {
+                animate: directory.pageActive
+            }
         }
         onClicked: if (directory.navigationAvailable)
             directory.openRequested(resourceId)

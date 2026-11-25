@@ -42,7 +42,17 @@ class FavoritesService final : public QObject
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY changed)
     Q_PROPERTY(bool hasMore READ hasMore NOTIFY changed)
     Q_PROPERTY(bool signedIn READ signedIn NOTIFY changed)
+    Q_PROPERTY(QString singerQuery READ singerQuery NOTIFY changed)
+    Q_PROPERTY(int singerTotal READ singerTotal NOTIFY changed)
 public:
+    QString singerQuery() const
+    {
+        return m_singerQuery;
+    }
+    int singerTotal() const
+    {
+        return m_singerTotal;
+    }
     void attachPlaylistMutations(PlaylistMutationService &mutations);
     /// Explicit UI composition; construction alone does not register pages.
     void registerRoutes(RouteController &router);
@@ -182,7 +192,7 @@ private:
     bool m_songHasMore = false;
     quint64 m_songSnapshotGeneration = 0;
     quint64 m_videoTotal = 0, m_videoReceived = 0;
-    int m_tab = 0;
+    int m_tab = 0, m_singerTotal = 0;
     QString m_instance, m_error;
     bool m_network = false, m_active = false, m_closed = false;
     bool m_likedLoaded = false, m_followLoaded = false, m_videosLoaded = false;

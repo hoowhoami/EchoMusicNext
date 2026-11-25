@@ -16,8 +16,12 @@ qt_add_qml_module(
     DiscoveryRecommendations.cpp
     RecommendationCards.h
     RecommendationCards.cpp
+    RecommendationFeed.h
+    RecommendationFeed.cpp
     ExploreService.h
     ExploreService.cpp
+    ArtistDirectoryModel.h
+    ArtistDirectoryModel.cpp
     DiscoveryRouteCoordinator.h
     DiscoveryRouteCoordinator.cpp
     QML_FILES
@@ -28,6 +32,7 @@ qt_add_qml_module(
     RecommendationPanel.qml
     RecommendationSongRow.qml
     RecommendationFeatureSong.qml
+    RecommendationVipSong.qml
     RecommendationGroupCard.qml
     RecommendationConfigPopup.qml
     RecommendationDetailPage.qml

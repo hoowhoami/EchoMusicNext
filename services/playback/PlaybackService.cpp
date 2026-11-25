@@ -1239,7 +1239,7 @@ void PlaybackService::next(bool automatic)
         return;
     }
     const int next = m_transition->nextIndex(automatic);
-    if (next < 0 && m_sourceKey == DiscoverQueueController::queueKey()) {
+    if (next < 0 && m_discoverQueue->handlesCurrent()) {
         m_discoverQueue->advance(automatic);
         return;
     }
@@ -1249,8 +1249,7 @@ void PlaybackService::next(bool automatic)
             startIndex(next, false);
         else
             playIndex(next);
-    } else if (queue()->rowCount() &&
-               (m_mode == Sequential || m_sourceKey == "queue:home-discover"))
+    } else if (queue()->rowCount() && (m_mode == Sequential || m_discoverQueue->handlesCurrent()))
         pause();
 }
 void PlaybackService::toggleMute()

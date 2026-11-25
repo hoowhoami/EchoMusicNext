@@ -11,6 +11,8 @@ ItemDelegate {
     required property var entry
     required property SongCatalogActions commands
     property bool resourceActive: true
+    property bool customPlayback: false
+    signal playRequested
     readonly property var recommendation: entry.recommendation || ({})
     readonly property var curator: recommendation.curator || ({})
     readonly property string reason: recommendation.detail || recommendation.headline || ""
@@ -50,7 +52,7 @@ ItemDelegate {
                     radius: Theme.mediaRadius
                     color: "#66000000"
                 }
-                onClicked: row.commands.playOrToggle(row.entry.resourceId)
+                onClicked: row.customPlayback ? row.playRequested() : row.commands.playOrToggle(row.entry.resourceId)
             }
         }
         ColumnLayout {
@@ -110,12 +112,16 @@ ItemDelegate {
             padding: 5
             glyph: row.favorite ? "heart-filled" : "heart"
             text: row.favorite ? qsTr("取消喜欢") : qsTr("喜欢")
-            foreground: row.favorite ? Theme.colors.dangerText : Theme.secondaryText
+            foreground: row.favorite ? Theme.colors.danger : Theme.secondaryText
             onClicked: row.commands.toggleFavorite(row.entry.resourceId)
         }
     }
     TapHandler {
-        onDoubleTapped: if (!row.pending)
-            row.commands.play(row.entry.resourceId, false)
+        onDoubleTapped: if (!row.pending) {
+            if (row.customPlayback)
+                row.playRequested();
+            else
+                row.commands.play(row.entry.resourceId, false);
+        }
     }
 }

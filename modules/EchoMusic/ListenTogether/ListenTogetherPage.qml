@@ -325,23 +325,44 @@ RoutePage {
                 width: roomGrid.width
                 spacing: 20
                 Label {
-                    visible: !page.room.loadingRooms && page.room.rooms.count === 0
+                    objectName: "listenRoomEmptyText"
+                    visible: !page.room.loadingRooms && page.room.rooms.count === 0 && !page.room.errorMessage.length
                     Layout.alignment: Qt.AlignHCenter
                     Layout.topMargin: 30
-                    text: page.room.loadingRooms ? qsTr("正在加载房间…") : page.room.roomScope ? qsTr("还没有可管理的众乐房") : qsTr("没有找到匹配的房间")
+                    text: page.room.roomSourceCount > 0 && page.room.search.trim().length ? (!page.room.roomScope && !page.room.roomsEnded ? qsTr("已加载的房间中未找到匹配项") : qsTr("未找到匹配的房间")) : page.room.roomScope ? qsTr("还没有可管理的众乐房") : qsTr("暂无可发现的众乐房")
                     color: Theme.secondaryText
                     font: Theme.font(16, 700)
                 }
-                EchoButton {
-                    visible: !page.room.roomScope && page.room.rooms.count > 0 && !page.room.roomsEnded && !page.room.search
+                EchoSoftButton {
+                    visible: page.room.errorMessage.length > 0 && page.room.rooms.count > 0
                     Layout.alignment: Qt.AlignHCenter
-                    text: qsTr("加载更多房间")
-                    loading: page.room.loadingRooms
+                    text: qsTr("重试")
                     onClicked: page.room.loadRooms(false)
                 }
                 Item {
                     implicitHeight: 42
                 }
+            }
+            EchoScrollLoadMore {
+                objectName: "listenRoomAutoLoad"
+                view: roomGrid
+                active: page.resourcesActive && roomGrid.visible && !page.room.roomScope && page.room.search.trim().length === 0
+                itemCount: page.room.rooms.count
+                hasMore: !page.room.roomsEnded
+                loading: page.room.loadingRooms
+                failed: page.room.errorMessage.length > 0
+                onLoadMoreRequested: page.room.loadRooms(false)
+            }
+            EchoSpinner {
+                objectName: "listenRoomsMoreSpinner"
+                parent: roomGrid
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: 12
+                width: 18
+                height: 18
+                visible: page.resourcesActive && roomGrid.visible && page.room.loadingRooms && page.room.rooms.count > 0
+                resourceActive: visible
             }
             ScrollBar.vertical: EchoPageScrollBar {
                 view: roomGrid

@@ -44,6 +44,34 @@ void SongCatalogModel::enableSessionStorage(SessionDatabase &database)
         flushMetadata();
     });
 }
+void SongCatalogModel::replaceSourceRange(const SongCatalogModel &source, int first, int count)
+{
+    Q_ASSERT(source.storageReady());
+    if (&source == this || !source.storageReady())
+        return;
+    if (!m_store && m_entries.isEmpty() && source.m_sessionDatabase)
+        enableSessionStorage(*source.m_sessionDatabase);
+    first = qBound(0, first, int(source.m_entries.size()));
+    count = qBound(0, count, int(source.m_entries.size()) - first);
+    auto entries = source.m_entries.mid(first, count);
+    for (auto &entry : entries)
+        if (!entry.source)
+            entry.source = source.m_generation;
+    const bool preserveCommands =
+        m_rangeSource == &source && m_rangeEpoch == source.m_commandEpoch &&
+        m_rangeTargetEpoch == m_commandEpoch && m_rangeFirst == first && m_rangeCount == count;
+    replaceEntries(std::move(entries), false, true, true, preserveCommands);
+    m_rangeSource = &source;
+    m_rangeEpoch = source.m_commandEpoch;
+    m_rangeTargetEpoch = m_commandEpoch;
+    m_rangeFirst = first;
+    m_rangeCount = count;
+    QSet<int> reused;
+    for (int i = 0; i < m_entries.size(); ++i)
+        if (m_entries[i].view)
+            reused.insert(i);
+    retireViews(reused);
+}
 void SongCatalogModel::replaceCachedRows(const QList<SongDatasetStore::CachedRow> &rows,
                                          bool preserveSelection)
 {

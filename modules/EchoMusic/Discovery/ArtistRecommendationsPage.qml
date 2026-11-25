@@ -15,6 +15,7 @@ RoutePage {
         id: viewport
         anchors.fill: parent
         pageActive: page.pageActive
+        dataRecovering: page.service.artists.cacheRecovering
         scrollView: directory
         stickyHeaders: [heading]
         ArtistDirectory {
@@ -25,7 +26,8 @@ RoutePage {
             height: parent.height
             topMargin: 168
             bottomMargin: 40
-            collection: page.service.cards
+            collection: page.service.artists
+            errorMessage: page.service.errorMessage
             avatarLimit: 20
             pageContainer: viewport
             pageActive: page.pageActive
@@ -59,7 +61,7 @@ RoutePage {
                     height: 220
                     Label {
                         Layout.alignment: Qt.AlignHCenter
-                        text: page.service.loading ? qsTr("正在发现歌手…") : page.service.errorMessage || qsTr("暂无歌手")
+                        text: page.service.loading ? qsTr("正在发现歌手…") : page.service.errorMessage || (page.service.sex !== "0" || page.service.artistType !== "0:0" || page.service.artists.totalCount > 0 ? qsTr("当前筛选下暂无歌手") : qsTr("暂无歌手"))
                         font: Theme.font(13, Theme.regularWeight)
                         color: Theme.secondaryText
                     }

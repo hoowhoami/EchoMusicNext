@@ -33,6 +33,8 @@ pub struct Query {
     pub card_size: Option<u32>,
     pub endpoint: String,
     pub full: bool,
+    /// Tag preview uses tag_card; the selected style feed uses single_card.
+    pub detail: bool,
     pub parse: bool,
     pub source_mixsong: String,
     pub tagid: String,
@@ -72,7 +74,7 @@ pub fn build(id: u32, q: &Query, identity: &Identity, time: u64) -> Result<SubRe
     let mut params = common(identity, time);
     let method = "POST";
     let (path, body) = match id {
-        3103 => {
+        3103 if !q.detail => {
             params.insert("ver".into(), "v2".into());
             params.insert("module_id".into(), "1".into());
             (
@@ -270,9 +272,12 @@ pub fn convert(id: u32, bytes: &[u8]) -> Result<Card, ApiError> {
 pub async fn single(
     client: &ApiClient,
     identity: &Identity,
-    q: Query,
+    mut q: Query,
     fixed: Option<u32>,
 ) -> Result<Vec<u8>, ApiError> {
+    if fixed.is_some() {
+        q.detail = false;
+    }
     let id = fixed.unwrap_or(q.card_id);
     let sub = build(id, &q, identity, request::unix_seconds()?)?;
     let url = reqwest::Url::parse(&sub.url).map_err(|_| ApiError::encoding())?;
@@ -441,6 +446,39 @@ mod tests {
             assert!(module(removed).is_none());
             assert!(build(removed, &q, &id, 1).is_err());
         }
+    }
+    #[test]
+    fn selected_style_feed_uses_single_card_and_ai_uses_numeric_pages() {
+        let identity = identity();
+        let q = Query {
+            card_id: 3103,
+            detail: true,
+            tagid: "9".into(),
+            pagesize: Some(30),
+            ..Default::default()
+        };
+        let sub = build(3103, &q, &identity, 123456).unwrap();
+        let url = reqwest::Url::parse(&sub.url).unwrap();
+        assert_eq!(url.path(), "/youth/v1/song/single_card_recommend");
+        let params: BTreeMap<String, String> = url
+            .query_pairs()
+            .map(|(k, v)| (k.into_owned(), v.into_owned()))
+            .collect();
+        assert_eq!(params["card_id"], "3103");
+        assert_eq!(
+            serde_json::from_str::<Value>(&sub.body).unwrap()["tagid"],
+            "9"
+        );
+        let q = Query {
+            page: Some(2),
+            pagesize: Some(30),
+            ..Default::default()
+        };
+        let sub = build(3107, &q, &identity, 123456).unwrap();
+        let body: Value = serde_json::from_str(&sub.body).unwrap();
+        assert_eq!(body["page"], 2);
+        assert_eq!(body["pagesize"], 30);
+        assert_eq!(body["source"], 1);
     }
     #[test]
     fn unknown_song_fields_survive() {

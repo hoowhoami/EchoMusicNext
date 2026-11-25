@@ -49,6 +49,9 @@ Item {
     readonly property real songToolbarHeight: showToolbar ? songToolbarRowHeight + (showSortHeader ? 44 : 0) : 0
     readonly property real toolbarHeight: secondaryActive && showToolbar ? songToolbarRowHeight : songToolbarHeight
     property bool loading: false
+    property bool loadingMore: false
+    property bool hasMore: false
+    signal loadMoreRequested
     property string errorMessage: ""
     property bool resourceActive: true
     readonly property string activeTrackId: actions.currentTrackId
@@ -79,6 +82,9 @@ Item {
             topMargin: page.headerTopMargin + page.expandedHeaderHeight + page.songToolbarHeight
             bottomMargin: 48
             loading: page.loading
+            loadingMore: page.loadingMore
+            hasMore: page.hasMore
+            onLoadMoreRequested: page.loadMoreRequested()
             errorMessage: page.errorMessage
             resourceActive: page.resourceActive
             emptyComponent: page.emptyComponent

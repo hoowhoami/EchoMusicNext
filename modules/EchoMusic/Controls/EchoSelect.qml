@@ -408,9 +408,10 @@ Control {
                         resourceActive: selectPopup.visible
                     }
                     Label {
+                        objectName: "selectEmptyText"
                         anchors.centerIn: parent
                         visible: projection.count === 0
-                        text: qsTr("无匹配项")
+                        text: projection.totalCount > 0 ? qsTr("无匹配项") : qsTr("暂无可选项")
                         color: Theme.floating.secondaryText
                         font: formPart.styledFont(control.font)
                     }

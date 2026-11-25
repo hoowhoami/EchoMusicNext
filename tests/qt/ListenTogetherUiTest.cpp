@@ -49,6 +49,11 @@ public:
                             {"owner", QVariantMap{{"id", "900001"}, {"name", "测试房主"}}}});
         room.updateRoomsProjection();
     }
+    static void emptyRooms(ListenTogetherController &room)
+    {
+        room.m_publicRooms.clear();
+        room.updateRoomsProjection();
+    }
     static void chatCode(ListenTogetherController &room, int code)
     {
         room.m_activeRoom.insert("chat_code", code);
@@ -630,6 +635,24 @@ Window {
         QTRY_VERIFY(
             visual(window->contentItem(), "listenRoomGrid")->property("atYBeginning").toBool());
         QCOMPARE(popups(root.data()).size(), 0);
+        auto *controller = player.listenTogether();
+        QCOMPARE(controller->roomSourceCount(), 6);
+        controller->setSearch("missing keyword");
+        auto *automatic = visual(window->contentItem(), "listenRoomGrid")
+                              ->findChild<QObject *>("listenRoomAutoLoad");
+        QVERIFY(automatic);
+        QVERIFY(!automatic->property("active").toBool());
+        QTRY_COMPARE(controller->rooms()->rowCount(), 0);
+        auto *empty = visual(window->contentItem(), "listenRoomEmptyText");
+        QVERIFY(empty);
+        QTRY_COMPARE(empty->property("text").toString(), QString("已加载的房间中未找到匹配项"));
+        ListenTogetherControllerTestAccess::emptyRooms(*controller);
+        QCOMPARE(controller->roomSourceCount(), 0);
+        QTRY_COMPARE(empty->property("text").toString(), QString("暂无可发现的众乐房"));
+        controller->setSearch("   ");
+        QTRY_VERIFY(automatic->property("active").toBool());
+        controller->setSearch("");
+        ListenTogetherControllerTestAccess::rooms(*controller);
         const auto capture = qEnvironmentVariable("ECHO_TOGETHER_ARTIFACTS");
         if (!capture.isEmpty())
             QDir().mkpath(capture);

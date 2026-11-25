@@ -5,24 +5,67 @@ import QtQuick.Layouts
 import EchoMusic.Controls
 import EchoMusic.Music
 import EchoMusic.Theme
+import EchoMusic.Shell
+import EchoMusic.Playback
 
 Item {
     id: group
     objectName: "recommendationGroupCard"
+    required property int index
+    required property DiscoveryService service
+    required property RecommendationCard card
+    required property RouteController router
     required property var entry
     required property SongCatalogActions commands
     property bool resourceActive: true
+    activeFocusOnTab: true
+    readonly property bool streamable: card.key !== "3103" || entry.id !== undefined && entry.id !== null && String(entry.id).length > 0
+    readonly property string queueKey: card.key === "3103" ? service.feedQueueKey(3103, String(entry.id)) : card.groupQueueKey(index)
+    readonly property bool current: playback.queueCatalog.activeKey === queueKey && playback.queueTitle === (entry.title || "")
+    required property PlaybackService playback
+    readonly property bool pending: (card.key === "3103" ? service.preparingFeed === queueKey : card.preparingGroup === index) || current && commands.playbackLoading
+    HoverHandler {
+        id: groupHover
+        blocking: false
+        enabled: group.resourceActive
+    }
     readonly property color accent: /^#[0-9a-fA-F]{6}$/.test(entry.color || "") ? entry.color : Theme.accent
     RowLayout {
         anchors.fill: parent
         spacing: 18
-        EchoCover {
-            objectName: "recommendationGroupArtwork"
+        Item {
             Layout.preferredWidth: Math.min(180, group.width * .36)
             Layout.preferredHeight: Math.min(group.height, information.implicitHeight)
             Layout.alignment: Qt.AlignTop
-            source: group.entry.cover_url || ""
-            resourceActive: group.resourceActive
+            EchoCover {
+                objectName: "recommendationGroupArtwork"
+                anchors.fill: parent
+                source: group.entry.cover_url || ""
+                resourceActive: group.resourceActive
+            }
+            EchoPlaybackButton {
+                objectName: "recommendationGroupPlay-" + group.card.key + "-" + group.index
+                anchors.centerIn: parent
+                width: 40
+                height: 40
+                padding: 11
+                foreground: "white"
+                playing: group.current && group.commands.playing
+                loading: group.pending
+                visualContentActive: group.resourceActive
+                enabled: !loading && (group.entry.song_count || 0) > 0 && group.streamable
+                visible: group.resourceActive && (groupHover.hovered || group.activeFocus || hovered || visualFocus || group.pending)
+                background: Rectangle {
+                    radius: Theme.controlRadius
+                    color: "#66000000"
+                }
+                onClicked: {
+                    if (group.card.key === "3103")
+                        group.service.playFeed(3103, String(group.entry.id), group.entry.title || "", group.entry.description || "", group.entry.start_index || 0, group.entry.song_count || 0);
+                    else
+                        group.card.playGroup(group.index);
+                }
+            }
         }
         ColumnLayout {
             id: information
@@ -32,12 +75,36 @@ Item {
             Layout.alignment: Qt.AlignTop
             Layout.minimumWidth: 0
             spacing: 9
-            EchoTextLine {
+            RowLayout {
                 Layout.fillWidth: true
-                Layout.minimumWidth: 0
-                text: group.entry.title || ""
-                font: Theme.font(21, Theme.semiboldWeight)
-                color: group.accent
+                spacing: 8
+                EchoTextLine {
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    text: group.entry.title || ""
+                    font: Theme.font(21, Theme.semiboldWeight)
+                    color: group.accent
+                }
+                EchoSoftButton {
+                    objectName: "recommendationGroupMore-" + group.card.key + "-" + group.index
+                    text: qsTr("更多")
+                    glyph: "list"
+                    glyphSize: 12
+                    size: EchoControlSize.Small
+                    accent: true
+                    enabled: (group.entry.song_count || 0) > 0 && group.streamable
+                    onClicked: {
+                        const query = {
+                            group: String(group.index)
+                        };
+                        if (group.card.key === "3103") {
+                            query.tag = String(group.entry.id);
+                            query.label = group.entry.title || "";
+                            query.description = group.entry.description || "";
+                        }
+                        group.router.navigate("recommendation-detail", query, group.card.key);
+                    }
+                }
             }
             Label {
                 objectName: "recommendationGroupDescription"
@@ -58,6 +125,7 @@ Item {
                     id: previewButton
                     objectName: "recommendationGroupSong"
                     required property var modelData
+                    required property int index
                     Layout.fillWidth: true
                     Layout.minimumWidth: 0
                     padding: 0
@@ -82,7 +150,12 @@ Item {
                             color: Theme.secondaryText
                         }
                     }
-                    onClicked: group.commands.play(modelData.id, false)
+                    onClicked: {
+                        if (group.card.key === "3103")
+                            group.service.playFeed(3103, String(group.entry.id), group.entry.title || "", group.entry.description || "", group.entry.start_index || 0, group.entry.song_count || 0, previewButton.index);
+                        else
+                            group.commands.play(modelData.id, false);
+                    }
                 }
             }
         }

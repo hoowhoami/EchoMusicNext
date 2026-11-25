@@ -59,7 +59,7 @@ Item {
                     padding: 5
                     glyph: story.favorite ? "heart-filled" : "heart"
                     text: story.favorite ? qsTr("取消喜欢") : qsTr("喜欢")
-                    foreground: story.favorite ? Theme.colors.dangerText : Theme.secondaryText
+                    foreground: story.favorite ? Theme.colors.danger : Theme.secondaryText
                     onClicked: story.commands.toggleFavorite(story.entry.resourceId)
                 }
             }

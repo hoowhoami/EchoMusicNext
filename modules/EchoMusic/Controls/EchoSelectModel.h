@@ -18,6 +18,7 @@ class EchoSelectModel : public QAbstractListModel
     Q_PROPERTY(QString query READ query WRITE setQuery NOTIFY queryChanged)
     Q_PROPERTY(QFont font READ font WRITE setFont NOTIFY changed)
     Q_PROPERTY(int count READ count NOTIFY changed)
+    Q_PROPERTY(int totalCount READ totalCount NOTIFY changed)
     Q_PROPERTY(qreal labelWidth READ labelWidth NOTIFY changed)
     Q_PROPERTY(int currentIndex READ currentIndex WRITE setCurrentIndex NOTIFY currentIndexChanged)
 public:
@@ -52,6 +53,10 @@ public:
     int count() const
     {
         return m_visible.size();
+    }
+    int totalCount() const
+    {
+        return m_entries.size();
     }
     int currentIndex() const
     {

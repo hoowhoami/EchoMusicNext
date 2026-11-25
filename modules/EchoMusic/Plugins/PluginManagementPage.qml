@@ -19,6 +19,7 @@ Item {
     // before filtering. A refresh must not insert placeholders above that cache.
     readonly property bool initialLoading: marketplace && manager.catalogLoading && !manager.loaded && manager.catalogCount === 0
     readonly property bool marketplace: context.query.view === "marketplace"
+    readonly property bool filteredEmpty: marketplace && manager.catalogCount > 0 && (manager.search.trim().length > 0 || manager.sourceFilter.length > 0)
     property string uninstallId: ""
     property string failureId: ""
     property string settingsId: ""
@@ -570,7 +571,7 @@ Item {
                 }
                 footer: Item {
                     width: list.width
-                    height: rows.count === 0 && !page.initialLoading ? 245 : 0
+                    height: rows.count === 0 && !page.initialLoading && !(page.marketplace && page.manager.catalogLoading) ? 245 : 0
                     ColumnLayout {
                         anchors.centerIn: parent
                         visible: parent.height > 0
@@ -584,7 +585,8 @@ Item {
                             color: Theme.withAlpha(Theme.text, 0.2)
                         }
                         Label {
-                            text: page.marketplace ? qsTr("暂无在线插件") : qsTr("暂无插件")
+                            objectName: "pluginEmptyText"
+                            text: page.filteredEmpty ? qsTr("未找到匹配插件") : page.marketplace ? qsTr("暂无在线插件") : qsTr("暂无插件")
                             Layout.topMargin: 16
                             font: Theme.font(16, Theme.mediumWeight)
                             color: Theme.secondaryText
@@ -595,7 +597,7 @@ Item {
                             Layout.maximumWidth: list.width - 48
                             wrapMode: Text.Wrap
                             horizontalAlignment: Text.AlignHCenter
-                            text: page.marketplace ? qsTr("添加插件源或刷新在线列表后再试") : qsTr("安装 .echomod 插件包，或放入上方目录后刷新")
+                            text: page.filteredEmpty ? qsTr("试试其它关键词或切换插件源") : page.marketplace ? qsTr("添加插件源或刷新在线列表后再试") : qsTr("安装 .echomod 插件包，或放入上方目录后刷新")
                             font: Theme.font(14, Theme.regularWeight)
                             color: Theme.secondaryText
                         }

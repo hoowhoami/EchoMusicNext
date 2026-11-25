@@ -397,6 +397,7 @@ void FavoritesService::projectAlbums()
 void FavoritesService::projectFollow()
 {
     const auto singers = splitFollow(m_followRows, true);
+    m_singerTotal = singers.size();
     const auto query = m_singerQuery.trimmed();
     if (query.isEmpty())
         m_singers.replace(singers);
@@ -593,7 +594,8 @@ void FavoritesService::reset()
 {
     m_songs.finishCacheRecovery();
     if (m_pending.isEmpty() && !m_likedLoaded && !m_followLoaded && !m_videosLoaded &&
-        m_songRows.isEmpty() && !m_songs.totalCount() && m_metadataRequests.isEmpty())
+        m_songRows.isEmpty() && !m_songs.totalCount() && m_metadataRequests.isEmpty() &&
+        m_singerQuery.isEmpty())
         return;
     cancelAll();
     m_likedId = 0;
@@ -609,6 +611,7 @@ void FavoritesService::reset()
     m_users.replace({});
     m_followRows = {};
     m_singerQuery.clear();
+    m_singerTotal = 0;
     m_likedLoaded = m_followLoaded = m_videosLoaded = m_videoExhausted = false;
     m_error.clear();
     if (m_active && m_router.current() && m_router.current()->name() == "favorites")

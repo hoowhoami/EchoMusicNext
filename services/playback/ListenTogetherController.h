@@ -37,6 +37,7 @@ class ListenTogetherController final : public QObject
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY changed)
     Q_PROPERTY(bool loadingRooms READ loadingRooms NOTIFY changed)
     Q_PROPERTY(bool roomsEnded READ roomsEnded NOTIFY changed)
+    Q_PROPERTY(int roomSourceCount READ roomSourceCount NOTIFY changed)
     Q_PROPERTY(bool loadingPreview READ loadingPreview NOTIFY changed)
     Q_PROPERTY(bool loadingRoom READ loadingRoom NOTIFY changed)
     Q_PROPERTY(bool loadingSongs READ loadingSongs NOTIFY changed)
@@ -156,6 +157,10 @@ public:
     int roomScope() const
     {
         return m_scope;
+    }
+    int roomSourceCount() const
+    {
+        return m_roomSourceCount;
     }
     void setRoomScope(int scope);
     QString search() const
@@ -304,6 +309,7 @@ private:
     QHash<quint64, QList<std::function<void()>>> m_terminals;
     ListenTogetherListModel m_rooms, m_members, m_previewMembers, m_messages, m_songs, m_orders;
     QVariantList m_publicRooms, m_ownedRooms;
+    int m_roomSourceCount = 0;
     QSet<QString> m_dissolved;
     QStringList m_dissolvedOrder;
     QHash<QString, QVariantMap> m_memberSnapshot;

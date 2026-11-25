@@ -81,7 +81,7 @@ target_link_libraries(
 )
 add_test(NAME cover-rendering
          COMMAND echo-cover-rendering-test imageAtlasBudgetAndLargeImageFallback
-                 cropAlphaAndRoundedPixels
+                 cropAlphaAndRoundedPixels scrollReturnDoesNotReplayArtworkReveal
 )
 set_tests_properties(cover-rendering PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
 qt_add_qml_module(echo-back-to-top-test URI EchoMusic.BackToTopTests QML_FILES BackToTopHarness.qml)
@@ -1563,6 +1563,15 @@ target_link_libraries(
             Qt6::Sql
 )
 add_test(NAME discovery COMMAND echo-discovery-test)
+qt_add_executable(echo-artist-directory-model-test ArtistDirectoryModelTest.cpp)
+target_link_libraries(
+    echo-artist-directory-model-test PRIVATE echo_discovery echo_shell Qt6::Quick Qt6::Test
+)
+add_test(NAME artist-directory-model COMMAND echo-artist-directory-model-test)
+set_tests_properties(
+    artist-directory-model PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60
+)
+echo_copy_rust_runtime(echo-artist-directory-model-test)
 set_tests_properties(discovery PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120)
 
 qt_add_executable(echo-playlist-detail-test PlaylistDetailTest.cpp)

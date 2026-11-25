@@ -14,13 +14,16 @@ RoutePage {
     objectName: "freeListenPage"
     required property DiscoveryService service
     property bool recommendationMode: false
-    readonly property RecommendationCard card: recommendationMode ? service.recommendationCard(context.resourceId) : null
-    readonly property SongCatalogModel collection: card ? card.collection : service.freeListen
-    readonly property SongCatalogActions actions: card ? card.actions : service.actions(page.collection)
+    readonly property RecommendationCard parentCard: recommendationMode ? service.recommendationCard(context.resourceId) : null
+    readonly property bool groupMode: recommendationMode && context.query.group !== undefined
+    readonly property RecommendationFeed feed: recommendationMode && (context.resourceId === "3107" || context.resourceId === "3103" && context.query.tag !== undefined) ? service.recommendationFeed(context) : null
+    readonly property RecommendationCard card: !feed && groupMode && parentCard ? parentCard.groupCard(Number(context.query.group), context) : parentCard
+    readonly property SongCatalogModel collection: feed ? feed.collection : card ? card.collection : service.freeListen
+    readonly property SongCatalogActions actions: feed ? feed.actions : card ? card.actions : service.actions(page.collection)
     // Keep catalog loading distinct from the UI extension host state.
-    readonly property int catalogStatus: card ? card.status : service.states[DiscoveryService.FreeListen]
+    readonly property int catalogStatus: feed ? feed.status : card ? card.status : service.states[DiscoveryService.FreeListen]
     readonly property bool loading: page.catalogStatus === DiscoveryService.Loading || page.catalogStatus === DiscoveryService.Idle
-    readonly property string errorMessage: page.catalogStatus === DiscoveryService.Error ? (card ? card.errorMessage : service.errors[DiscoveryService.FreeListen]) : ""
+    readonly property string errorMessage: feed ? feed.errorMessage : page.catalogStatus === DiscoveryService.Error ? (card ? card.errorMessage : service.errors[DiscoveryService.FreeListen]) : ""
     // Use unfiltered row count for the toolbar so a search with no matches
     // keeps the search box reachable.
     readonly property bool hasResult: page.collection.totalCount > 0
@@ -29,8 +32,10 @@ RoutePage {
         // Clear the writable query property before refreshing.
         // setQuery is not a QML-invokable method.
         page.collection.query = "";
-        if (page.card)
-            page.service.refreshCard(page.card.key);
+        if (page.feed)
+            page.feed.refresh();
+        else if (page.card)
+            page.service.refreshCard(page.parentCard.key);
         else
             page.service.loadFreeListen();
     }
@@ -45,13 +50,13 @@ RoutePage {
             y: sceneY
         });
     }
-    Component.onCompleted: if (card)
-        service.activateCard(card.key, pageActive)
-    Component.onDestruction: if (card)
-        service.activateCard(card.key, false)
+    Component.onCompleted: if (card && !feed)
+        service.activateCard(parentCard.key, pageActive)
+    Component.onDestruction: if (card && !feed)
+        service.activateCard(parentCard.key, false)
     onPageActiveChanged: {
-        if (card)
-            service.activateCard(card.key, pageActive);
+        if (card && !feed)
+            service.activateCard(parentCard.key, pageActive);
         if (!pageActive) {
             songMenuOwner.close();
             batchOwner.close();
@@ -62,9 +67,9 @@ RoutePage {
         id: heading
         SongDetailHeader {
             id: freeListenHeader
-            heading: page.card ? page.card.title : qsTr("免费听")
+            heading: page.feed ? page.feed.title : page.card ? page.card.title : qsTr("免费听")
             typeLabel: page.card ? "RECOMMEND" : "FREE"
-            subtitle: page.card ? page.card.subtitle : qsTr("概念版免费听推荐流，跟着推着听")
+            subtitle: page.feed ? page.feed.subtitle : page.card ? page.card.subtitle : qsTr("概念版免费听推荐流，跟着推着听")
             day: ""
             playable: page.collection.count > 0
             resourceActive: page.pageActive
@@ -120,10 +125,14 @@ RoutePage {
         showSortHeader: false
         showToolbar: page.hasResult
         loading: page.loading
+        hasMore: page.feed ? page.feed.hasMore && !page.searching : false
+        loadingMore: page.feed ? page.feed.loadingMore : false
+        onLoadMoreRequested: if (page.feed)
+            page.feed.loadMore()
         errorMessage: page.errorMessage
         resourceActive: page.pageActive
         emptyComponent: emptyCard
-        onRetryRequested: page.refresh()
+        onRetryRequested: page.feed ? page.feed.retry() : page.refresh()
         onMoreRequested: (id, sceneX, sceneY) => page.openSongMenu(id, sceneX, sceneY)
     }
 

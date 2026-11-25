@@ -1,6 +1,7 @@
 #pragma once
 #include "SongCatalogModel.h"
 #include "RecommendationCards.h"
+#include "RecommendationFeed.h"
 #include "SongCatalogActions.h"
 #include "ApiClient.h"
 #include "PlaybackService.h"
@@ -53,6 +54,7 @@ class DiscoveryService final : public QObject
     Q_PROPERTY(QString dailySubtitle READ dailySubtitle NOTIFY changed)
     Q_PROPERTY(quint64 rankTotal READ rankTotal NOTIFY changed)
     Q_PROPERTY(QString activePage READ activePage NOTIFY changed)
+    Q_PROPERTY(QString preparingFeed READ preparingFeed NOTIFY changed)
     Q_PROPERTY(EchoMusic::PlaybackService *playback READ playback CONSTANT)
 public:
     enum Part
@@ -120,6 +122,12 @@ public:
     {
         return m_favoriteRevision;
     }
+    QString preparingFeed() const;
+    Q_INVOKABLE QString feedQueueKey(quint32 card, const QString &tag = {}) const;
+    Q_INVOKABLE EchoMusic::RecommendationFeed *recommendationFeed(QObject *context);
+    Q_INVOKABLE void playFeed(quint32 card, const QString &tag = {}, const QString &title = {},
+                              const QString &description = {}, int first = 0, int count = 6,
+                              int songOffset = -1);
     QString greeting() const;
     QString todayLabel() const;
     QString category() const
@@ -250,6 +258,11 @@ private:
     void syncDiscoverQueue();
     QString queueKey(const SongCatalogModel *model) const;
     QString queueTitle(const SongCatalogModel *model) const;
+    RecommendationFeed *feed(quint32 card, const QString &tag, const QString &title,
+                             const QString &description);
+    QHash<QString, RecommendationFeed *> m_feeds;
+    QHash<QString, quint64> m_feedUsage;
+    quint64 m_feedClock = 0;
     ApiClient &m_api;
     PlaybackService &m_playback;
     AccountService &m_account;

@@ -137,6 +137,7 @@ qt_add_qml_module(
     EchoReorderRow.qml
     EchoSpinner.qml
     EchoLoadError.qml
+    EchoScrollLoadMore.qml
     EchoControlSize.qml
     EchoActionButton.qml
     EchoButton.qml

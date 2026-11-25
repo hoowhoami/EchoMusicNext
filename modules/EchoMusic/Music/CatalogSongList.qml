@@ -54,6 +54,7 @@ Item {
     property string menuSongId: ""
     /// Optional page-specific empty placeholder; null keeps the shared footer.
     property Component emptyComponent: null
+    readonly property bool filteredEmpty: collection.totalCount > 0 && collection.query.trim().length > 0
     /// Optional pagination: the page keeps its own re-entrancy guard by only
     /// reporting hasMore while a request is not in flight. Defaults off so
     /// every existing catalog page is unchanged.
@@ -239,7 +240,7 @@ Item {
             id: catalogFooter
             objectName: "songCatalogEmptyState"
             width: songs.width
-            readonly property bool empty: !root.loading && root.collection.count === 0
+            readonly property bool empty: !root.loading && !root.loadingMore && !root.hasMore && !root.collection.querying && !root.collection.cacheRecovering && root.collection.count === 0
             // Partial-result errors appear below populated rows with an inline retry.
             readonly property bool errorState: !root.loading && root.errorMessage.length > 0
             readonly property Item emptyLoaderItem: emptyLoader.item as Item
@@ -249,7 +250,7 @@ Item {
                 id: emptyLoader
                 anchors.left: parent.left
                 anchors.right: parent.right
-                active: catalogFooter.empty && !catalogFooter.errorState && root.emptyComponent !== null
+                active: catalogFooter.empty && !catalogFooter.errorState && !root.filteredEmpty && root.emptyComponent !== null
                 sourceComponent: root.emptyComponent
             }
             ColumnLayout {
@@ -257,8 +258,9 @@ Item {
                 visible: !emptyLoader.active && catalogFooter.empty && !catalogFooter.errorState
                 spacing: 8
                 Text {
+                    objectName: "songCatalogEmptyText"
                     Layout.maximumWidth: Math.max(0, catalogFooter.width - 48)
-                    text: root.collection.query.length ? qsTr("未找到匹配歌曲") : qsTr("暂无歌曲")
+                    text: root.filteredEmpty ? qsTr("未找到匹配歌曲") : qsTr("暂无歌曲")
                     textFormat: Text.PlainText
                     color: Theme.secondaryText
                     font: Theme.font(12, Theme.regularWeight)
@@ -283,7 +285,7 @@ Item {
         anchors.bottomMargin: 12
         width: 18
         height: 18
-        visible: root.resourceActive && !root.loading && root.loadingMore && root.collection.count > 0 && root.errorMessage.length === 0
+        visible: root.resourceActive && !root.loading && root.loadingMore && root.collection.totalCount > 0 && root.errorMessage.length === 0
         resourceActive: visible
     }
     // A separate, bounded presentation view never receives song roles and

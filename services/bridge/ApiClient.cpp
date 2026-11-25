@@ -451,6 +451,11 @@ quint64 ApiClient::discoveryCard(quint32 cardId, const QString &sourceMixsong)
 {
     return m_catalog->discoveryCard(cardId, sourceMixsong);
 }
+quint64 ApiClient::recommendationFeed(quint32 cardId, const QString &tag, quint32 page,
+                                      quint32 pageSize)
+{
+    return m_catalog->recommendationFeed(cardId, tag, page, pageSize);
+}
 quint64 ApiClient::freeListenSongs()
 {
     return m_catalog->freeListenSongs();

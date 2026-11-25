@@ -1,6 +1,7 @@
 #include "ExploreService.h"
 #include "DiscoveryService.h"
 #include "PlaybackService.h"
+#include "SongMetadataService.h"
 #include <QJsonDocument>
 #include <QQmlEngine>
 namespace EchoMusic
@@ -11,6 +12,22 @@ ExploreService::ExploreService(ApiClient &api, PlaybackService &playback, RouteC
 {
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
     m_categoryLabel = tr("全部");
+    if (auto *metadata = playback.metadata())
+        m_artists.attach(metadata->sessionDatabase());
+    m_artists.setActive(false);
+    connect(&m_artists, &ArtistDirectoryModel::readFailed, this, [this](const QString &error) {
+        m_states[Artists] = Error;
+        m_errors[Artists] = error;
+        m_artists.finishRecovery();
+        emit changed();
+    });
+    connect(&m_artists, &ArtistDirectoryModel::invalidated, this, [this] {
+        cancel(Artists);
+        m_states[Artists] = Idle;
+        if (m_active && m_tab == 4)
+            request(Artists);
+        emit changed();
+    });
     connect(&router, &RouteController::pageActivated, this, &ExploreService::activate);
     connect(&api, &ApiClient::succeeded, this, &ExploreService::accept);
     connect(&api, &ApiClient::failed, this,
@@ -27,6 +44,7 @@ void ExploreService::shutdown()
     if (m_closed)
         return;
     m_closed = true;
+    m_artists.setActive(false);
     cancelAll();
 }
 void ExploreService::cancel(Part p)
@@ -59,10 +77,7 @@ QString ExploreService::errorMessage() const
 }
 QStringList ExploreService::artistLetters() const
 {
-    QStringList values;
-    for (const auto &g : m_artistGroups)
-        values.append(g.toObject()["label"].toString());
-    return values;
+    return m_artists.letters();
 }
 
 void ExploreService::activate(RouteContext *context)
@@ -71,6 +86,7 @@ void ExploreService::activate(RouteContext *context)
         return;
     if (!context || (context->name() != "explore" && context->name() != "artist-recommendations")) {
         m_active = false;
+        m_artists.setActive(false);
         cancelAll();
         return;
     }
@@ -85,6 +101,7 @@ void ExploreService::activate(RouteContext *context)
             }
             m_categories = {};
             m_playlistCards = {};
+            m_cards.clear();
             m_albumRegions = {};
             m_albums.clear();
             m_category = "0";
@@ -93,10 +110,9 @@ void ExploreService::activate(RouteContext *context)
             cancel(Artists);
             m_states[Artists] = Idle;
             m_errors[Artists].clear();
-            m_artistGroups = {};
+            m_artists.clear();
             m_sexFilters = {};
             m_typeFilters = {};
-            m_letter.clear();
         }
     }
     const int next = context->name() == "artist-recommendations" ? 4 : 0;
@@ -104,7 +120,7 @@ void ExploreService::activate(RouteContext *context)
         cancelAll();
         m_tab = next;
     }
-    projectCards();
+    m_artists.setActive(next == 4);
     loadCurrent();
     emit changed();
 }
@@ -115,7 +131,7 @@ void ExploreService::reset()
     m_errors.fill({});
     m_categories = {};
     m_playlistCards = {};
-    m_artistGroups = {};
+    m_artists.clear();
     m_sexFilters = {};
     m_typeFilters = {};
     m_albumRegions = {};
@@ -126,7 +142,7 @@ void ExploreService::reset()
     m_region = "all";
     m_sex = "0";
     m_artistType = "0:0";
-    m_letter.clear();
+
     if (m_active && m_router.current() &&
         (m_router.current()->name() == "explore" ||
          m_router.current()->name() == "artist-recommendations"))
@@ -207,24 +223,17 @@ void ExploreService::accept(quint64 id, const QByteArray &bytes)
         m_albumRegions = o["regions"].toObject();
         break;
     case Artists:
-        m_artistGroups = o["groups"].toArray();
+        m_artists.replace(o["groups"].toArray());
         m_sexFilters = o["sex_filters"].toArray();
         m_typeFilters = o["type_filters"].toArray();
-        m_letter.clear();
-        for (const auto &v : m_artistGroups) {
-            const auto label = v.toObject()["label"].toString();
-            if (m_letter.isEmpty())
-                m_letter = label;
-            if (label.size() > 1) {
-                m_letter = label;
-                break;
-            }
-        }
         break;
     case PartCount:
         break;
     }
-    projectCards();
+    if (p == Playlists)
+        projectCards();
+    else if (p == Albums)
+        projectAlbums();
     emit changed();
 }
 void ExploreService::fail(quint64 id, const QByteArray &bytes)
@@ -236,6 +245,8 @@ void ExploreService::fail(quint64 id, const QByteArray &bytes)
         return;
     m_states[p.part] = Error;
     m_errors[p.part] = ApiClient::errorMessage(bytes, tr("内容加载失败"));
+    if (p.part == Artists)
+        m_artists.finishRecovery();
     emit changed();
 }
 void ExploreService::selectCategory(const QString &id)
@@ -264,7 +275,7 @@ void ExploreService::selectRegion(const QString &id)
     if (!QStringList{"all", "chn", "eur", "jpn", "kor"}.contains(id) || m_region == id)
         return;
     m_region = id;
-    projectCards();
+    projectAlbums();
     request(Albums);
     emit changed();
 }
@@ -290,47 +301,25 @@ void ExploreService::selectArtistType(const QString &id)
 }
 void ExploreService::selectLetter(const QString &letter)
 {
-    if (letter != "全部" && !artistLetters().contains(letter))
-        return;
-    if (m_letter == letter)
-        return;
-    m_letter = letter;
-    projectCards();
-    emit changed();
+    if (m_artists.selectLetter(letter))
+        emit changed();
 }
 void ExploreService::retry()
 {
+    if (m_tab == 4 && m_artists.retryRead()) {
+        m_states[Artists] = Ready;
+        m_errors[Artists].clear();
+        emit changed();
+        return;
+    }
     request(activePart());
 }
 void ExploreService::projectCards()
 {
-    QJsonArray values;
-    if (m_tab == 0)
-        values = m_playlistCards;
-    else if (m_tab == 4) {
-        for (const auto &g : m_artistGroups)
-            if (m_letter == "全部" || g.toObject()["label"] == m_letter)
-                for (const auto &v : g.toObject()["artists"].toArray()) {
-                    auto a = v.toObject();
-                    const auto m = a["metadata"].toObject();
-                    QStringList labels;
-                    const auto songs = m["song_count"].toInteger(),
-                               albums = m["album_count"].toInteger(),
-                               fans = m["fans_count"].toInteger();
-                    if (songs)
-                        labels.append(tr("%1 歌曲").arg(songs));
-                    if (albums)
-                        labels.append(tr("%1 专辑").arg(albums));
-                    a["creator"] =
-                        !labels.isEmpty() ? labels.join(" • ")
-                        : fans ? (fans >= 10000 ? QString::number(fans / 10000., 'f', 1) + tr("万")
-                                                : QString::number(fans)) +
-                                     tr(" 粉丝")
-                               : m["description"].toString();
-                    values.append(a);
-                }
-    }
-    m_cards.replaceCards(values);
+    m_cards.replaceCards(m_playlistCards);
+}
+void ExploreService::projectAlbums()
+{
     QJsonArray albums;
     for (const auto &region : QStringList{"chn", "eur", "jpn", "kor"})
         if (m_region == "all" || m_region == region)

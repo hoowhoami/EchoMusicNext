@@ -222,8 +222,7 @@ int TrackTransitionController::nextIndex(bool automatic)
     for (int i = 0; i < n; ++i)
         if (queueTrackId(*queue->at(i)) == queueTrackId(p.currentTrack()))
             current = i;
-    const auto mode =
-        p.sourceKey() == "queue:home-discover" ? PlaybackService::Sequential : p.m_mode;
+    const auto mode = p.m_discoverQueue->handlesCurrent() ? PlaybackService::Sequential : p.m_mode;
     // Automatic single-repeat never consumes queued-next. Explicit single is list mode.
     if (automatic && mode == PlaybackService::SingleLoop)
         return current;
@@ -250,10 +249,10 @@ void TrackTransitionController::consumeNext(int index, bool automatic)
     auto &p = m_playback;
     auto *queue = p.queue();
     if (p.m_personalFm->active() || (automatic && p.m_mode == PlaybackService::SingleLoop &&
-                                     p.sourceKey() != "queue:home-discover"))
+                                     !p.m_discoverQueue->handlesCurrent()))
         return;
     const int priority = queue->peekNextPriority(queueTrackId(p.currentTrack()));
-    if (p.m_mode == PlaybackService::Shuffle && p.sourceKey() != "queue:home-discover" &&
+    if (p.m_mode == PlaybackService::Shuffle && !p.m_discoverQueue->handlesCurrent() &&
         queue->at(index)) {
         m_shuffleHistory.append(queueTrackId(p.currentTrack()));
         if (m_shuffleHistory.size() > 100)
@@ -277,7 +276,7 @@ int TrackTransitionController::previousIndex()
     const auto n = queue->rowCount(), current = queue->currentIndex();
     if (!n)
         return -1;
-    if (p.m_personalFm->active() || p.sourceKey() == "queue:home-discover")
+    if (p.m_personalFm->active() || p.m_discoverQueue->handlesCurrent())
         return current > 0 ? current - 1 : -1;
     if (p.m_mode == PlaybackService::Shuffle)
         while (!m_shuffleHistory.isEmpty()) {

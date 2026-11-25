@@ -1,7 +1,79 @@
 #include "DiscoveryService.h"
+#include "RouteController.h"
 #include <QJsonDocument>
+#include <limits>
 namespace EchoMusic
 {
+QString DiscoveryService::feedQueueKey(quint32 card, const QString &tag) const
+{
+    return RecommendationFeed::key(card, tag);
+}
+QString DiscoveryService::preparingFeed() const
+{
+    for (auto *item : m_feeds)
+        if (item->preparingPlay())
+            return item->queueKey();
+    return {};
+}
+RecommendationFeed *DiscoveryService::feed(quint32 card, const QString &tag, const QString &title,
+                                           const QString &description)
+{
+    if (m_closed || (card != 3107 && (card != 3103 || tag.isEmpty())))
+        return nullptr;
+    const auto key = feedQueueKey(card, tag);
+    m_feedUsage[key] = ++m_feedClock;
+    if (auto *existing = m_feeds.value(key)) {
+        existing->setNetworkEnabled(m_networkEnabled);
+        return existing;
+    }
+    // A maximum of eight SQL-backed feed handles; visible/current playback
+    // sources are pinned. Cached QML routes never retain a second source copy.
+    while (m_feeds.size() >= 8) {
+        QString victim;
+        quint64 oldest = std::numeric_limits<quint64>::max();
+        for (auto it = m_feeds.cbegin(); it != m_feeds.cend(); ++it)
+            if (!it.value()->inUse() && m_feedUsage.value(it.key()) < oldest) {
+                victim = it.key();
+                oldest = m_feedUsage.value(it.key());
+            }
+        if (victim.isEmpty())
+            return nullptr;
+        delete m_feeds.take(victim);
+        m_feedUsage.remove(victim);
+    }
+    const auto label =
+        title.isEmpty() ? (card == 3107 ? tr("AI 免费听") : tr("曲风盲盒·随机心动")) : title;
+    auto *result = new RecommendationFeed(m_api, m_playback, card, tag, label, description, this);
+    m_feeds.insert(key, result);
+    connect(result, &RecommendationFeed::changed, this, &DiscoveryService::changed);
+    result->setNetworkEnabled(m_networkEnabled);
+    return result;
+}
+RecommendationFeed *DiscoveryService::recommendationFeed(QObject *owner)
+{
+    auto *context = qobject_cast<RouteContext *>(owner);
+    if (!context)
+        return nullptr;
+    const auto card = context->resourceId().toUInt();
+    auto *result = feed(card, context->query().value("tag").toString(),
+                        context->query().value("label").toString(),
+                        context->query().value("description").toString());
+    if (result)
+        result->addViewer(context);
+    return result;
+}
+void DiscoveryService::playFeed(quint32 card, const QString &tag, const QString &title,
+                                const QString &description, int first, int count, int songOffset)
+{
+    const auto key = feedQueueKey(card, tag);
+    for (auto *item : m_feeds)
+        if (item->queueKey() != key)
+            item->cancelPlay();
+    if (auto *result = feed(card, tag, title, description)) {
+        auto *preview = m_recommendationCards.find(QString::number(card));
+        result->playPreview(preview ? preview->collection() : nullptr, first, count, songOffset);
+    }
+}
 void DiscoveryService::initializeCards()
 {
     auto add = [this](const QString &key, const QString &title, SongCatalogModel *model = nullptr,

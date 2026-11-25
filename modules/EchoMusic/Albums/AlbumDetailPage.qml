@@ -36,6 +36,7 @@ RoutePage {
         actions: page.detail.actions
         resourceActive: page.pageActive && visible
         loading: page.detail.songsLoading && !page.detail.songs.totalCount
+        loadingMore: page.detail.songsLoading && page.detail.songs.totalCount > 0
         errorMessage: page.detail.errorMessage
         secondaryActive: page.commentsActive
         secondaryTabCount: page.detail.comments.totalText === "—" ? "" : page.detail.comments.totalText

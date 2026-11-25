@@ -95,6 +95,7 @@ GridView {
         // The bounded empty state appears only after loading settles.
         height: grid.count === 0 && grid.visible && !grid.loading ? 320 : 0
         Text {
+            objectName: "favoriteUserEmptyText"
             anchors.horizontalCenter: parent.horizontalCenter
             y: 150
             visible: grid.count === 0 && !grid.loading
