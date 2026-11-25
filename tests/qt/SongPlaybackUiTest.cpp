@@ -146,6 +146,24 @@ Window {
                     QTRY_VERIFY(row->property("hovered").toBool());
                     auto *button = find(row, name);
                     QVERIFY(button);
+                    if (QByteArray(name) == "songIndexPlay")
+                        QVERIFY(!button->findChild<QObject *>("iconButtonToolTip"));
+                    if (QByteArray(name) == "songMvAction") {
+                        QTRY_VERIFY(button->findChild<QObject *>("iconButtonToolTip"));
+                        QCOMPARE(button->findChild<QObject *>("iconButtonToolTip")
+                                     ->property("text")
+                                     .toString(),
+                                 QString("播放 MV"));
+                    }
+                    if (QByteArray(name) == "songFavoriteAction") {
+                        QTRY_VERIFY(button->findChild<QObject *>("iconButtonToolTip"));
+                        auto *hint = button->findChild<QObject *>("iconButtonToolTip");
+                        QCOMPARE(hint->property("text").toString(), QString("收藏"));
+                        row->setProperty("favorite", true);
+                        QCOMPARE(hint->property("text").toString(), QString("取消收藏"));
+                        row->setProperty("favorite", false);
+                        QCOMPARE(hint->property("text").toString(), QString("收藏"));
+                    }
                     QTRY_COMPARE(button->property("visualScale").toReal(), 1.);
                     if (QByteArray(name) == "songIndexPlay")
                         idlePlayColor = button->property("foreground").value<QColor>();

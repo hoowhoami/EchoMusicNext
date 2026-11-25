@@ -294,7 +294,7 @@ ItemDelegate {
                     id: favoriteAction
                     objectName: "songFavoriteAction"
                     glyph: row.favorite ? "heart-filled" : "heart"
-                    text: qsTr("收藏")
+                    text: row.favorite ? qsTr("取消收藏") : qsTr("收藏")
                     Layout.preferredWidth: 28
                     Layout.preferredHeight: 28
                     padding: 6

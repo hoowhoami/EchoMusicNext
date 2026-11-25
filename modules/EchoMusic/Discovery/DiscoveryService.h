@@ -191,6 +191,7 @@ public:
     {
         return m_recommendationCards.find(key);
     }
+    Q_INVOKABLE void setFmPreviewActive(QObject *consumer, bool active);
     Q_INVOKABLE void activateCard(const QString &key, bool active);
     Q_INVOKABLE void refreshCard(const QString &key);
     void setPage(const QString &name, const QString &instance, bool networkEnabled);
@@ -230,6 +231,7 @@ signals:
 
 private:
     void initializeCards();
+    void syncFmPreview();
     void requestCard(RecommendationCard *);
     void cancelCardRequests();
     bool acceptCard(quint64 id, const QByteArray &);
@@ -238,6 +240,7 @@ private:
     RecommendationCard *m_detailCard = nullptr;
     QHash<quint64, QPair<RecommendationCard *, quint64>> m_cardPending;
     QSet<QString> m_cardDemand;
+    QHash<QObject *, QMetaObject::Connection> m_fmPreviews;
     friend class DiscoveryServiceTestAccess;
     struct Pending
     {

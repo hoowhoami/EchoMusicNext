@@ -84,16 +84,33 @@ RoutePage {
                 height: section.implicitHeight
                 ListView.onPooled: pooled = true
                 ListView.onReused: pooled = false
-                RecommendationPanel {
+                Loader {
                     id: section
                     x: 32
                     width: Math.max(0, slot.width - 64)
-                    height: implicitHeight
-                    card: slot.card
-                    service: page.service
-                    router: page.router
-                    uiScale: page.settings.uiScale
-                    resourceActive: page.pageActive && !slot.pooled && slot.y + slot.height > cards.contentY && slot.y < cards.contentY + cards.height
+                    readonly property bool resourceActive: page.pageActive && !slot.pooled && slot.y + slot.height > cards.contentY && slot.y < cards.contentY + cards.height
+                    sourceComponent: slot.card.key === "fm" ? fmSection : songSection
+                    Component {
+                        id: songSection
+                        RecommendationPanel {
+                            width: section.width
+                            card: slot.card
+                            service: page.service
+                            router: page.router
+                            uiScale: page.settings.uiScale
+                            resourceActive: section.resourceActive
+                        }
+                    }
+                    Component {
+                        id: fmSection
+                        PersonalFmRecommendation {
+                            width: section.width
+                            service: page.service
+                            router: page.router
+                            uiScale: page.settings.uiScale
+                            resourceActive: section.resourceActive
+                        }
+                    }
                 }
             }
         }

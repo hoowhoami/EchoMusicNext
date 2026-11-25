@@ -71,6 +71,10 @@ public:
 class PersonalFmControllerTestAccess
 {
 public:
+    static bool pageActive(const PersonalFmController &fm)
+    {
+        return fm.m_pageActive;
+    }
     static void useLocalAudio(PersonalFmController &fm, const QString &path)
     {
         for (auto &track : fm.m_buffer)
@@ -177,6 +181,151 @@ class PersonalFmTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void homepagePreviewConsumersShareTheIndependentFmState()
+    {
+        Fixture f;
+        AccountService account(f.api);
+        DiscoveryService service(f.api, *f.playback, account);
+        service.setPage("home", "homepage-fm", true);
+        QVERIFY(!PersonalFmControllerTestAccess::pageActive(f.fm()));
+        auto first = std::make_unique<QObject>();
+        auto second = std::make_unique<QObject>();
+        service.setFmPreviewActive(first.get(), true);
+        QVERIFY(PersonalFmControllerTestAccess::pageActive(f.fm()));
+        const auto request = PersonalFmControllerTestAccess::resetRequest(f.fm());
+        QVERIFY(request);
+        service.setFmPreviewActive(second.get(), true);
+        QCOMPARE(PersonalFmControllerTestAccess::resetRequest(f.fm()), request);
+        PersonalFmControllerTestAccess::complete(f.fm(), request, songs());
+        const auto current = f.fm().current();
+        const auto buffered = PersonalFmControllerTestAccess::bufferCount(f.fm());
+        service.setFmPreviewActive(first.get(), false);
+        QVERIFY(PersonalFmControllerTestAccess::pageActive(f.fm()));
+        second.reset();
+        QVERIFY(!PersonalFmControllerTestAccess::pageActive(f.fm()));
+        QCOMPARE(f.fm().current(), current);
+        QCOMPARE(PersonalFmControllerTestAccess::bufferCount(f.fm()), buffered);
+        service.setPage("personal-fm", "independent-fm", true);
+        QVERIFY(PersonalFmControllerTestAccess::pageActive(f.fm()));
+        QCOMPARE(f.fm().current(), current);
+        service.setFmPreviewActive(first.get(), false);
+        QVERIFY(PersonalFmControllerTestAccess::pageActive(f.fm()));
+        QCOMPARE(PersonalFmControllerTestAccess::resetRequest(f.fm()), quint64(0));
+        service.setPage("home", "homepage-fm", true);
+        QVERIFY(!PersonalFmControllerTestAccess::pageActive(f.fm()));
+        service.setFmPreviewActive(first.get(), true);
+        QCOMPARE(f.fm().current(), current);
+        QCOMPARE(PersonalFmControllerTestAccess::bufferCount(f.fm()), buffered);
+        first.reset();
+        QVERIFY(!PersonalFmControllerTestAccess::pageActive(f.fm()));
+        service.shutdown();
+        QSignalSpy drained(f.playback.get(), &PlaybackService::closed);
+        f.playback->shutdown();
+        QTRY_COMPARE(drained.size(), 1);
+        f.api.shutdown();
+    }
+    void homepageFmPresentationReusesTheController_data()
+    {
+        QTest::addColumn<int>("testWidth");
+        QTest::newRow("wide") << 1250;
+        QTest::newRow("narrow") << 420;
+    }
+    void homepageFmPresentationReusesTheController()
+    {
+        if (QGuiApplication::platformName() != "offscreen")
+            QSKIP("Nonintrusive FM composition regression");
+        QFETCH(int, testWidth);
+        Fixture f;
+        f.preview();
+        AccountService account(f.api);
+        DiscoveryService service(f.api, *f.playback, account);
+        RouteController router;
+        DiscoveryRouteCoordinator routes(service, router, false);
+        ShellSettings settings(f.prefs);
+        settings.acceptUserAgreement();
+        ThemeStore theme(f.prefs);
+        theme.setMotionEnabled(false);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Discovery
+import EchoMusic.Shell
+Window {
+ id: host; visible: true; width: testWidth; height: 900
+ required property int testWidth
+ required property RouteController router
+ required property ShellSettings settings
+ RouteHost { anchors.fill: parent; router: host.router; settings: host.settings }
+})",
+                          QUrl("qrc:/fm-home-composition.qml"));
+        QScopedPointer<QObject> root(
+            component.createWithInitialProperties({{"router", QVariant::fromValue(&router)},
+                                                   {"settings", QVariant::fromValue(&settings)},
+                                                   {"testWidth", testWidth}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(router.navigate("home"));
+        QTRY_VERIFY(visual(window->contentItem(), "recommendationPanel-fm"));
+        QTRY_VERIFY(visual(window->contentItem(), "personalFmHero"));
+        auto *pool = visual(window->contentItem(), "recommendationFmPoolSwitch");
+        auto *hero = visual(window->contentItem(), "personalFmHero");
+        QVERIFY(pool && hero);
+        QVERIFY(pool->width() > 200);
+        QVERIFY(pool->mapToScene(QPointF(pool->width(), 0)).x() <= window->width());
+        auto *disc = visual(hero, "personalFmCurrentDisc");
+        QVERIFY(disc && disc->x() + disc->width() <= hero->width());
+        QCOMPARE(pool->property("currentIndex").toInt(), f.fm().songPool());
+        QVERIFY(QMetaObject::invokeMethod(pool, "picked", Q_ARG(int, 2)));
+        QVERIFY(PersonalFmControllerTestAccess::resetRequest(f.fm()));
+        PersonalFmControllerTestAccess::complete(
+            f.fm(), PersonalFmControllerTestAccess::resetRequest(f.fm()), songs());
+        QCOMPARE(f.fm().songPool(), 2);
+        const auto current = f.fm().current();
+        const auto buffered = PersonalFmControllerTestAccess::bufferCount(f.fm());
+        auto *more = visual(window->contentItem(), "recommendationFmMore");
+        QVERIFY(more);
+        QVERIFY(QMetaObject::invokeMethod(more, "clicked"));
+        QTRY_COMPARE(router.current()->name(), QString("personal-fm"));
+        QTRY_VERIFY(visual(window->contentItem(), "personalFmPage"));
+        auto *independentPool = visual(window->contentItem(), "personalFmPoolSwitch");
+        QVERIFY(independentPool);
+        QCOMPARE(independentPool->property("currentIndex").toInt(), 2);
+        QCOMPARE(f.fm().current(), current);
+        QCOMPARE(PersonalFmControllerTestAccess::bufferCount(f.fm()), buffered);
+        QVERIFY(QMetaObject::invokeMethod(independentPool, "picked", Q_ARG(int, 1)));
+        PersonalFmControllerTestAccess::complete(
+            f.fm(), PersonalFmControllerTestAccess::resetRequest(f.fm()), songs());
+        router.back();
+        QTRY_VERIFY(visual(window->contentItem(), "recommendationPanel-fm"));
+        QTRY_VERIFY(visual(window->contentItem(), "personalFmHero"));
+        QCOMPARE(visual(window->contentItem(), "recommendationFmPoolSwitch")
+                     ->property("currentIndex")
+                     .toInt(),
+                 1);
+        QCOMPARE(f.fm().current(), current);
+        QCOMPARE(PersonalFmControllerTestAccess::bufferCount(f.fm()), buffered);
+        QCOMPARE(warnings.size(), 0);
+        const auto output = qEnvironmentVariable("ECHO_FM_BLOCK_ARTIFACTS");
+        if (!output.isEmpty()) {
+            QVERIFY(QDir().mkpath(output));
+            QTRY_COMPARE(
+                visual(window->contentItem(), "personalFmPoster")->property("status").toInt(), 1);
+            QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+            window->requestUpdate();
+            QTRY_VERIFY(!frames.isEmpty());
+            QVERIFY(window->grabWindow().save(output + QString("/fm-home-%1.png").arg(testWidth)));
+        }
+        root.reset();
+        service.shutdown();
+        router.shutdown();
+        QSignalSpy drained(f.playback.get(), &PlaybackService::closed);
+        f.playback->shutdown();
+        QTRY_COMPARE(drained.size(), 1);
+        f.api.shutdown();
+    }
     void preferencesSurviveProcessRestartAndFailureRollback()
     {
         QTemporaryDir dir;

@@ -31,6 +31,9 @@ ToolButton {
     required property string glyph
     // Pure icon actions expose their label on hover as well as to accessibility.
     property string tooltipText: text
+    // Playback controls remain labelled for accessibility without hover hints.
+    property bool playbackAction: animatePlayPause || ["play", "pause", "player-play", "player-pause"].indexOf(glyph) >= 0
+    property bool playbackTooltipEnabled: false
     property bool animatePlayPause: false
     // Cover presentation without replacing the semantic glyph/state.
     property bool iconCovered: false
@@ -67,7 +70,7 @@ ToolButton {
     Loader {
         // This is only a trigger recipe. Native hints are still created after
         // the hover delay and destroyed when the interaction ends.
-        active: control.visualContentActive && control.tooltipText.length > 0
+        active: control.visualContentActive && (!control.playbackAction || control.playbackTooltipEnabled) && control.tooltipText.length > 0
         sourceComponent: EchoToolTip {
             objectName: "iconButtonToolTip"
             parent: control

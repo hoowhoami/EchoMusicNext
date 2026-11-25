@@ -48,7 +48,7 @@ Item {
                 EchoTextLine {
                     Layout.fillWidth: true
                     Layout.minimumWidth: 0
-                    text: story.entry.title
+                    text: String(story.entry.title || "").replace(/\s+/g, " ").trim()
                     font: Theme.font(story.portrait ? 14 : 17, Theme.semiboldWeight)
                     color: Theme.text
                 }
@@ -57,9 +57,11 @@ Item {
                     Layout.preferredWidth: 32
                     Layout.preferredHeight: 32
                     padding: 5
-                    glyph: story.favorite ? "heart-filled" : "heart"
-                    text: story.favorite ? qsTr("取消喜欢") : qsTr("喜欢")
-                    foreground: story.favorite ? Theme.colors.danger : Theme.secondaryText
+                    hoverBackground: false
+                    scaleFeedback: false
+                    glyph: story.favorite ? "heart-filled" : "heart-light"
+                    text: story.favorite ? qsTr("取消收藏") : qsTr("收藏")
+                    foreground: hovered ? "#dc2626" : Theme.colors.danger
                     onClicked: story.commands.toggleFavorite(story.entry.resourceId)
                 }
             }
@@ -67,7 +69,7 @@ Item {
                 objectName: "recommendationFeatureArtist"
                 Layout.fillWidth: true
                 Layout.minimumWidth: 0
-                text: story.entry.artistText
+                text: String(story.entry.artistText || "").replace(/\s+/g, " ").trim()
                 color: Theme.secondaryText
                 font: Theme.font(12, Theme.regularWeight)
             }
@@ -115,7 +117,7 @@ Item {
                 EchoTextLine {
                     Layout.fillWidth: true
                     Layout.minimumWidth: 0
-                    text: (story.curator.name || "") + qsTr(" 推荐")
+                    text: String(story.curator.name || "").replace(/\s+/g, " ").trim() + qsTr(" 推荐")
                     font: Theme.font(10, Theme.regularWeight)
                     color: Theme.secondaryText
                 }

@@ -17,6 +17,7 @@ EchoDialog {
     windowHeightMargin: 24
     readonly property var cardGlyphs: ({
             daily: "calendar",
+            fm: "radio",
             style: "adjustments",
             "3001": "headphones",
             "3004": "diamond",

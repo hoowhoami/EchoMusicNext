@@ -28,13 +28,14 @@ Item {
     // from a short loading body to the loaded body would otherwise shift every
     // section below it and leave blank space at the viewport bottom.
     readonly property int previewSongs: card.collection.count > 0 ? Math.min(6, card.collection.count) : 6
+    readonly property int songColumns: contentWidth >= 652 ? 2 : 1
     // The sleeve follows the reference aspect ratio; captions have two fixed
     // single-line slots, so upstream paragraph breaks cannot shrink artwork.
     // Integral slots keep ListView snapping and animated targets identical.
     readonly property real vipPreviewWidth: Math.min(206, Math.floor(contentWidth * .48))
     readonly property real vipSleeveHeight: Math.ceil(vipPreviewWidth * 1.34)
     readonly property real vipCaptionHeight: Theme.font(12, Theme.regularWeight).pixelSize * 1.5 + 4 + Theme.font(10, Theme.regularWeight).pixelSize * 1.5
-    readonly property real bodyHeight: emptyBody ? 96 : grouped ? 240 : card.key === "3006" ? vipSleeveHeight + 8 + vipCaptionHeight : card.key === "3004" ? 240 : Math.ceil(previewSongs / 2) * 84
+    readonly property real bodyHeight: emptyBody ? 96 : grouped ? 240 : card.key === "3006" ? vipSleeveHeight + 8 + vipCaptionHeight : card.key === "3004" ? 240 : Math.ceil(previewSongs / songColumns) * 84
     readonly property real contentWidth: Math.max(0, width - 32)
     implicitHeight: contentLayout.implicitHeight + 32
     Rectangle {
@@ -144,6 +145,7 @@ Item {
                                 implicitWidth: 28
                                 implicitHeight: 28
                                 padding: 7
+                                scaleFeedback: true
                                 glyph: "play"
                                 text: qsTr("播放")
                                 foreground: Theme.accentText
@@ -250,6 +252,7 @@ Item {
             glyphAfterText: true
             glyphSize: 14
             plain: true
+            hoverBackground: false
             leftPadding: 4
             rightPadding: 0
             size: EchoControlSize.Small
@@ -342,8 +345,8 @@ Item {
                 anchors.right: parent.right
                 anchors.rightMargin: -12
                 anchors.top: parent.top
-                height: Math.min(parent.height, 252)
-                cellWidth: width / 2
+                height: Math.min(parent.height, Math.ceil(6 / panel.songColumns) * 84)
+                cellWidth: width / panel.songColumns
                 cellHeight: 84
                 interactive: false
                 keyNavigationEnabled: false

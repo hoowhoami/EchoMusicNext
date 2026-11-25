@@ -4,13 +4,14 @@ import QtQuick.Controls.Basic
 import EchoMusic.Controls
 import EchoMusic.Theme
 
-// A single scroll surface: at most avatarLimit cards in its inline header,
-// followed by a virtual grid of names with no cover controls or image sources.
+// One native scroll surface. Avatar-only directories virtualize the whole
+// catalog; mixed directories retain the bounded featured prefix and name rows.
 GridView {
     id: directory
     // Both in-memory catalogs and windowed directory models provide these roles.
     required property var collection
     property string errorMessage: ""
+    property bool avatarsOnly: false
     property int avatarLimit: 20
     property bool pageActive: true
     property bool navigationAvailable: false
@@ -23,14 +24,14 @@ GridView {
     readonly property int featuredCount: featured.count
     signal openRequested(string id)
     cellWidth: width / columns
-    cellHeight: 44
-    model: names
+    cellHeight: avatarsOnly ? cardHeight + 20 : 44
+    model: avatarsOnly ? collection : names
     clip: true
     reuseItems: true
     EchoViewPoolGuard {
         targetView: directory
     }
-    cacheBuffer: 132
+    cacheBuffer: avatarsOnly ? cellHeight : 132
     boundsBehavior: Flickable.StopAtBounds
     ArtistDirectorySliceModel {
         id: featured
@@ -58,13 +59,14 @@ GridView {
         }
         Grid {
             id: featuredGrid
+            visible: !directory.avatarsOnly
             width: directory.width
             columns: directory.columns
             columnSpacing: 20
             rowSpacing: 20
             Repeater {
                 // This bounded prefix is deliberately not the full catalog.
-                model: featured
+                model: directory.avatarsOnly ? null : featured
                 delegate: ArtistDirectoryAvatar {
                     required presentationReady
                     objectName: "artistAvatarCard"
@@ -80,7 +82,7 @@ GridView {
         }
         Item {
             width: parent.width
-            height: featured.count > 0 && names.count > 0 ? 20 : 0
+            height: !directory.avatarsOnly && featured.count > 0 && names.count > 0 ? 20 : 0
         }
     }
     footer: Loader {
@@ -89,48 +91,67 @@ GridView {
         active: directory.collection.count === 0 || directory.errorMessage.length > 0
         sourceComponent: directory.emptyFooter
     }
-    delegate: EchoSoftButton {
-        id: nameButton
-        required property string title
-        required property string resourceId
-        required property bool presentationReady
-        property bool pooled: false
-        objectName: "artistNameEntry"
-        width: directory.cellWidth - 20
-        height: 36
-        plain: true
-        enabled: presentationReady
-        text: title
-        font: Theme.font(16, Theme.regularWeight)
-        leftPadding: 0
-        rightPadding: 0
-        Accessible.name: title
-        contentItem: EchoTextTagRow {
-            id: nameLabel
-            text: nameButton.title
-            font: nameButton.font
-            color: nameButton.foreground
-            fillTextWidth: true
-            horizontalAlignment: Text.AlignHCenter
-            visible: nameButton.presentationReady
+    delegate: avatarsOnly ? avatarDelegate : nameDelegate
+    Component {
+        id: avatarDelegate
+        ArtistDirectoryAvatar {
+            required presentationReady
+            property bool pooled: false
+            objectName: "artistAvatarCard"
+            width: directory.cardWidth
+            height: directory.cardHeight
+            navigationAvailable: directory.navigationAvailable
+            resourceActive: directory.pageActive && directory.visible && !pooled
+            GridView.onPooled: pooled = true
+            GridView.onReused: pooled = false
+            onOpenRequested: id => directory.openRequested(id)
         }
-        Loader {
-            anchors.centerIn: parent
-            width: parent.width * .65
-            height: 14
-            active: !nameButton.presentationReady && directory.pageActive && !nameButton.pooled
-            sourceComponent: EchoSkeleton {
-                animate: directory.pageActive
+    }
+    Component {
+        id: nameDelegate
+        EchoSoftButton {
+            id: nameButton
+            required property string title
+            required property string resourceId
+            required property bool presentationReady
+            property bool pooled: false
+            objectName: "artistNameEntry"
+            width: directory.cellWidth - 20
+            height: 36
+            plain: true
+            enabled: presentationReady
+            text: title
+            font: Theme.font(16, Theme.regularWeight)
+            leftPadding: 0
+            rightPadding: 0
+            Accessible.name: title
+            contentItem: EchoTextTagRow {
+                id: nameLabel
+                text: nameButton.title
+                font: nameButton.font
+                color: nameButton.foreground
+                fillTextWidth: true
+                horizontalAlignment: Text.AlignHCenter
+                visible: nameButton.presentationReady
             }
-        }
-        onClicked: if (directory.navigationAvailable)
-            directory.openRequested(resourceId)
-        GridView.onPooled: pooled = true
-        GridView.onReused: pooled = false
-        EchoToolTip {
-            parent: nameButton
-            requestedVisible: directory.pageActive && !nameButton.pooled && nameButton.hovered && nameLabel.truncated
-            text: nameButton.title
+            Loader {
+                anchors.centerIn: parent
+                width: parent.width * .65
+                height: 14
+                active: !nameButton.presentationReady && directory.pageActive && !nameButton.pooled
+                sourceComponent: EchoSkeleton {
+                    animate: directory.pageActive
+                }
+            }
+            onClicked: if (directory.navigationAvailable)
+                directory.openRequested(resourceId)
+            GridView.onPooled: pooled = true
+            GridView.onReused: pooled = false
+            EchoToolTip {
+                parent: nameButton
+                requestedVisible: directory.pageActive && !nameButton.pooled && nameButton.hovered && nameLabel.truncated
+                text: nameButton.title
+            }
         }
     }
 }

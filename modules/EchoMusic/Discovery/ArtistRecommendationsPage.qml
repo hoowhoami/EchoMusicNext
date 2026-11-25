@@ -28,7 +28,7 @@ RoutePage {
             bottomMargin: 40
             collection: page.service.artists
             errorMessage: page.service.errorMessage
-            avatarLimit: 20
+            avatarsOnly: true
             pageContainer: viewport
             pageActive: page.pageActive
             navigationAvailable: page.router.available("artist-detail")

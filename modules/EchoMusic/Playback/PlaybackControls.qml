@@ -22,6 +22,7 @@ RowLayout {
     EchoIconButton {
         id: toggle
         animatePlayPause: true
+        playbackTooltipEnabled: true
         objectName: "playbackPagePlayToggle"
         glyph: root.playback.playing ? "pause" : "play"
         text: root.playback.playing ? qsTr("暂停") : qsTr("播放")

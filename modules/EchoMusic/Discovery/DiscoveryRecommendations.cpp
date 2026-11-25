@@ -94,19 +94,20 @@ void DiscoveryService::initializeCards()
                 card->collection()->finishCacheRecovery();
         });
     };
+    add("fm", tr("私人 FM"));
     add("daily", tr("每日推荐"), &m_dailySongs, &m_dailyActions);
+    add("3001", tr("私人专属好歌"));
     add("style", tr("风格推荐"), &m_styleSongs, &m_styleActions);
+    add("new", tr("新歌速递"));
     for (const auto &[id, title] :
-         QList<QPair<QString, QString>>{{"3001", tr("私人专属好歌")},
-                                        {"3004", tr("小众宝藏佳作")},
+         QList<QPair<QString, QString>>{{"3014", tr("喜欢这首歌的 TA 也喜欢")},
                                         {"3005", tr("潮流尝鲜")},
+                                        {"3004", tr("小众宝藏佳作")},
                                         {"3006", tr("VIP 专属推荐")},
-                                        {"3014", tr("喜欢这首歌的 TA 也喜欢")},
-                                        {"3101", tr("概念 er 新推")},
-                                        {"3102", tr("喜欢「…」的 TA 也喜欢")},
                                         {"3103", tr("曲风盲盒·随机心动")},
-                                        {"new", tr("新歌速递")},
-                                        {"3107", tr("AI 免费听")}})
+                                        {"3102", tr("喜欢「…」的 TA 也喜欢")},
+                                        {"3107", tr("AI 免费听")},
+                                        {"3101", tr("概念 er 新推")}})
         add(id, title);
     m_recommendationCards.setPreferences(nullptr);
     connect(this, &DiscoveryService::changed, this, [this] {
@@ -164,6 +165,10 @@ void DiscoveryService::requestCard(RecommendationCard *card)
     if (m_closed || !m_networkEnabled ||
         (m_activePage != "home" && m_activePage != "recommendation-detail"))
         return;
+    if (card->key() == "fm") {
+        card->setState(Ready);
+        return;
+    }
     int inFlight = m_cardPending.size();
     for (const auto &pending : m_pending)
         if (pending.part == Daily || pending.part == Style)

@@ -1111,6 +1111,260 @@ Window {
         database.shutdown();
         QTRY_COMPARE(closed.size(), 1);
     }
+    void recommendationMetadataCannotGrowSongRows_data()
+    {
+        QTest::addColumn<int>("rowWidth");
+        QTest::addColumn<bool>("dark");
+        QTest::newRow("wide-light") << 440 << false;
+        QTest::newRow("compact-dark") << 260 << true;
+    }
+    void recommendationMetadataCannotGrowSongRows()
+    {
+        if (QGuiApplication::platformName() != "offscreen")
+            QSKIP("Nonintrusive recommendation layout regression");
+        QFETCH(int, rowWidth);
+        QFETCH(bool, dark);
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ThemeStore theme(prefs);
+        theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
+        theme.setMotionEnabled(false);
+        ApiClient api(DeviceIdentity::temporary());
+        AccountService account(api);
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        DiscoveryService service(api, playback, account);
+        service.dailySongs()->replaceSongs({domainSong(1)});
+        auto entry = service.dailySongs()->item(0);
+        entry["title"] = QStringLiteral("歌曲标题\n第二行");
+        entry["artistText"] = QStringLiteral("很长的歌手名称\n第二位歌手");
+        entry["qualityLabel"] = "Hi-Res";
+        entry["privilegeTags"] = QVariantList{QVariantMap{{"label", "VIP"}, {"color", "#f59e0b"}}};
+        entry["recommendation"] =
+            QVariantMap{{"detail", QStringLiteral("描述第一行\n第二行\r\n").repeated(100)},
+                        {"curator", QVariantMap{{"name", "推荐人\n第二行"}}}};
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Discovery
+import EchoMusic.Music
+import EchoMusic.Theme
+Window {
+ id: host; visible: true; width: rowWidth; height: 220
+ required property int rowWidth
+ required property var entry
+ required property SongCatalogActions commands
+ Rectangle { anchors.fill: parent; color: Theme.main }
+ Column { width: parent.width; spacing: 4
+  Repeater { model: 2
+   RecommendationSongRow { objectName: "boundedRecommendationSong"; width: host.width; height: 84; entry: host.entry; commands: host.commands }
+  }
+ }
+})",
+                          QUrl("qrc:/bounded-recommendation-row.qml"));
+        QScopedPointer<QObject> root(component.createWithInitialProperties(
+            {{"rowWidth", rowWidth},
+             {"entry", entry},
+             {"commands", QVariant::fromValue(service.actions(service.dailySongs()))}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QQuickItem *row = nullptr;
+        QTRY_VERIFY((row = findVisual(window->contentItem(), "boundedRecommendationSong")));
+        auto *reason = findVisual(row, "recommendationSongReason");
+        auto *info = findVisual(row, "recommendationSongInfo");
+        auto *artist = findVisual(row, "recommendationSongArtist");
+        QVERIFY(reason && info && artist);
+        QTRY_VERIFY(info->height() > 0);
+        QVERIFY(!reason->property("text").toString().contains('\n'));
+        auto *title = findVisual(row, "recommendationSongTitle");
+        auto *artwork = findVisual(row, "recommendationSongArtwork");
+        auto *tag = findVisual(row, "recommendationSongTag");
+        QVERIFY(title && artwork && tag);
+        QVERIFY(!title->property("wrapTags").toBool());
+        QCOMPARE(info->height(), artwork->height());
+        QVERIFY(std::abs(info->mapToItem(row, QPointF()).y() -
+                         artwork->mapToItem(row, QPointF()).y()) < 1);
+        QVERIFY(std::abs(tag->mapToItem(row, QPointF(0, tag->height() / 2)).y() -
+                         title->mapToItem(row, QPointF(0, title->height() / 2)).y()) < 1);
+        const auto box = info->mapRectToItem(row, info->boundingRect());
+        QVERIFY2(box.top() >= 0 && box.bottom() <= row->height(),
+                 qPrintable(QString("Song text escaped row: %1..%2 / %3")
+                                .arg(box.top())
+                                .arg(box.bottom())
+                                .arg(row->height())));
+        QVERIFY(reason->height() <= 16);
+        auto *favorite = findVisual(row, "recommendationSongFavorite");
+        QVERIFY(favorite);
+        QCOMPARE(favorite->property("foreground").value<QColor>(), QColor("#ef4444"));
+        QCOMPARE(favorite->property("text").toString(), QString("收藏"));
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        QTest::mouseMove(window, favorite->mapToScene(favorite->boundingRect().center()).toPoint());
+        QTRY_VERIFY(favorite->property("hovered").toBool());
+        QCOMPARE(favorite->property("visualScale").toReal(), 1.);
+        QCOMPARE(favorite->size(), QSizeF(32, 32));
+        QCOMPARE(favorite->property("foreground").value<QColor>(), QColor("#dc2626"));
+        auto *favoriteBackground = favorite->property("background").value<QQuickItem *>();
+        QVERIFY(favoriteBackground && !favoriteBackground->property("active").toBool());
+        QQuickItem *favoriteImage = nullptr;
+        QTRY_VERIFY((favoriteImage = findVisual(favorite, "iconImage")) &&
+                    favoriteImage->property("status").toInt() == 1);
+        QVERIFY(favoriteImage->property("source").toUrl().toString().contains("heart-light"));
+        QTest::mouseMove(window, QPoint(1, 219));
+        QTRY_VERIFY(!favorite->property("hovered").toBool());
+        const auto output = qEnvironmentVariable("ECHO_RECOMMENDATION_POLISH_ARTIFACTS");
+        if (!output.isEmpty()) {
+            QVERIFY(QDir().mkpath(output));
+            QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+            window->requestUpdate();
+            QTRY_VERIFY(!frames.isEmpty());
+            QVERIFY(window->grabWindow().save(
+                output + QString("/long-metadata-%1-%2.png").arg(rowWidth).arg(dark)));
+        }
+        QCOMPARE(warnings.size(), 0);
+        root.reset();
+        service.shutdown();
+        QSignalSpy drained(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE(drained.size(), 1);
+        api.shutdown();
+    }
+    void playbackButtonsKeepAccessibilityWithoutTooltips()
+    {
+        if (QGuiApplication::platformName() != "offscreen")
+            QSKIP("Nonintrusive shared button regression");
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ThemeStore theme(prefs);
+        theme.setMotionEnabled(false);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import QtQuick.Controls.Basic
+import EchoMusic.Controls
+import EchoMusic.Shell
+Window {
+ visible: true; width: 500; height: 120
+ Row {
+  EchoIconButton { objectName: "playProbe"; glyph: "play"; text: "播放"; scaleFeedback: true }
+  EchoPlaybackButton { objectName: "loadingProbe"; loading: true; glyph: ""; tooltipText: "加载中" }
+  EchoSoftButton { objectName: "softPlayProbe"; glyph: "play"; text: "播放"; display: AbstractButton.IconOnly }
+  EchoSoftButton { objectName: "moreProbe"; text: "更多"; plain: true; hoverBackground: false }
+  EchoIconButton { objectName: "favoriteProbe"; glyph: "heart"; text: "喜欢" }
+  ShellActionButton {
+   objectName: "playerProbe"; player: true; actions: null
+   actionKey: "host/play-toggle"; actionId: "play-toggle"
+   actionTitle: "播放"; actionTooltip: actionTitle; actionIcon: "play"
+   actionEnabled: true; actionActive: false; actionBadge: ""
+   actionBusy: false; actionHover: false; badgeTitle: ""; badgeVisible: false
+  }
+ }
+})",
+                          QUrl("qrc:/playback-tooltip-policy.qml"));
+        QScopedPointer<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        auto *play = findVisual(window->contentItem(), "playProbe");
+        auto *loading = findVisual(window->contentItem(), "loadingProbe");
+        auto *soft = findVisual(window->contentItem(), "softPlayProbe");
+        auto *favorite = findVisual(window->contentItem(), "favoriteProbe");
+        QVERIFY(play && loading && soft && favorite);
+        QVERIFY(play->property("playbackAction").toBool());
+        QVERIFY(loading->property("playbackAction").toBool());
+        QVERIFY(soft->property("playbackAction").toBool());
+        QVERIFY(!play->findChild<QObject *>("iconButtonToolTip"));
+        QVERIFY(!loading->findChild<QObject *>("iconButtonToolTip"));
+        QVERIFY(!soft->findChild<QObject *>("softButtonToolTip"));
+        QTRY_VERIFY(favorite->findChild<QObject *>("iconButtonToolTip"));
+        auto *player = findVisual(window->contentItem(), "playerProbe");
+        QVERIFY(player && player->property("playbackTooltipEnabled").toBool());
+        QTRY_VERIFY(player->findChild<QObject *>("iconButtonToolTip"));
+        auto *playerTip = player->findChild<QObject *>("iconButtonToolTip");
+        QCOMPARE(playerTip->property("text").toString(), QString("播放"));
+        player->setProperty("actionTitle", "暂停");
+        player->setProperty("actionIcon", "pause");
+        QCOMPARE(playerTip->property("text").toString(), QString("暂停"));
+        player->setProperty("playbackLoading", true);
+        QVERIFY(player->findChild<QObject *>("iconButtonToolTip"));
+        QCOMPARE(play->property("text").toString(), QString("播放"));
+        auto *more = findVisual(window->contentItem(), "moreProbe");
+        QVERIFY(more && !more->property("hoverBackground").toBool());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *background = more->property("background").value<QQuickItem *>();
+        QVERIFY(background && !background->isVisible());
+        QTest::mouseMove(window, more->mapToScene(more->boundingRect().center()).toPoint());
+        QTRY_VERIFY(more->property("hovered").toBool());
+        QVERIFY(!background->isVisible());
+        QCOMPARE(more->property("foreground").value<QColor>(),
+                 theme.property("accentText").value<QColor>());
+        QCOMPARE(warnings.size(), 0);
+    }
+    void artistRecommendationsVirtualizeAllAvatars()
+    {
+        if (QGuiApplication::platformName() != "offscreen")
+            QSKIP("Nonintrusive full avatar directory regression");
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ThemeStore theme(prefs);
+        theme.setMotionEnabled(false);
+        SongCatalogModel collection;
+        QJsonArray cards;
+        for (int i = 1; i <= 1000; ++i)
+            cards.append(QJsonObject{{"id", QString::number(i)},
+                                     {"title", QString("歌手 %1").arg(i)},
+                                     {"cover_url", QString("image://all-artists/%1").arg(i)}});
+        collection.replaceCards(cards);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        auto *images = new ArtistImageRequests;
+        engine.addImageProvider("all-artists", images);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Music
+Window {
+ id: host; visible: true; width: 900; height: 650
+ required property SongCatalogModel collection
+ property string openedArtist: ""
+ ArtistDirectory { objectName: "allAvatars"; anchors.fill: parent; collection: host.collection; avatarsOnly: true; navigationAvailable: true; onOpenRequested: id => host.openedArtist = id }
+})",
+                          QUrl("qrc:/all-avatar-directory.qml"));
+        QScopedPointer<QObject> root(component.createWithInitialProperties(
+            {{"collection", QVariant::fromValue(&collection)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        auto *view = findVisual(window->contentItem(), "allAvatars");
+        QVERIFY(view);
+        QTRY_COMPARE(view->property("count").toInt(), 1000);
+        QTRY_VERIFY(images->requested().contains("1"));
+        QVERIFY(!findVisual(view, "artistNameEntry"));
+        QVERIFY(countVisual(view, "artistAvatarCard") <= 32);
+        QVERIFY(
+            QMetaObject::invokeMethod(view, "positionViewAtIndex", Q_ARG(int, 400), Q_ARG(int, 0)));
+        QTRY_VERIFY(images->requested().contains("401"));
+        QQuickItem *avatar = nullptr;
+        QTRY_VERIFY(QMetaObject::invokeMethod(
+                        view, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, avatar), Q_ARG(int, 400)) &&
+                    avatar);
+        QCOMPARE(avatar->property("resourceId").toString(), QString("401"));
+        QVERIFY(QMetaObject::invokeMethod(avatar, "clicked"));
+        QCOMPARE(root->property("openedArtist").toString(), QString("401"));
+        QVERIFY(countVisual(view, "artistAvatarCard") <= 40);
+        const auto output = qEnvironmentVariable("ECHO_RECOMMENDATION_POLISH_ARTIFACTS");
+        if (!output.isEmpty()) {
+            QVERIFY(QDir().mkpath(output));
+            QVERIFY(window->grabWindow().save(output + "/all-artists-deep.png"));
+        }
+        view->setProperty("pageActive", false);
+        for (auto *cover : view->findChildren<QObject *>("coverSource"))
+            QVERIFY(!cover->property("active").toBool());
+        QCOMPARE(warnings.size(), 0);
+    }
     void recommendationConfigurationPersistsAndKeepsOneCard()
     {
         QTemporaryDir dir;
@@ -1123,21 +1377,28 @@ Window {
         auto *layout = service.recommendationCards();
         QVERIFY(!layout->find("3104"));
         QVERIFY(!layout->find("3106"));
-        QCOMPARE(layout->catalog().size(), 12);
+        QCOMPARE(layout->catalog().size(), 13);
         QVERIFY(!layout->find("3007"));
         QVERIFY(!layout->find("3032"));
         QAbstractItemModelTester check(layout,
                                        QAbstractItemModelTester::FailureReportingMode::QtTest);
         const int original = layout->count();
-        QCOMPARE(original, 4);
-        QCOMPARE(layout->at(3)->key(), "new");
+        QCOMPARE(original, 5);
+        QCOMPARE(layout->at(0)->key(), "fm");
+        QCOMPARE(layout->at(1)->key(), "daily");
+        QCOMPARE(layout->at(4)->key(), "new");
         const QStringList previousDefaults{"daily", "style", "3001", "3004", "3005", "3006", "3014",
                                            "3101",  "3102",  "3103", "3105", "3106", "new"};
         prefs.setValue("discovery/cards", previousDefaults);
         prefs.setValue("discovery/cardsDefaultsVersion", 0);
         layout->setPreferences(&prefs);
-        QCOMPARE(layout->count(), 4);
+        QCOMPARE(layout->count(), 5);
         QCOMPARE(prefs.value("discovery/cardsDefaultsVersion").toInt(), 1);
+        prefs.setValue("discovery/cards", QStringList{"daily", "style", "3001", "new"});
+        prefs.setValue("discovery/cardsDefaultsVersion", 1);
+        layout->setPreferences(&prefs);
+        QCOMPARE(prefs.value("discovery/cards").toStringList(),
+                 QStringList({"daily", "style", "3001", "new"}));
         // A later explicit full selection remains the user's choice.
         prefs.setValue("discovery/cards", previousDefaults);
         layout->setPreferences(&prefs);
@@ -1149,10 +1410,10 @@ Window {
         QCOMPARE(prefs.value("discovery/cards").toStringList(), QStringList({"style", "new"}));
         prefs.setValue("discovery/cards", QStringList{"3104", "3105", "3106", "3007", "3032"});
         layout->setPreferences(&prefs);
-        QCOMPARE(layout->count(), 4);
+        QCOMPARE(layout->count(), 5);
         layout->toggle("3104");
         layout->toggle("3106");
-        QCOMPARE(layout->count(), 4);
+        QCOMPARE(layout->count(), 5);
         layout->restoreDefaults();
         const auto second = layout->at(1)->key();
         layout->move(1, 0);
@@ -1168,7 +1429,7 @@ Window {
         QCOMPARE(layout->count(), 2);
         layout->restoreDefaults();
         QCOMPARE(layout->count(), original);
-        QCOMPARE(layout->at(0)->key(), "daily");
+        QCOMPARE(layout->at(0)->key(), "fm");
         // A style-filter click also joins the shared card scheduler.
         DiscoveryServiceTestAccess::occupyCardRequests(service);
         service.toggleTag("tag");
@@ -2706,8 +2967,8 @@ ApplicationWindow { id:host; required property RouteController router; required 
         settings.acceptUserAgreement();
         RouteController router;
         DiscoveryService service(api, playback, account);
-        QStringList keys{"daily", "style", "3001", "3004", "3005", "3006",
-                         "3014",  "3101",  "3102", "3103", "new",  "3107"};
+        QStringList keys{"daily", "fm",   "style", "3001", "3004", "3005", "3006",
+                         "3014",  "3101", "3102",  "3103", "new",  "3107"};
         if (featureFirst) {
             keys.move(keys.indexOf("3006"), 0);
             keys.move(keys.indexOf("3103"), 1);
@@ -2963,6 +3224,17 @@ ApplicationWindow { id:host; required property RouteController router; required 
             findVisual(window->contentItem(), "recommendationInformation-daily");
         QVERIFY(dailyInformation);
         QTRY_COMPARE(dailyInformation->property("text").toString(), QString("11月24日"));
+        // A narrow single-column preview can fill the initial viewport. Reveal
+        // the next heading before checking its controls, retaining the first row.
+        auto *firstSection = findVisual(window->contentItem(), "recommendationPanel-daily");
+        QVERIFY(firstSection);
+        const auto firstBottom =
+            firstSection->mapToItem(view, QPointF(0, firstSection->height())).y();
+        if (firstBottom + 128 > view->height()) {
+            view->setProperty("contentY", view->property("contentY").toReal() + firstBottom + 128 -
+                                              view->height());
+            QMetaObject::invokeMethod(view, "forceLayout");
+        }
         QQuickItem *stylePreview = nullptr, *styleFilters = nullptr;
         QTRY_VERIFY(
             (stylePreview = findVisual(window->contentItem(), "styleRecommendationPreview")) &&
@@ -3001,7 +3273,7 @@ ApplicationWindow { id:host; required property RouteController router; required 
         auto *dailyPanel = findVisual(window->contentItem(), "recommendationPanel-daily");
         auto *stylePanel = findVisual(window->contentItem(), "recommendationPanel-style");
         QVERIFY(dailyPanel && stylePanel);
-        QCOMPARE(dailyPanel->x(), 32.);
+        QCOMPARE(dailyPanel->mapToItem(view, QPointF()).x(), 32.);
         QCOMPARE(dailyPanel->width(), view->width() - 64);
         QCOMPARE(stylePanel->mapToItem(view, QPointF()).y() -
                      dailyPanel->mapToItem(view, QPointF()).y() - dailyPanel->height(),
@@ -3030,9 +3302,9 @@ ApplicationWindow { id:host; required property RouteController router; required 
         QVERIFY(nameBox && (nameBox->width() >= 90 || !songTitle->property("truncated").toBool()));
         QVERIFY(
             songTags->mapToScene(QPointF(0, 0)).x() >=
-            songArtist->property("textBox").value<QQuickItem *>()->mapToScene(QPointF(0, 0)).x());
+            songTitle->property("textBox").value<QQuickItem *>()->mapToScene(QPointF(0, 0)).x());
         QVERIFY(std::abs(songTags->mapToScene(QPointF(0, songTags->height() / 2)).y() -
-                         songArtist->mapToScene(QPointF(0, songArtist->height() / 2)).y()) < 1);
+                         songTitle->mapToScene(QPointF(0, songTitle->height() / 2)).y()) < 1);
         // The style picker is created only when requested and supports multiple
         // selections without recreating the popup after each choice.
         QVERIFY(!findVisualOwnerObject(window->contentItem(), "styleRecommendationPicker"));
@@ -3080,7 +3352,7 @@ ApplicationWindow { id:host; required property RouteController router; required 
         // Config creates only on demand and destroys the complete Popup at close.
         service.recommendationCards()->restoreDefaults();
         if (!artifacts.isEmpty()) {
-            QTRY_COMPARE(view->property("count").toInt(), 4);
+            QTRY_COMPARE(view->property("count").toInt(), 5);
             QTRY_COMPARE(previewPresentationError(window->contentItem()), QString());
             window->grabWindow().save(artifacts + "/home-defaults-" +
                                       QString::fromLatin1(QTest::currentDataTag()) + ".png");
@@ -3137,6 +3409,10 @@ ApplicationWindow { id:host; required property RouteController router; required 
             window->grabWindow().save(artifacts + "/config-" +
                                       QString::fromLatin1(QTest::currentDataTag()) + ".png");
         configList->setProperty("contentY", startY);
+        QMetaObject::invokeMethod(configList, "forceLayout");
+        Test::FrameSpy restoredConfigFrame(window);
+        window->requestUpdate();
+        QVERIFY(restoredConfigFrame.wait(1000));
         const auto firstKey = service.recommendationCards()->at(0)->key();
         const auto secondKey = service.recommendationCards()->at(1)->key();
         QQuickItem *firstRow = nullptr;
@@ -3145,8 +3421,19 @@ ApplicationWindow { id:host; required property RouteController router; required 
                                               Q_RETURN_ARG(QQuickItem *, firstRow),
                                               Q_ARG(int, 0)) &&
                     firstRow);
-        const auto press = firstRow->mapToScene(QPointF(16, 26)).toPoint();
-        const auto release = press + QPoint(0, qRound(58 * settings.uiScale()));
+        // At a short scaled viewport the inline header can push row two beyond
+        // the scroll surface. Scroll the actual rows into view before dragging.
+        configList->setProperty("contentY", firstRow->y());
+        QMetaObject::invokeMethod(configList, "forceLayout");
+        QQuickItem *secondRow = nullptr;
+        QTRY_VERIFY(QMetaObject::invokeMethod(configList, "itemAtIndex",
+                                              Q_RETURN_ARG(QQuickItem *, secondRow),
+                                              Q_ARG(int, 1)) &&
+                    secondRow);
+        QVERIFY(secondRow->mapToItem(configList, QPointF(0, secondRow->height())).y() <=
+                configList->height());
+        const auto press = firstRow->mapToScene(QPointF(16, firstRow->height() / 2)).toPoint();
+        const auto release = secondRow->mapToScene(QPointF(16, secondRow->height() / 2)).toPoint();
         QTest::mouseMove(window, press);
         QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, press);
         QTest::mouseMove(window, press + QPoint(0, 16), 30);
@@ -3158,6 +3445,11 @@ ApplicationWindow { id:host; required property RouteController router; required 
         QTest::keyClick(window, Qt::Key_Escape);
         QTRY_VERIFY(popup.isNull());
         QTRY_VERIFY(findVisual(window->contentItem(), "recommendationPageScrollBar")->isVisible());
+        // This stress case restores its explicit catalog after testing reset.
+        for (auto *candidateCard : service.recommendationCards()->all())
+            if (!stressCards.contains(candidateCard->key()) &&
+                service.recommendationCards()->contains(candidateCard->key()))
+                service.recommendationCards()->toggle(candidateCard->key());
         for (const auto &key : stressCards)
             if (!service.recommendationCards()->contains(key))
                 service.recommendationCards()->toggle(key);
@@ -4514,6 +4806,16 @@ Window {id:host;required property RouteController router;required property Shell
         ExploreServiceTestAccess::complete(service, ExploreService::Albums,
                                            QJsonObject{{"regions", QJsonObject{{"chn", cards}}}});
         QTRY_VERIFY(findVisual(window->contentItem(), "playlistSquareView"));
+        auto *filter = findVisual(window->contentItem(), "playlistRecommendationFilter");
+        auto *recommended = findVisual(window->contentItem(), "playlistSection-recommended-0");
+        QVERIFY(filter && recommended);
+        const auto filterBounds = filter->mapRectToItem(recommended, filter->boundingRect());
+        QVERIFY(filterBounds.top() >= 16 && filterBounds.bottom() <= 52);
+        QVERIFY(filterBounds.right() >= recommended->width() - 17);
+        QVERIFY(QMetaObject::invokeMethod(filter, "picked", Q_ARG(int, 1)));
+        QCOMPARE(discovery.category(), QString("11292"));
+        QVERIFY(QMetaObject::invokeMethod(filter, "picked", Q_ARG(int, 0)));
+        QCOMPARE(discovery.category(), QString("0"));
         QVERIFY(!findVisual(window->contentItem(), "playlistCategoryPickerButton"));
         auto *entry = findVisual(window->contentItem(), "playlistCategoriesEntry");
         QVERIFY(entry);

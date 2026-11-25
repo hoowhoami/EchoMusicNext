@@ -283,6 +283,7 @@ qt_add_resources(
     icons/headphones.svg
     icons/home.svg
     icons/heart-filled.svg
+    icons/heart-light.svg
     icons/heart-off.svg
     icons/heart.svg
     icons/heartbeat.svg

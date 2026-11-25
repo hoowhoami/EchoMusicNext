@@ -97,7 +97,7 @@ Item {
                 EchoTextLine {
                     Layout.fillWidth: true
                     Layout.minimumWidth: 0
-                    text: group.entry.title || ""
+                    text: String(group.entry.title || "").replace(/\s+/g, " ").trim()
                     font: Theme.font(21, Theme.semiboldWeight)
                     color: group.accent
                 }
@@ -109,6 +109,7 @@ Item {
                     glyphAfterText: true
                     glyphSize: 14
                     plain: true
+                    hoverBackground: false
                     leftPadding: 4
                     rightPadding: 0
                     size: EchoControlSize.Small
@@ -148,7 +149,7 @@ Item {
                         EchoTextLine {
                             Layout.fillWidth: true
                             Layout.minimumWidth: 0
-                            text: previewButton.text
+                            text: previewButton.text.replace(/\s+/g, " ").trim()
                             font: Theme.font(14, Theme.mediumWeight)
                             color: Theme.text
                         }
@@ -156,7 +157,7 @@ Item {
                             Layout.fillWidth: true
                             Layout.minimumWidth: 0
                             visible: (previewButton.modelData.artist || "").length > 0
-                            text: previewButton.modelData.artist || ""
+                            text: String(previewButton.modelData.artist || "").replace(/\s+/g, " ").trim()
                             font: Theme.font(11, Theme.regularWeight)
                             color: Theme.secondaryText
                         }

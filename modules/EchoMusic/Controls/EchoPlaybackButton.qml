@@ -5,6 +5,7 @@ EchoIconButton {
     id: control
     property bool loading: false
     property bool playing: false
+    playbackAction: true
     scaleFeedback: true
     glyph: playing ? "pause" : "play"
     text: loading ? qsTr("加载中…") : playing ? qsTr("暂停") : qsTr("播放")

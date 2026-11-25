@@ -51,26 +51,27 @@ RoutePage {
                         onClicked: page.router.navigate("playlist-categories")
                     }
                 }
-                RowLayout {
+                Label {
                     width: body.width
-                    Label {
-                        Layout.fillWidth: true
-                        text: qsTr("为每一种心情，找到合拍的歌单")
-                        color: Theme.secondaryText
-                        font: Theme.font(12, Theme.regularWeight)
-                    }
-                    EchoTabBar {
-                        Layout.preferredWidth: 180
-                        labels: [qsTr("推荐"), "Hi-Res"]
-                        currentIndex: page.discovery.category === "11292" ? 1 : 0
-                        onPicked: index => page.discovery.selectCategory(index === 1 ? "11292" : "0")
-                    }
+                    text: qsTr("为每一种心情，找到合拍的歌单")
+                    color: Theme.secondaryText
+                    font: Theme.font(12, Theme.regularWeight)
                 }
                 PlaylistCollectionSection {
                     id: recommended
                     width: body.width
                     heading: qsTr("推荐歌单")
                     stateKey: "recommended-" + page.discovery.category
+                    headingActions: Component {
+                        EchoTabBar {
+                            objectName: "playlistRecommendationFilter"
+                            compact: true
+                            width: 180
+                            labels: [qsTr("推荐"), "Hi-Res"]
+                            currentIndex: page.discovery.category === "11292" ? 1 : 0
+                            onPicked: index => page.discovery.selectCategory(index === 1 ? "11292" : "0")
+                        }
+                    }
                     collection: page.discovery.playlists
                     scrollView: scroll
                     contentTop: body.y + y

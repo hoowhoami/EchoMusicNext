@@ -29,6 +29,8 @@ EchoActionButton {
     property bool accent: false
     property bool danger: false
     property bool plain: false
+    property bool hoverBackground: false
+    property bool playbackAction: ["play", "pause", "player-play", "player-pause"].indexOf(glyph) >= 0
     /// Same contract as EchoButton: a busy action shows the shared spinner in
     /// place of its glyph and is not pressable.
     property bool loading: false
@@ -54,8 +56,9 @@ EchoActionButton {
     }
     Accessible.name: text
     Loader {
-        active: button.display === AbstractButton.IconOnly && button.text.length > 0
+        active: !button.playbackAction && button.display === AbstractButton.IconOnly && button.text.length > 0
         sourceComponent: EchoToolTip {
+            objectName: "softButtonToolTip"
             parent: button
             requestedVisible: button.hovered && button.enabled
             text: button.text
@@ -77,7 +80,7 @@ EchoActionButton {
         colors: button.colors
         accent: button.accent
         danger: button.danger
-        visible: !button.publicPart.replaced && (!button.plain || button.visualFocus)
+        visible: !button.publicPart.replaced && (!button.plain || button.visualFocus || button.hoverBackground && button.hovered)
         pressed: button.down
         highlighted: button.enabled && (button.hovered || button.visualFocus)
         border.width: button.publicPart.value("borderWidth", button.visualFocus ? 2 : 0)

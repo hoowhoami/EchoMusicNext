@@ -184,6 +184,7 @@ void DiscoveryService::shutdown()
     if (m_closed)
         return;
     m_closed = true;
+    syncFmPreview();
     for (auto *feed : m_feeds)
         feed->shutdown();
     cancelAll();
@@ -239,9 +240,9 @@ void DiscoveryService::setPage(const QString &name, const QString &instance, boo
         for (auto *card : m_recommendationCards.all())
             card->collection()->setMetadataActive(false);
     }
-    m_playback.personalFm()->setPageActive(name == "personal-fm", networkEnabled);
     m_activePage = name;
     m_networkEnabled = networkEnabled;
+    syncFmPreview();
     for (auto *feed : m_feeds)
         feed->setNetworkEnabled(networkEnabled);
     m_styleSongs.setMetadataActive(networkEnabled &&
@@ -612,6 +613,27 @@ void DiscoveryService::failed(quint64 id, const QString &error)
         if (card && card->status() == Idle)
             requestCard(card);
     }
+}
+void DiscoveryService::syncFmPreview()
+{
+    m_playback.personalFm()->setPageActive(
+        !m_closed &&
+            (m_activePage == "personal-fm" || (m_activePage == "home" && !m_fmPreviews.isEmpty())),
+        m_networkEnabled && !m_closed);
+}
+void DiscoveryService::setFmPreviewActive(QObject *consumer, bool active)
+{
+    if (!consumer || m_closed)
+        return;
+    if (active && !m_fmPreviews.contains(consumer))
+        m_fmPreviews.insert(consumer,
+                            connect(consumer, &QObject::destroyed, this, [this, consumer] {
+                                m_fmPreviews.remove(consumer);
+                                syncFmPreview();
+                            }));
+    else if (!active && m_fmPreviews.contains(consumer))
+        disconnect(m_fmPreviews.take(consumer));
+    syncFmPreview();
 }
 QVariantList DiscoveryService::recommendedRanks() const
 {

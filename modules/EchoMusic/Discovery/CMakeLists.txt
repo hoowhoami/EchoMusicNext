@@ -54,6 +54,8 @@ qt_add_qml_module(
     DiscoverFlowBackdrop.qml
     DiscoverFlowInfo.qml
     PersonalFmPage.qml
+    PersonalFmHero.qml
+    PersonalFmRecommendation.qml
     PersonalFmVinyl.qml
 )
 qt_add_shaders(

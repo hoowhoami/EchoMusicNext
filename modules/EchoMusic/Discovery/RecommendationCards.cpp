@@ -328,7 +328,7 @@ void RecommendationCards::add(RecommendationCard *card)
 }
 QStringList RecommendationCards::defaults() const
 {
-    return {"daily", "style", "3001", "new"};
+    return {"fm", "daily", "3001", "style", "new"};
 }
 void RecommendationCards::setPreferences(SettingsStore *preferences)
 {

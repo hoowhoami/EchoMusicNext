@@ -337,6 +337,7 @@ RoutePage {
                     padding: 13
                     hoverBackground: false
                     animatePlayPause: !page.playbackBusy
+                    playbackAction: true
                     glyph: page.playbackBusy ? "" : page.isCurrentPlaying ? "pause" : "play"
                     text: page.isCurrentPlaying ? qsTr("暂停") : qsTr("播放")
                     foreground: Theme.text

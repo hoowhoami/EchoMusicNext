@@ -62,9 +62,11 @@ Item {
                         Layout.preferredWidth: 32
                         Layout.preferredHeight: 32
                         padding: 5
-                        glyph: vip.favorite ? "heart-filled" : "heart"
-                        text: vip.favorite ? qsTr("取消喜欢") : qsTr("喜欢")
-                        foreground: vip.favorite ? Theme.colors.danger : Theme.secondaryText
+                        hoverBackground: false
+                        scaleFeedback: false
+                        glyph: vip.favorite ? "heart-filled" : "heart-light"
+                        text: vip.favorite ? qsTr("取消收藏") : qsTr("收藏")
+                        foreground: hovered ? "#dc2626" : Theme.colors.danger
                         onClicked: vip.commands.toggleFavorite(vip.entry.resourceId)
                     }
                 }

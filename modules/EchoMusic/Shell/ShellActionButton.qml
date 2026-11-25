@@ -32,6 +32,7 @@ EchoIconButton {
     glyph: actionBusy && builtinId.length === 0 ? "" : actionIcon
     iconCovered: player && builtinId === "play-toggle" && playbackLoading
     animatePlayPause: player && builtinId === "play-toggle"
+    playbackTooltipEnabled: player && builtinId === "play-toggle"
     playIconOffset: 1
     text: actionTitle
     readonly property string volumeTooltip: player && builtinId === "volume" && playback ? (playback.volume > 100 && !playback.cast.remote ? qsTr("音量 %1% · 软件增益").arg(Math.round(playback.volume)) : qsTr("音量 %1%").arg(Math.round(playback.volume))) : ""
