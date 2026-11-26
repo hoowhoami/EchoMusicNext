@@ -14,7 +14,7 @@ EchoAnchoredPopup {
     property bool reorderActive: false
     onAboutToShow: reorderActive = true
     onAboutToHide: reorderActive = false
-    background: EchoFloatingSurface {
+    background: EchoPopupSurface {
         border.width: 1
         border.color: Theme.withAlpha(Theme.floatingText, 0.12)
     }
@@ -58,6 +58,7 @@ EchoAnchoredPopup {
             Layout.fillWidth: true
             Layout.preferredHeight: implicitHeight
             clip: true
+            acceptedButtons: Qt.NoButton
             reuseItems: true
             cacheBuffer: 0
             spacing: 9

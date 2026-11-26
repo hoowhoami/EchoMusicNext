@@ -2469,13 +2469,23 @@ QtObject {
             }
         }
     }
+    void productionPlayerLayoutDragPreviewsAndSettles_data()
+    {
+        QTest::addColumn<bool>("lyricStyle");
+        QTest::newRow("playback-bar-layout") << false;
+        QTest::newRow("playback-page-layout") << true;
+    }
     void productionPlayerLayoutDragPreviewsAndSettles()
     {
+        QFETCH(bool, lyricStyle);
+        const int defaultRight = lyricStyle ? 5 : 4;
+        const int baseMore = 2;
         QTemporaryDir directory;
         EchoMusic::SettingsStore preferences(directory.filePath("settings.ini"));
         ThemeStore theme(preferences);
         RouteController routes;
         ShellController controller(preferences, routes);
+        controller.setLyricPageActive(lyricStyle);
         QQmlEngine engine;
         theme.attachToEngine(engine);
         QSignalSpy warnings(&engine, &QQmlEngine::warnings);
@@ -2489,13 +2499,19 @@ QtObject {
                 width: 1120; height: 760; visible: true
                 property real uiScale: 1
                 required property ShellActionModel actions
+                required property bool lyricStyle
                 function openEditor() { owner.open({editing: true}); }
+                Flickable {
+                    objectName: "underlay"; anchors.fill: parent
+                    contentHeight: 3000; contentY: 400
+                    Rectangle { width: parent.width; height: 3000; color: "#ddd" }
+                }
                 Item { id: anchor; x: 540; y: 710; width: 34; height: 34 }
                 EchoPopupLoader {
                     id: owner
                     hostItem: host.contentItem
                     sourceComponent: Component {
-                        PlayerBarMorePopup { actions: host.actions; anchorItem: anchor }
+                        PlayerBarMorePopup { actions: host.actions; anchorItem: anchor; uiScale: host.uiScale; lyricStyle: host.lyricStyle }
                     }
                 }
                 Component.onCompleted: Qt.callLater(openEditor)
@@ -2503,7 +2519,8 @@ QtObject {
         )",
                           QUrl());
         QScopedPointer<QObject> root(component.createWithInitialProperties(
-            {{"actions", QVariant::fromValue(controller.playerbarActions())}}));
+            {{"actions", QVariant::fromValue(controller.playerbarActions())},
+             {"lyricStyle", lyricStyle}}));
         QVERIFY2(root, qPrintable(component.errorString()));
         auto *window = qobject_cast<QQuickWindow *>(root.data());
         QVERIFY(window && Test::prepareNativeInput(window));
@@ -2524,6 +2541,20 @@ QtObject {
         QPointer<QObject> popup;
         QTRY_VERIFY((popup = root->findChild<QObject *>("playerbarMorePopup")));
         QTRY_VERIFY(popup->property("opened").toBool());
+        auto *underlay = item("underlay");
+        auto *scroll = item("playerLayoutScroll");
+        auto *outer = scroll ? scroll->property("contentItem").value<QQuickItem *>() : nullptr;
+        QVERIFY(underlay && outer);
+        // The checkbox above a chip remains a native independent action.
+        QQuickItem *badge = nullptr;
+        QTRY_VERIFY((badge = item("playerBadgePreference-host/quality")));
+        Test::FrameSpy badgeFrame(window);
+        window->update();
+        QVERIFY(badgeFrame.wait(1000));
+        const auto badgesBefore = preferences.value("shell/playerbar/badges");
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          badge->mapToScene(badge->boundingRect().center()).toPoint());
+        QTRY_VERIFY(preferences.value("shell/playerbar/badges") != badgesBefore);
         for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
             theme.setMode(mode);
             for (const double scale : {1.0, 1.25}) {
@@ -2542,12 +2573,17 @@ QtObject {
                     const auto savedOrder = preferences.value("shell/playerbar/order");
                     const auto savedPlacement = preferences.value("shell/playerbar/placements");
                     const auto originalEffect = effectSlot->mapToItem(right, QPointF{}).x();
+                    const auto pageY = underlay->property("contentY").toReal();
+                    const auto outerY = outer->property("contentY").toReal();
                     const auto start = quality->mapToScene({2, 17}).toPoint();
                     const auto end = right->mapToScene({right->width() - 20, 47}).toPoint();
                     QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, start);
                     QTest::mouseMove(window, start + QPoint(10, 0));
                     QTest::mouseMove(window, end);
                     QTest::qWait(40);
+                    QCOMPARE(underlay->property("contentY").toReal(), pageY);
+                    QCOMPARE(outer->property("contentY").toReal(), outerY);
+                    QVERIFY(!outer->property("interactive").toBool());
                     const auto during = effectSlot->mapToItem(right, QPointF{}).x();
                     QVERIFY(during < originalEffect);
                     if (motion)
@@ -2577,12 +2613,12 @@ QtObject {
                     QVERIFY(cast->mapToItem(more, QPointF{}).x() > castX);
                     QVERIFY(item("playerLayoutGap-4"));
                     QCOMPARE(preferences.value("shell/playerbar/placements"), placement);
-                    QCOMPARE(right->property("count").toInt(), 4);
+                    QCOMPARE(right->property("count").toInt(), defaultRight);
                     QCOMPARE(more->property("count").toInt(), 1);
                     capture(QString("held-cross-%1-%2-%3").arg(int(mode)).arg(scale).arg(motion));
                     QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, target);
                     QTRY_COMPARE(more->property("count").toInt(), 2);
-                    QTRY_COMPARE(right->property("count").toInt(), 3);
+                    QTRY_COMPARE(right->property("count").toInt(), defaultRight - 1);
                     capture(
                         QString("landing-cross-%1-%2-%3").arg(int(mode)).arg(scale).arg(motion));
                     QTest::qWait(240);
@@ -2590,6 +2626,8 @@ QtObject {
                     QVERIFY(quality);
                     QVERIFY(qAbs(quality->mapToItem(more, QPointF{}).x()) < 0.5);
                     QVERIFY(qAbs(cast->mapToItem(more, QPointF{}).x() - 40) < 0.5);
+                    QCOMPARE(underlay->property("contentY").toReal(), pageY);
+                    QCOMPARE(outer->property("contentY").toReal(), outerY);
                     capture(
                         QString("settled-cross-%1-%2-%3").arg(int(mode)).arg(scale).arg(motion));
                 }
@@ -2663,7 +2701,7 @@ QtObject {
         }
         more = item("playerLayoutZone-4");
         QVERIFY(more);
-        QTRY_COMPARE(more->property("count").toInt(), 66);
+        QTRY_COMPARE(more->property("count").toInt(), baseMore + 64);
         more->setProperty("contentX", more->property("originX").toReal() + 400);
         QTest::qWait(40);
         auto *content = more->property("contentItem").value<QQuickItem *>();
@@ -2672,7 +2710,8 @@ QtObject {
         for (auto *child : content->childItems())
             liveSlots += child->objectName().startsWith("playerLayoutSlot-");
         QVERIFY(liveSlots > 0 && liveSlots < 32);
-        qInfo() << "Player editor: 66 More actions, live slots" << liveSlots;
+        qInfo() << "Player editor actions" << more->property("count").toInt() << "live slots"
+                << liveSlots;
         quality = item("playerLayoutChip-host/quality");
         QVERIFY(quality);
         const auto scrolledStart = quality->mapToScene({17, 17}).toPoint();
@@ -2693,7 +2732,7 @@ QtObject {
         QCOMPARE(preferences.value("shell/playerbar/placements"), scrollPlacement);
         capture("held-scrolled");
         QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, scrolledEnd);
-        QTRY_COMPARE(more->property("count").toInt(), 67);
+        QTRY_COMPARE(more->property("count").toInt(), baseMore + 65);
         QTest::qWait(240);
         quality = findVisibleVisual(more, "playerLayoutChip-host/quality");
         QVERIFY(quality);
@@ -2713,6 +2752,330 @@ QtObject {
         QCOMPARE(preferences.value("shell/playerbar/placements"), beforeHide);
         window->show();
         QVERIFY(Test::prepareNativeInput(window));
+        QCOMPARE(warnings.size(), 0);
+    }
+    void titlebarMoreUsesWholeRowReorder_data()
+    {
+        QTest::addColumn<bool>("dark");
+        QTest::addColumn<qreal>("scale");
+        for (bool dark : {false, true})
+            for (qreal scale : {1., 1.25})
+                QTest::newRow(qPrintable(QString("%1-%2").arg(dark).arg(scale))) << dark << scale;
+    }
+    void titlebarMoreUsesWholeRowReorder()
+    {
+        if (QGuiApplication::platformName() != "offscreen")
+            QSKIP("Nonintrusive titlebar menu input regression");
+        QFETCH(bool, dark);
+        QFETCH(qreal, scale);
+        QTemporaryDir directory;
+        SettingsStore preferences(directory.filePath("prefs.ini"));
+        ThemeStore theme(preferences);
+        theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
+        ShellActionModel actions(preferences, ShellActionModel::Titlebar);
+        QObject provider;
+        int activations = 0;
+        for (int i = 0; i < 7; ++i) {
+            ShellActionModel::Contribution action;
+            action.key = QString("test/action%1").arg(i);
+            action.id = action.key;
+            action.title = i == 0 ? QStringLiteral("长标题 Long wrapped menu action ").repeated(3)
+                                  : QString("操作 %1").arg(i);
+            action.icon = "music";
+            action.enabled = i != 0; // Unavailable commands can still be arranged.
+            action.order = i;
+            action.invoke = [&] { ++activations; };
+            actions.registerAction(provider, action);
+        }
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Controls
+import EchoMusic.Shell
+Window {
+ id: host; visible: true; width: 1000; height: 800
+ required property ShellActionModel actions
+ required property real uiScale
+ Flickable {
+  objectName: "underlay"; anchors.fill: parent
+  contentHeight: 3000; contentY: 400
+  Rectangle { width: parent.width; height: 3000; color: "#ddd" }
+ }
+ Item { id: anchor; x: 40; y: 40; width: 32; height: 32 }
+ function openMenu() { owner.open(); }
+ EchoPopupLoader {
+  id: owner; hostItem: host.contentItem
+  sourceComponent: Component {
+   TitleBarMorePopup { actions: host.actions; anchorItem: anchor; uiScale: host.uiScale }
+  }
+ }
+ Component.onCompleted: Qt.callLater(openMenu)
+})",
+                          QUrl("qrc:/titlebar-more-input-test.qml"));
+        QScopedPointer<QObject> root(component.createWithInitialProperties(
+            {{"actions", QVariant::fromValue(&actions)}, {"uiScale", scale}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window && Test::prepareNativeInput(window));
+        const auto find = [&](const QString &name) {
+            return findVisibleVisual(window->contentItem(), name);
+        };
+        QPointer<QObject> popup;
+        QTRY_VERIFY((popup = root->findChild<QObject *>("titlebarMorePopup")));
+        QTRY_VERIFY(popup->property("opened").toBool());
+        QVERIFY(!popup->property("modal").toBool());
+        auto *underlay = find("underlay");
+        auto *view = find("titlebarMoreList");
+        QPointer<QQuickItem> reorder = find("titlebarMoreReorder");
+        QVERIFY(underlay && view && reorder);
+        QTRY_COMPARE(view->property("count").toInt(), 7);
+        QSignalSpy moves(&actions, &QAbstractItemModel::rowsMoved);
+        QSignalSpy requests(reorder, SIGNAL(moveRequested(int, int)));
+        for (bool motion : {true, false}) {
+            theme.setMotionEnabled(motion);
+            actions.restoreDefaults();
+            QMetaObject::invokeMethod(view, "forceLayout");
+            Test::FrameSpy ready(window);
+            window->update();
+            QVERIFY(ready.wait(1000));
+            auto *first = find("titlebarMenuAction-test/action0");
+            auto *third = find("titlebarMenuAction-test/action2");
+            QVERIFY(first && third);
+            QVERIFY(first->height() > third->height());
+            // The action belongs to the shared row's presentation, not its root.
+            auto *targetBody = third->parentItem()->parentItem();
+            const auto targetY = targetBody->mapToScene(QPointF()).y();
+            const auto sourceHeight = first->parentItem()->parentItem()->parentItem()->height();
+            const auto expectedShift = (sourceHeight + view->property("spacing").toReal()) * scale;
+            const auto saved = preferences.value("shell/titlebar/order");
+            const auto position = underlay->property("contentY").toReal();
+            const auto press = first->mapToScene(QPointF(90, first->height() / 2)).toPoint();
+            const auto end = third->mapToScene(QPointF(90, third->height() / 2)).toPoint();
+            moves.clear();
+            requests.clear();
+            QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, press);
+            const auto release = qScopeGuard([&] {
+                if (QGuiApplication::mouseButtons().testFlag(Qt::LeftButton))
+                    QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, end);
+            });
+            QTest::mouseMove(window, press + QPoint(0, 16));
+            QTest::mouseMove(window, end);
+            QTRY_VERIFY(reorder->property("dragging").toBool());
+            QTRY_COMPARE(reorder->property("toIndex").toInt(), 2);
+            QVERIFY(!view->property("interactive").toBool());
+            auto *ghost = find("titlebarMoreDragCard");
+            QVERIFY(ghost);
+            QCOMPARE(reorder->property("dragHeight").toReal(), sourceHeight);
+            if (motion) {
+                QTest::qWait(40);
+                const auto shift = targetY - targetBody->mapToScene(QPointF()).y();
+                QVERIFY2(
+                    shift >= 0 && shift <= expectedShift + 1,
+                    qPrintable(QString("preview shift %1 / %2").arg(shift).arg(expectedShift)));
+            }
+            QTRY_VERIFY(qAbs(targetY - targetBody->mapToScene(QPointF()).y() - expectedShift) < 1);
+            QCOMPARE(preferences.value("shell/titlebar/order"), saved);
+            QCOMPARE(moves.size(), 0);
+            QCOMPARE(underlay->property("contentY").toReal(), position);
+            const auto captures = qEnvironmentVariable("ECHO_POPUP_REORDER_CAPTURE_DIR");
+            if (!captures.isEmpty()) {
+                Test::FrameSpy heldFrame(window);
+                window->update();
+                QVERIFY(heldFrame.wait(1000));
+                QVERIFY(QDir().mkpath(captures));
+                QVERIFY(window->grabWindow().save(
+                    captures + QString("/more-%1-%2-%3.png").arg(dark).arg(scale).arg(motion)));
+            }
+            QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, end);
+            if (motion)
+                QVERIFY(reorder->property("settling").toBool());
+            QTRY_VERIFY(!reorder->property("busy").toBool());
+            QCOMPARE(actions.data(actions.index(2), ShellActionModel::KeyRole).toString(),
+                     QString("test/action0"));
+            QCOMPARE(requests.size(), 1);
+            QVERIFY(!moves.isEmpty());
+            QCOMPARE(activations, 0);
+            QCOMPARE(underlay->property("contentY").toReal(), position);
+            QVERIFY(!find("titlebarMoreDragCard"));
+        }
+        // Closing during a held preview cancels both input and persistence.
+        theme.setMotionEnabled(true);
+        const auto beforeCancel = preferences.value("shell/titlebar/order");
+        auto *cancelSource = find("titlebarMenuAction-test/action1");
+        auto *cancelTarget = find("titlebarMenuAction-test/action0");
+        QVERIFY(cancelSource && cancelTarget);
+        const auto cancelStart =
+            cancelSource->mapToScene(QPointF(90, cancelSource->height() / 2)).toPoint();
+        const auto cancelEnd =
+            cancelTarget->mapToScene(QPointF(90, cancelTarget->height() / 2)).toPoint();
+        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, cancelStart);
+        QTest::mouseMove(window, cancelStart + QPoint(0, 16));
+        QTest::mouseMove(window, cancelEnd);
+        QTRY_VERIFY(reorder->property("dragging").toBool());
+        QVERIFY(QMetaObject::invokeMethod(popup, "close"));
+        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, cancelEnd);
+        QTRY_VERIFY(popup.isNull() && reorder.isNull());
+        QCOMPARE(preferences.value("shell/titlebar/order"), beforeCancel);
+        QCOMPARE(activations, 0);
+        QVERIFY(QMetaObject::invokeMethod(root.data(), "openMenu"));
+        QTRY_VERIFY((popup = root->findChild<QObject *>("titlebarMorePopup")));
+        QTRY_VERIFY(popup->property("opened").toBool());
+        QTRY_VERIFY((reorder = find("titlebarMoreReorder")));
+        Test::FrameSpy reopened(window);
+        window->update();
+        QVERIFY(reopened.wait(1000));
+        // Pin and normal command remain native, separate actions.
+        auto *pin = find("titlebarPin-test/action1");
+        QVERIFY(pin);
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          pin->mapToScene(pin->boundingRect().center()).toPoint());
+        QCOMPARE(actions.data(actions.index(0), ShellActionModel::PreferredRole).toInt(),
+                 int(ShellActionModel::Toolbar));
+        QVERIFY(!reorder->property("busy").toBool());
+        auto *command = find("titlebarMenuAction-test/action1");
+        QVERIFY(command);
+        Test::FrameSpy pinFrame(window);
+        window->update();
+        QVERIFY(pinFrame.wait(1000));
+        const auto clickPosition =
+            command->mapToScene(QPointF(90, command->height() / 2)).toPoint();
+        QSignalSpy commandClicks(command, SIGNAL(clicked()));
+        QTest::mouseMove(window, clickPosition);
+        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, clickPosition);
+        QVERIFY(command->property("pressed").toBool());
+        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, clickPosition);
+        QCOMPARE(commandClicks.size(), 1);
+        QCOMPARE(activations, 1);
+        QTRY_VERIFY(popup.isNull());
+        QTRY_VERIFY(reorder.isNull());
+        QVERIFY(QMetaObject::invokeMethod(root.data(), "openMenu"));
+        QTRY_VERIFY((popup = root->findChild<QObject *>("titlebarMorePopup")));
+        QTRY_VERIFY(popup->property("opened").toBool());
+        auto *touchCommand = find("titlebarMenuAction-test/action1");
+        QVERIFY(touchCommand);
+        Test::FrameSpy touchFrame(window);
+        window->update();
+        QVERIFY(touchFrame.wait(1000));
+        const auto touchPosition =
+            touchCommand->mapToScene(QPointF(90, touchCommand->height() / 2)).toPoint();
+        auto *device = QTest::createTouchDevice();
+        QTest::touchEvent(window, device).press(0, touchPosition, window);
+        QTest::touchEvent(window, device).release(0, touchPosition, window);
+        QTRY_COMPARE(activations, 2);
+        QTRY_VERIFY(popup.isNull());
+        QCOMPARE(warnings.size(), 0);
+    }
+    void layoutPopupsKeepInputInside_data()
+    {
+        QTest::addColumn<QString>("kind");
+        QTest::addColumn<qreal>("scale");
+        for (const auto &kind : {QString("menu"), QString("shortcuts"), QString("more"),
+                                 QString("player-layout"), QString("page-layout")})
+            for (qreal scale : {1., 1.25})
+                QTest::newRow(qPrintable(kind + QString::number(scale))) << kind << scale;
+    }
+    void layoutPopupsKeepInputInside()
+    {
+        if (QGuiApplication::platformName() != "offscreen")
+            QSKIP("Nonintrusive popup boundary regression");
+        QFETCH(QString, kind);
+        QFETCH(qreal, scale);
+        QTemporaryDir directory;
+        SettingsStore preferences(directory.filePath("prefs.ini"));
+        ThemeStore theme(preferences);
+        theme.setMotionEnabled(false);
+        SidebarLayoutModel layout(preferences, nullptr);
+        const bool playerLayout = kind == "player-layout" || kind == "page-layout";
+        ShellActionModel actions(preferences, playerLayout ? ShellActionModel::Playerbar
+                                                           : ShellActionModel::Titlebar);
+        RouteController router;
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine);
+        QByteArray recipe;
+        if (playerLayout) {
+            recipe = QByteArray("PlayerBarMorePopup { editing: true; actions: host.actions; "
+                                "anchorItem: anchor; uiScale: host.uiScale; lyricStyle: ") +
+                     (kind == "page-layout" ? "true" : "false") + " }";
+        } else if (kind == "menu") {
+            recipe = "SidebarLayoutPopup { layout: host.layout; anchorItem: anchor; uiScale: "
+                     "host.uiScale }";
+        } else if (kind == "shortcuts") {
+            recipe = "SidebarShortcutPopup { layout: host.layout; router: host.router; anchorItem: "
+                     "anchor; uiScale: host.uiScale }";
+        } else {
+            recipe = "TitleBarMorePopup { actions: host.actions; anchorItem: anchor; uiScale: "
+                     "host.uiScale }";
+        }
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Controls
+import EchoMusic.Shell
+Window {
+ id: host; visible: true; width: 1100; height: 750
+ required property SidebarLayoutModel layout
+ required property ShellActionModel actions
+ required property RouteController router
+ required property real uiScale
+ Flickable { objectName: "underlay"; anchors.fill: parent; contentHeight: 3000; contentY: 400
+  Rectangle { width: parent.width; height: 3000; color: "#ddd" }
+ }
+ Item { id: anchor; x: 30; y: 30; width: 170; height: 30 }
+ EchoPopupLoader { id: owner; hostItem: host.contentItem
+  sourceComponent: Component { )" +
+                              recipe + R"( }
+ }
+ Component.onCompleted: Qt.callLater(owner.open)
+})",
+                          QUrl("qrc:/popup-input-boundary-test.qml"));
+        QScopedPointer<QObject> root(
+            component.createWithInitialProperties({{"layout", QVariant::fromValue(&layout)},
+                                                   {"actions", QVariant::fromValue(&actions)},
+                                                   {"router", QVariant::fromValue(&router)},
+                                                   {"uiScale", scale}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window && Test::prepareNativeInput(window));
+        const auto name = playerLayout          ? "playerbarMorePopup"
+                          : kind == "menu"      ? "sidebarLayoutPopup"
+                          : kind == "shortcuts" ? "sidebarShortcutPopup"
+                                                : "titlebarMorePopup";
+        QPointer<QObject> popup;
+        QTRY_VERIFY((popup = root->findChild<QObject *>(name)));
+        QTRY_VERIFY(popup->property("opened").toBool());
+        QVERIFY(!popup->property("modal").toBool());
+        auto *underlay = findVisual(window->contentItem(), "underlay");
+        auto *background = popup->property("background").value<QQuickItem *>();
+        QVERIFY(underlay && background);
+        Test::FrameSpy ready(window);
+        window->update();
+        QVERIFY(ready.wait(1000));
+        // The native Pane owns unused padding, header gaps and wheel overflow.
+        const auto gap = background->mapToScene(QPointF(3, 3)).toPoint();
+        const auto start = underlay->property("contentY").toReal();
+        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, gap);
+        QTest::mouseMove(window, gap + QPoint(0, 80), 30);
+        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, gap + QPoint(0, 80));
+        QTest::qWait(80);
+        QVERIFY(popup && popup->property("opened").toBool());
+        QCOMPARE(underlay->property("contentY").toReal(), start);
+        QWheelEvent inside(gap, window->mapToGlobal(gap), {}, {0, -120}, Qt::NoButton,
+                           Qt::NoModifier, Qt::NoScrollPhase, false);
+        QCoreApplication::sendEvent(window, &inside);
+        QTest::qWait(80);
+        QCOMPARE(underlay->property("contentY").toReal(), start);
+        // Outside the nonmodal panel, wheel input still belongs to the page.
+        const QPoint outside(window->width() - 2, 400);
+        QWheelEvent wheel(outside, window->mapToGlobal(outside), {}, {0, -120}, Qt::NoButton,
+                          Qt::NoModifier, Qt::NoScrollPhase, false);
+        QCoreApplication::sendEvent(window, &wheel);
+        QTRY_VERIFY(underlay->property("contentY").toReal() > start);
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_VERIFY(popup.isNull());
         QCOMPARE(warnings.size(), 0);
     }
     void sidebarMenuDragPreviewsAndLands_data()
@@ -2747,6 +3110,11 @@ QtObject {
                 property real uiScale: 1
                 width: 1000; height: 800; visible: true
                 function openEditor() { owner.open(); }
+                Flickable {
+                    objectName: "underlay"; anchors.fill: parent
+                    contentHeight: 3000; contentY: 400
+                    Rectangle { width: parent.width; height: 3000; color: "#ddd" }
+                }
                 Item { id: anchor; x: 40; y: 50; width: 32; height: 32 }
                 EchoPopupLoader {
                     id: owner
@@ -2779,6 +3147,11 @@ QtObject {
         QVERIFY(reorder && view);
         QTRY_COMPARE(view->property("count").toInt(), 3);
         QTRY_COMPARE(view->height(), 102.);
+        auto *underlay = find("underlay");
+        auto *sections = view->parentItem()->parentItem();
+        while (sections && !sections->inherits("QQuickListView"))
+            sections = sections->parentItem();
+        QVERIFY(underlay && sections);
         QSignalSpy moves(layout, &QAbstractItemModel::rowsMoved);
         const auto begin = [&](QQuickItem *source, QPoint target) {
             const auto start = source->mapToScene({60, 16}).toPoint();
@@ -2811,8 +3184,12 @@ QtObject {
             const auto rootY = last->y();
             const auto target = last->mapToScene({60, 16}).toPoint();
             const auto order = preferences.value("sidebar/entryOrder");
+            const auto backgroundY = underlay->property("contentY").toReal();
+            const auto outerY = sections->property("contentY").toReal();
             begin(first, target);
             QTRY_VERIFY(reorder->property("dragging").toBool());
+            QCOMPARE(underlay->property("contentY").toReal(), backgroundY);
+            QCOMPARE(sections->property("contentY").toReal(), outerY);
             QTRY_COMPARE(reorder->property("toIndex").toInt(), 2);
             QTest::qWait(40);
             const auto displacement = (initial - body->mapToScene({0, 0}).y()) / scale;
@@ -2835,6 +3212,8 @@ QtObject {
             }
             QTRY_VERIFY(!reorder->property("busy").toBool());
             QCOMPARE(moves.size(), 1);
+            QCOMPARE(underlay->property("contentY").toReal(), backgroundY);
+            QCOMPARE(sections->property("contentY").toReal(), outerY);
             QCOMPARE(layout->data(layout->index(2), SidebarLayoutModel::Key).toString(),
                      QString("favorites"));
             QCOMPARE(preferences.value("sidebar/entryOrder").toStringList(),

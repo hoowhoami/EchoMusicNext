@@ -6,6 +6,9 @@ import EchoMusic.Theme
 ListView {
     id: carousel
     property bool resourceActive: true
+    // A section owns hover across its header and exterior arrow gutter. Observe
+    // the viewport locally; an expanded sibling region would mask header buttons.
+    property bool sectionHovered: false
     property string navigationKey: ""
     property string navigationPrefix: "recommendation"
     property int initialIndex: 0
@@ -31,13 +34,11 @@ ListView {
     activeFocusOnTab: count > 1
     HoverHandler {
         id: carouselHover
-        parent: carousel.parent
-        margin: 48
         blocking: false
         enabled: carousel.resourceActive
     }
     property bool keyboardNavigation: false
-    readonly property bool navigationShown: carousel.resourceActive && count > 1 && (carouselHover.hovered || previous.hovered || next.hovered || keyboardNavigation && activeFocus || previous.visualFocus || next.visualFocus)
+    readonly property bool navigationShown: carousel.resourceActive && count > 1 && (carousel.sectionHovered || carouselHover.hovered || previous.hovered || next.hovered || keyboardNavigation && activeFocus || previous.visualFocus || next.visualFocus)
     onActiveFocusChanged: if (!activeFocus)
         keyboardNavigation = false
     Keys.onLeftPressed: {

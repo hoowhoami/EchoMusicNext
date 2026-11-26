@@ -35,14 +35,31 @@ RoutePage {
                 width: Math.max(0, scroll.width - 80)
                 spacing: 32
                 RowLayout {
+                    objectName: "playlistRecommendationHeading"
                     width: body.width
-                    Label {
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        text: qsTr("推荐歌单")
-                        color: Theme.text
-                        font: Theme.spacedFont(24, Theme.semiboldWeight, -.6)
+                        Layout.minimumWidth: 0
+                        spacing: 5
+                        Label {
+                            objectName: "playlistRecommendationTitle"
+                            Layout.fillWidth: true
+                            text: qsTr("推荐歌单")
+                            elide: Text.ElideRight
+                            color: Theme.text
+                            font: Theme.spacedFont(24, Theme.semiboldWeight, -.6)
+                        }
+                        Label {
+                            objectName: "playlistRecommendationDescription"
+                            Layout.fillWidth: true
+                            text: qsTr("为每一种心情，找到合拍的歌单")
+                            elide: Text.ElideRight
+                            color: Theme.secondaryText
+                            font: Theme.font(12, Theme.regularWeight)
+                        }
                     }
                     EchoSoftButton {
+                        Layout.alignment: Qt.AlignTop
                         objectName: "playlistCategoriesEntry"
                         text: qsTr("分类歌单")
                         glyph: "chevron-right"
@@ -50,12 +67,6 @@ RoutePage {
                         plain: true
                         onClicked: page.router.navigate("playlist-categories")
                     }
-                }
-                Label {
-                    width: body.width
-                    text: qsTr("为每一种心情，找到合拍的歌单")
-                    color: Theme.secondaryText
-                    font: Theme.font(12, Theme.regularWeight)
                 }
                 PlaylistCollectionSection {
                     id: recommended

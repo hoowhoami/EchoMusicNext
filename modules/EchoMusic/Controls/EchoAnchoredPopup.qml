@@ -61,7 +61,7 @@ Popup {
         if (focus && !activeFocus && window && (target === window.contentItem || target === anchorItem))
             forceActiveFocus(Qt.PopupFocusReason);
     }
-    background: EchoFloatingSurface {
+    background: EchoPopupSurface {
         // Anchored popovers are borderless; search panels can opt into a ring.
         border.width: 0
         EchoPopupArrow {

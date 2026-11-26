@@ -1365,6 +1365,158 @@ Window {
             QVERIFY(!cover->property("active").toBool());
         QCOMPARE(warnings.size(), 0);
     }
+    void recommendationManagerKeepsDragInItsViewport_data()
+    {
+        QTest::addColumn<int>("zoomSteps");
+        QTest::addColumn<bool>("deep");
+        QTest::newRow("top-100") << 0 << false;
+        QTest::newRow("bottom-100") << 0 << true;
+        QTest::newRow("top-125") << 5 << false;
+        QTest::newRow("bottom-125") << 5 << true;
+    }
+    void recommendationManagerKeepsDragInItsViewport()
+    {
+        if (QGuiApplication::platformName() != "offscreen")
+            QSKIP("Nonintrusive recommendation input regression");
+        QFETCH(int, zoomSteps);
+        QFETCH(bool, deep);
+        QTemporaryDir dir;
+        SettingsStore prefs(dir.filePath("prefs.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        AccountService account(api);
+        PlaybackService playback(api, prefs, nullptr, dir.filePath("playback.sqlite"));
+        ThemeStore theme(prefs);
+        theme.setMotionEnabled(false);
+        ShellSettings settings(prefs);
+        settings.acceptUserAgreement();
+        for (int i = 0; i < zoomSteps; ++i)
+            settings.zoomIn();
+        DiscoveryService service(api, playback, account);
+        auto *layout = service.recommendationCards();
+        for (auto *card : layout->all())
+            if (!layout->contains(card->key()))
+                layout->toggle(card->key());
+        RouteController router;
+        DiscoveryRouteCoordinator routes(service, router, false);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Shell
+Window {
+ id: host; visible: true; width: 1100; height: 700
+ required property RouteController router
+ required property ShellSettings settings
+ Item {
+  width: parent.width / host.settings.uiScale; height: parent.height / host.settings.uiScale
+  scale: host.settings.uiScale; transformOrigin: Item.TopLeft
+  RouteHost { anchors.fill: parent; router: host.router; settings: host.settings }
+ }
+})",
+                          QUrl("qrc:/recommendation-manager-input.qml"));
+        QScopedPointer<QObject> root(
+            component.createWithInitialProperties({{"router", QVariant::fromValue(&router)},
+                                                   {"settings", QVariant::fromValue(&settings)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window && Test::prepareNativeInput(window));
+        QVERIFY(router.navigate("home"));
+        QQuickItem *pageView = nullptr;
+        QTRY_VERIFY((pageView = findVisual(window->contentItem(), "recommendationCardsView")));
+        pageView->setProperty("contentY", 400.);
+        QMetaObject::invokeMethod(pageView, "forceLayout");
+        auto *add = findVisual(window->contentItem(), "recommendationAddCard");
+        QVERIFY(add && QMetaObject::invokeMethod(add, "clicked"));
+        QPointer<QObject> popup;
+        QTRY_VERIFY(
+            (popup = findVisualOwnerObject(window->contentItem(), "recommendationConfigPopup")));
+        QTRY_VERIFY(popup->property("opened").toBool());
+        QVERIFY(!popup->property("modal").toBool());
+        QVERIFY(!popup->property("dim").toBool());
+        auto *view = findVisual(window->contentItem(), "recommendationConfigList");
+        auto *reorder = findVisual(window->contentItem(), "recommendationCardReorder");
+        QVERIFY(view && reorder);
+        QPointer<QQuickItem> retiredView = view;
+        QPointer<QQuickItem> retiredReorder = reorder;
+        QVERIFY(QMetaObject::invokeMethod(view,
+                                          deep ? "positionViewAtEnd" : "positionViewAtBeginning"));
+        QMetaObject::invokeMethod(view, "forceLayout");
+        Test::FrameSpy ready(window);
+        window->requestUpdate();
+        QVERIFY(ready.wait(1000));
+        const auto pagePosition = pageView->property("contentY").toReal();
+        QCOMPARE(reorder->mapToItem(view, QPointF()), QPointF());
+        const auto backgroundWheel = [&] {
+            const QPointF position(20, window->height() / 2);
+            QWheelEvent wheel(position, window->mapToGlobal(position.toPoint()), {}, {0, -120},
+                              Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+            QCoreApplication::sendEvent(window, &wheel);
+            QTest::qWait(80);
+        };
+        const int from = deep ? layout->count() - 1 : 0;
+        const int to = deep ? from - 1 : 1;
+        const auto sourceKey = layout->at(from)->key();
+        QQuickItem *source = nullptr, *target = nullptr;
+        QTRY_VERIFY(QMetaObject::invokeMethod(view, "itemAtIndex",
+                                              Q_RETURN_ARG(QQuickItem *, source),
+                                              Q_ARG(int, from)) &&
+                    source);
+        QTRY_VERIFY(QMetaObject::invokeMethod(view, "itemAtIndex",
+                                              Q_RETURN_ARG(QQuickItem *, target), Q_ARG(int, to)) &&
+                    target);
+        const auto press = source->mapToScene(QPointF(70, source->height() / 2)).toPoint();
+        const auto release = target->mapToScene(QPointF(70, target->height() / 2)).toPoint();
+        const auto listPosition = view->property("contentY").toReal();
+        QTest::mouseMove(window, press);
+        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, press);
+        const auto releaseOnFailure = qScopeGuard([window, release] {
+            if (QGuiApplication::mouseButtons().testFlag(Qt::LeftButton))
+                QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, release);
+        });
+        QTest::mouseMove(window, press + QPoint(0, deep ? -20 : 20), 30);
+        QTRY_COMPARE_WITH_TIMEOUT(reorder->property("phase").toString(), QString("dragging"), 1000);
+        QVERIFY(!view->property("interactive").toBool());
+        for (int step = 1; step <= 6; ++step) {
+            QTest::mouseMove(window, press + (release - press) * step / 6, 16);
+            QCOMPARE(pageView->property("contentY").toReal(), pagePosition);
+            QCOMPARE(view->property("contentY").toReal(), listPosition);
+        }
+        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, release);
+        QTRY_COMPARE(layout->at(to)->key(), sourceKey);
+        QTRY_VERIFY(view->property("interactive").toBool());
+        // Reordering variable-height homepage blocks can change ListView's
+        // origin. Test input isolation against the settled native position.
+        Test::FrameSpy committed(window);
+        window->requestUpdate();
+        QVERIFY(committed.wait(1000));
+        const auto settledPosition = pageView->property("contentY").toReal();
+        const auto inside = view->mapToScene(QPointF(view->width() - 5, view->height() / 2));
+        QWheelEvent insideWheel(inside, window->mapToGlobal(inside.toPoint()), {}, {0, -120},
+                                Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+        QCoreApplication::sendEvent(window, &insideWheel);
+        QTest::qWait(80);
+        QCOMPARE(pageView->property("contentY").toReal(), settledPosition);
+        backgroundWheel();
+        QTRY_VERIFY(pageView->property("contentY").toReal() > settledPosition);
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_VERIFY(popup.isNull());
+        QTRY_VERIFY(retiredView.isNull() && retiredReorder.isNull());
+        const auto closedPosition = pageView->property("contentY").toReal();
+        QWheelEvent wheel({20, 350}, window->mapToGlobal(QPoint(20, 350)), {}, {0, -120},
+                          Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+        QCoreApplication::sendEvent(window, &wheel);
+        QTRY_VERIFY(pageView->property("contentY").toReal() > closedPosition);
+        QCOMPARE(warnings.size(), 0);
+        root.reset();
+        service.shutdown();
+        router.shutdown();
+        QSignalSpy drained(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE(drained.size(), 1);
+        api.shutdown();
+    }
     void recommendationConfigurationPersistsAndKeepsOneCard()
     {
         QTemporaryDir dir;
@@ -2305,6 +2457,33 @@ ApplicationWindow {
         QQuickItem *singleMore = nullptr;
         QTRY_VERIFY((singleMore = findVisual(singlePanel, "recommendationViewAll")) &&
                     singleMore->isEnabled());
+        // Probe each real recommendation shape, not only a standalone button.
+        auto *themeMore = findVisual(groupPanel, "recommendationGroupMore-3103-0");
+        auto *vipMore = findVisual(findVisual(window->contentItem(), "recommendationPanel-3006"),
+                                   "recommendationViewAll");
+        auto *storyMore = findVisual(findVisual(window->contentItem(), "recommendationPanel-3004"),
+                                     "recommendationViewAll");
+        QVERIFY(themeMore && vipMore && storyMore);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+            theme.setMode(mode);
+            for (auto *more : {singleMore, themeMore, vipMore, storyMore}) {
+                QTest::mouseMove(window, QPoint(4, 4));
+                QTRY_VERIFY(!more->property("hovered").toBool());
+                auto *content = more->property("contentItem").value<QQuickItem *>();
+                QVERIFY(content);
+                const auto normal = content->property("color").value<QColor>();
+                QTest::mouseMove(window, more->mapToScene(more->boundingRect().center()).toPoint());
+                QTRY_VERIFY_WITH_TIMEOUT(more->property("hovered").toBool(), 1000);
+                const auto hover = content->property("color").value<QColor>();
+                QVERIFY2(hover != normal, qPrintable(more->objectName() + " " + normal.name() +
+                                                     " -> " + hover.name()));
+                auto *background = more->property("background").value<QQuickItem *>();
+                QVERIFY(background && !background->isVisible());
+                QCOMPARE(more->scale(), 1.);
+            }
+        }
+        theme.setMode(ThemeStore::Light);
         auto *singleLocalMore = findVisual(singlePanel, "recommendationGroupMore-3102-0");
         QVERIFY(singleLocalMore && !singleLocalMore->isVisible());
         auto *singleHeading = findVisual(singlePanel, "recommendationHeading-3102");
@@ -2343,6 +2522,14 @@ ApplicationWindow {
         theme.setMotionEnabled(true);
         auto *groupNext = findVisual(window->contentItem(), "recommendationCarouselNext-3103");
         QVERIFY(groupNext);
+        // The native section hover bridges the 8px gutter without an oversized
+        // hover surface overlapping this or the neighboring section's buttons.
+        const auto gutter =
+            themes->mapToScene(QPointF(themes->width() + 4, themes->height() / 2)).toPoint();
+        QTest::mouseMove(window, themes->mapToScene(themes->boundingRect().center()).toPoint());
+        QTRY_VERIFY(groupNext->isVisible());
+        QTest::mouseMove(window, gutter);
+        QTRY_VERIFY(groupNext->isVisible());
         QTest::mouseMove(
             window, groupNext->mapToScene(QPointF(groupNext->width() / 2, groupNext->height() / 2))
                         .toPoint());
@@ -4809,6 +4996,24 @@ Window {id:host;required property RouteController router;required property Shell
         auto *filter = findVisual(window->contentItem(), "playlistRecommendationFilter");
         auto *recommended = findVisual(window->contentItem(), "playlistSection-recommended-0");
         QVERIFY(filter && recommended);
+        auto *heading = findVisual(window->contentItem(), "playlistRecommendationHeading");
+        auto *title = findVisual(window->contentItem(), "playlistRecommendationTitle");
+        auto *description = findVisual(window->contentItem(), "playlistRecommendationDescription");
+        QVERIFY(heading && title && description);
+        QCOMPARE(description->mapToItem(heading, QPointF()).y() -
+                     title->mapToItem(heading, QPointF(0, title->height())).y(),
+                 5.);
+        QCOMPARE(recommended->mapToScene(QPointF()).y() -
+                     heading->mapToScene(QPointF(0, heading->height())).y(),
+                 32.);
+        const auto capture = qEnvironmentVariable("ECHO_RECOMMENDATION_POLISH_ARTIFACTS");
+        if (!capture.isEmpty()) {
+            QVERIFY(QDir().mkpath(capture));
+            Test::FrameSpy frame(window);
+            window->requestUpdate();
+            QVERIFY(frame.wait(1000));
+            QVERIFY(window->grabWindow().save(capture + "/playlist-heading-spacing.png"));
+        }
         const auto filterBounds = filter->mapRectToItem(recommended, filter->boundingRect());
         QVERIFY(filterBounds.top() >= 16 && filterBounds.bottom() <= 52);
         QVERIFY(filterBounds.right() >= recommended->width() - 17);

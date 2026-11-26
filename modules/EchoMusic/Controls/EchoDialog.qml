@@ -76,7 +76,7 @@ Dialog {
             onOutsidePressed: dialog.requestDismiss()
         }
     }
-    background: EchoFloatingSurface {
+    background: EchoPopupSurface {
         readonly property string echoUiSurface: dialog.echoUiSurface
         radius: Theme.popoverRadius
         // Match anchored effect popovers in both light and dark palettes.

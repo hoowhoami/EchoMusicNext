@@ -38,6 +38,11 @@ Item {
     readonly property real bodyHeight: emptyBody ? 96 : grouped ? 240 : card.key === "3006" ? vipSleeveHeight + 8 + vipCaptionHeight : card.key === "3004" ? 240 : Math.ceil(previewSongs / songColumns) * 84
     readonly property real contentWidth: Math.max(0, width - 32)
     implicitHeight: contentLayout.implicitHeight + 32
+    HoverHandler {
+        id: sectionHover
+        blocking: false
+        enabled: panel.resourceActive
+    }
     Rectangle {
         objectName: "recommendationSectionSurface"
         anchors.fill: parent
@@ -371,6 +376,7 @@ Item {
         }
     }
     component Carousel: EchoCarouselView {
+        sectionHovered: sectionHover.hovered
         resourceActive: panel.resourceActive
         navigationKey: panel.card.key
         initialIndex: panel.previewIndex

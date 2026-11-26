@@ -41,6 +41,7 @@ EchoDialog {
             spacing: 4
             model: popup.layout
             reuseItems: true
+            interactive: !reorderControl.busy
             boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: EchoPopupScrollBar {
                 surface: popup
@@ -125,12 +126,13 @@ EchoDialog {
             EchoListReorder {
                 id: reorderControl
                 objectName: "recommendationCardReorder"
+                parent: selected
                 width: selected.width - 24
                 view: selected
                 sourceModel: popup.layout
                 rowHeight: 52
                 handleRight: 46
-                resourceActive: popup.visible
+                resourceActive: popup.opened
                 snapshotForRow: row => ({
                             title: row.card.title
                         })

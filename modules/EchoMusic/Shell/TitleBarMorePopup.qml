@@ -92,6 +92,7 @@ EchoAnchoredPopup {
             Layout.fillWidth: true
             Layout.preferredHeight: implicitHeight
             clip: true
+            interactive: !reorderControl.busy
             reuseItems: menu.visible
             cacheBuffer: 0
             spacing: 3
@@ -103,7 +104,57 @@ EchoAnchoredPopup {
                 view: list
                 resourceActive: menu.visible
             }
-            delegate: Item {
+            EchoListReorder {
+                id: reorderControl
+                objectName: "titlebarMoreReorder"
+                parent: list
+                view: list
+                sourceModel: list.model
+                variableRowHeights: true
+                rowHeight: 38
+                handleRight: 36
+                resourceActive: menu.opened
+                snapshotForRow: row => ({
+                            key: row.actionKey,
+                            title: row.actionTitle,
+                            icon: row.actionIcon,
+                            enabled: row.actionEnabled
+                        })
+                onMoveRequested: (from, to) => {
+                    const target = list.itemAtIndex(to);
+                    if (!target)
+                        return;
+                    if (from < to)
+                        menu.actions.moveAfter(snapshot.key, snapshotForRow(target).key);
+                    else
+                        menu.actions.moveBefore(snapshot.key, snapshotForRow(target).key);
+                }
+                dragContent: Component {
+                    Item {
+                        objectName: "titlebarMoreDragCard"
+                        opacity: reorderControl.snapshot && !reorderControl.snapshot.enabled ? 0.4 : 1
+                        EchoIcon {
+                            x: 10
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 20
+                            height: 20
+                            name: reorderControl.snapshot ? reorderControl.snapshot.icon : ""
+                            color: Theme.floatingText
+                        }
+                        EchoTextTagRow {
+                            x: 40
+                            width: Math.max(0, parent.width - 90)
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: reorderControl.snapshot ? reorderControl.snapshot.title : ""
+                            color: Theme.floatingText
+                            font: Theme.font(13, Theme.mediumWeight)
+                            wrap: true
+                            fillTextWidth: true
+                        }
+                    }
+                }
+            }
+            delegate: EchoReorderRow {
                 id: row
                 required property string actionKey
                 required property string actionTitle
@@ -116,10 +167,7 @@ EchoAnchoredPopup {
                 required property string actionBadge
                 required property bool badgeVisible
                 required property int preferredZone
-                required property int index
-                property bool pooled: false
-                ListView.onPooled: pooled = true
-                ListView.onReused: pooled = false
+                reorder: reorderControl
                 objectName: "titlebarMoreRow"
                 width: list.width
                 height: Math.max(38, itemLabel.implicitHeight + 16)
@@ -137,14 +185,14 @@ EchoAnchoredPopup {
                         Accessible.name: row.actionTitle
                         onClicked: menu.activate(row.actionKey)
                         HoverHandler {
-                            enabled: !row.pooled && row.visible
+                            enabled: row.contentActive && !reorderControl.busy && row.visible
                             onHoveredChanged: if (hovered && row.actionHover && action.enabled)
                                 menu.actions.activate(row.actionKey)
                         }
                         EchoToolTip {
                             objectName: "moreActionToolTip"
                             parent: action
-                            requestedVisible: action.hovered && action.enabled && !row.pooled && (itemLabel.truncated || row.actionTooltip.trim().length > 0 && row.actionTooltip.trim() !== row.actionTitle.trim())
+                            requestedVisible: action.hovered && action.enabled && row.contentActive && !reorderControl.busy && (itemLabel.truncated || row.actionTooltip.trim().length > 0 && row.actionTooltip.trim() !== row.actionTitle.trim())
                             text: row.actionTooltip
                         }
                         EchoBadge {
@@ -177,7 +225,7 @@ EchoAnchoredPopup {
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: 20
                                 height: 20
-                                active: row.actionBusy && !row.pooled && menu.visible
+                                active: row.actionBusy && row.contentActive && menu.visible
                                 sourceComponent: EchoSpinner {
                                     anchors.fill: parent
                                     color: Theme.floatingAccentText
@@ -226,15 +274,15 @@ EchoAnchoredPopup {
                         }
                     }
                 }
-                ShellActionDragHandle {
+                EchoIcon {
+                    objectName: "shellDragHandle-" + row.actionKey
                     x: 10
-                    y: (row.height - height) / 2
-                    actionKey: row.actionKey
-                    glyph: row.actionBusy ? "" : row.actionIcon
-                    // Qt can retain a mouse-grabbing delegate offscreen instead of
-                    // pooling it. Cancel its drag as soon as it leaves the viewport.
-                    resourceActive: menu.visible && !row.pooled && row.y + row.height > list.contentY && row.y < list.contentY + list.height
-                    onClicked: menu.activate(row.actionKey)
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 20
+                    height: 20
+                    name: row.actionBusy ? "" : row.actionIcon
+                    color: Theme.floatingText
+                    opacity: row.actionEnabled ? 1 : 0.4
                 }
                 DropArea {
                     anchors.fill: parent

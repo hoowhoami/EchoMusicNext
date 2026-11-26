@@ -27,6 +27,11 @@ Item {
     readonly property bool skeletons: loading && collection.count === 0
     readonly property bool empty: !loading && collection.count === 0
     readonly property bool inViewport: resourceActive && scrollView.height > 0 && contentTop + height > scrollView.contentY && contentTop < scrollView.contentY + scrollView.height
+    HoverHandler {
+        id: sectionHover
+        blocking: false
+        enabled: collectionSection.resourceActive
+    }
     signal retryRequested
     implicitHeight: content.height + 32
     function rememberIndex(index: int): void {
@@ -78,6 +83,7 @@ Item {
         id: carouselContent
         EchoCarouselView {
             id: carousel
+            sectionHovered: sectionHover.hovered
             objectName: "playlistCarousel-" + collectionSection.stateKey
             property bool viewportReady: false
             property bool imagesReady: false

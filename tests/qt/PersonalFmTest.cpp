@@ -287,7 +287,23 @@ Window {
         const auto buffered = PersonalFmControllerTestAccess::bufferCount(f.fm());
         auto *more = visual(window->contentItem(), "recommendationFmMore");
         QVERIFY(more);
-        QVERIFY(QMetaObject::invokeMethod(more, "clicked"));
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+            theme.setMode(mode);
+            QTest::mouseMove(window, QPoint(window->width() - 2, window->height() - 2));
+            QTRY_VERIFY(!more->property("hovered").toBool());
+            auto *content = more->property("contentItem").value<QQuickItem *>();
+            QVERIFY(content);
+            const auto normal = content->property("color").value<QColor>();
+            QTest::mouseMove(window, more->mapToScene(more->boundingRect().center()).toPoint());
+            QTRY_VERIFY(more->property("hovered").toBool());
+            QVERIFY(content->property("color").value<QColor>() != normal);
+            auto *background = more->property("background").value<QQuickItem *>();
+            QVERIFY(background && !background->isVisible());
+            QCOMPARE(more->scale(), 1.);
+        }
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          more->mapToScene(more->boundingRect().center()).toPoint());
         QTRY_COMPARE(router.current()->name(), QString("personal-fm"));
         QTRY_VERIFY(visual(window->contentItem(), "personalFmPage"));
         auto *independentPool = visual(window->contentItem(), "personalFmPoolSwitch");

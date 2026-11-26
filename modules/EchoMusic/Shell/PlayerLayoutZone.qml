@@ -104,6 +104,8 @@ Rectangle {
         height: 64
         clip: true
         orientation: ListView.Horizontal
+        acceptedButtons: Qt.NoButton
+        interactive: !pane.reorder.dragging
         spacing: 6
         reuseItems: pane.resourceActive
         EchoViewPoolGuard {

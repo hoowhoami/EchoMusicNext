@@ -14,6 +14,10 @@ Item {
     property var snapshotForRow: null
     property real rowHeight: 52
     readonly property real rowStride: rowHeight + view.spacing
+    // Most reorder views have fixed rows; wrapped menu labels keep native height.
+    property bool variableRowHeights: false
+    property real capturedHeight: rowHeight
+    readonly property real dragHeight: variableRowHeights ? capturedHeight : rowHeight
     property real handleLeft: 0
     property real handleRight: 0
     property bool resourceActive: true
@@ -55,7 +59,7 @@ Item {
     width: view.width
     height: view.height
     z: 20
-    containmentMask: handleArea
+    containmentMask: touchArea
     onUsableChanged: if (!usable)
         cancel()
     onSourceModelChanged: cancel()
@@ -70,6 +74,16 @@ Item {
             edgeDelay.restart();
     }
     Component.onDestruction: cancel()
+
+    // Desktop left-drag belongs to reordering; touch, wheel and scrollbar
+    // scrolling keep their native paths. Restore the caller's policy on leave.
+    Binding {
+        target: control.view
+        property: "acceptedButtons"
+        value: Qt.NoButton
+        when: control.usable
+        restoreMode: Binding.RestoreBindingOrValue
+    }
 
     function cancel() {
         const wasBusy = busy;
@@ -92,12 +106,16 @@ Item {
         if (!usable || view.count < 2)
             return;
         const press = view.mapFromItem(null, scenePress.x, scenePress.y);
+        const region = mapFromItem(view, press.x, press.y);
+        if (region.x < handleLeft || region.x > width - handleRight || region.y < 0 || region.y > height)
+            return;
         const index = view.indexAt(view.width / 2, view.contentY + press.y);
         const row = view.itemAtIndex(index);
         if (!row)
             return;
         view.cancelFlick();
         fromIndex = toIndex = index;
+        capturedHeight = row.height;
         snapshot = snapshotForRow ? snapshotForRow(row) : ({});
         pressOffset = view.contentY + press.y - row.y;
         ghostScale = 1;
@@ -123,13 +141,13 @@ Item {
         const point = view.mapFromItem(null, scenePointer.x, scenePointer.y);
         pointerX = point.x;
         pointerY = point.y;
-        ghostY = Math.max(0, Math.min(Math.max(0, height - rowHeight), pointerY - pressOffset));
+        ghostY = Math.max(0, Math.min(Math.max(0, height - dragHeight), pointerY - pressOffset));
         updateTarget();
     }
     function updateTarget() {
         if (!dragging || !pointerInside)
             return;
-        const position = view.contentY + ghostY + rowHeight / 2;
+        const position = view.contentY + ghostY + dragHeight / 2;
         let index = view.indexAt(view.width / 2, position);
         // A short list leaves empty viewport space below its last row. Dropping
         // there still means "move to the end", without enabling auto-scroll.
@@ -139,8 +157,12 @@ Item {
             toIndex = index;
             const target = view.itemAtIndex(index);
             if (target)
-                slotY = target.mapToItem(view, 0, 0).y;
+                slotY = slotFor(target);
         }
+    }
+    function slotFor(target) {
+        const top = target.mapToItem(view, 0, 0).y;
+        return variableRowHeights && toIndex > fromIndex ? top + target.height - dragHeight : top;
     }
     function release() {
         if (!dragging)
@@ -152,12 +174,12 @@ Item {
             if (token !== generation || !settling || !usable)
                 return;
             const target = view.itemAtIndex(toIndex);
-            const point = target ? target.mapToItem(view, 0, 0) : Qt.point(0, ghostY);
+            const destination = target ? slotFor(target) : ghostY;
             if (!Theme.store.motionEnabled) {
                 finish();
                 return;
             }
-            landY.to = point.y;
+            landY.to = destination;
             landing.restart();
         });
     }
@@ -181,11 +203,11 @@ Item {
         if (!busy)
             return 0;
         if (index === fromIndex)
-            return (toIndex - fromIndex) * rowStride;
+            return variableRowHeights ? slotY - ghostY : (toIndex - fromIndex) * rowStride;
         if (fromIndex < toIndex && index > fromIndex && index <= toIndex)
-            return -rowStride;
+            return -(dragHeight + view.spacing);
         if (toIndex < fromIndex && index >= toIndex && index < fromIndex)
-            return rowStride;
+            return dragHeight + view.spacing;
         return 0;
     }
     function handlerActive(handler) {
@@ -242,26 +264,30 @@ Item {
             }
         }
     }
+    DragHandler {
+        id: mouseDrag
+        // Observe as an ancestor of native row buttons, not as an overlay
+        // sibling that would accept their presses before they see them.
+        parent: control.view
+        objectName: "listReorderMouse"
+        enabled: control.usable && !control.settling && control.view.count > 1
+        target: null
+        acceptedButtons: Qt.LeftButton
+        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad | PointerDevice.Stylus
+        cursorShape: Qt.ArrowCursor
+        xAxis.enabled: false
+        grabPermissions: PointerHandler.CanTakeOverFromItems | PointerHandler.CanTakeOverFromHandlersOfDifferentType | PointerHandler.ApprovesCancellation
+        onActiveChanged: control.handlerActive(mouseDrag)
+        onCentroidChanged: if (active && (centroid.pressedButtons & Qt.LeftButton))
+            control.updatePointer(centroid.scenePosition)
+        onCanceled: control.cancel()
+    }
+    // Keep the existing touch hold surface; native row controls retain taps.
     Item {
-        id: handleArea
+        id: touchArea
         x: control.handleLeft
         width: Math.max(0, control.width - x - control.handleRight)
         height: control.height
-        DragHandler {
-            id: mouseDrag
-            objectName: "listReorderMouse"
-            enabled: control.usable && !control.settling && control.view.count > 1
-            target: null
-            acceptedButtons: Qt.LeftButton
-            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad | PointerDevice.Stylus
-            cursorShape: Qt.ArrowCursor
-            xAxis.enabled: false
-            grabPermissions: PointerHandler.CanTakeOverFromItems | PointerHandler.CanTakeOverFromHandlersOfDifferentType | PointerHandler.ApprovesCancellation
-            onActiveChanged: control.handlerActive(mouseDrag)
-            onCentroidChanged: if (active && (centroid.pressedButtons & Qt.LeftButton))
-                control.updatePointer(centroid.scenePosition)
-            onCanceled: control.cancel()
-        }
         TapHandler {
             acceptedDevices: PointerDevice.TouchScreen
             enabled: control.usable && !control.settling
@@ -352,7 +378,7 @@ Item {
         x: 3
         y: control.slotY + 2
         width: Math.max(0, control.width - 6)
-        height: Math.max(0, control.rowHeight - 4)
+        height: Math.max(0, control.dragHeight - 4)
         sourceComponent: Rectangle {
             radius: Theme.controlRadius
             color: Theme.withAlpha(Theme.floating.accent, 0.045)
@@ -379,7 +405,7 @@ Item {
         x: control.ghostInset
         y: control.ghostY
         width: Math.max(0, control.width - control.ghostInset * 2)
-        height: control.rowHeight
+        height: control.dragHeight
         scale: control.ghostScale
         sourceComponent: EchoFloatingSurface {
             objectName: "listReorderGhostSurface"

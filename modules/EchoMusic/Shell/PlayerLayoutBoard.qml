@@ -12,6 +12,7 @@ Rectangle {
     property bool lyricStyle: false
     property bool resourceActive: true
     property bool narrow: false
+    readonly property bool dragging: reorderState.dragging
     PlayerLayoutReorder {
         id: reorderState
         actions: board.actions

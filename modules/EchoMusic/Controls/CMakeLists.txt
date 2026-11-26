@@ -204,6 +204,7 @@ qt_add_qml_module(
     EchoPopconfirm.qml
     EchoSurfaceShadow.qml
     EchoFloatingSurface.qml
+    EchoPopupSurface.qml
     EchoRoundedRect.qml
     EchoDialogCloseButton.qml
     EchoDetailTabs.qml

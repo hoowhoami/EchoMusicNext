@@ -184,6 +184,7 @@ EchoAnchoredPopup {
         }
         ScrollView {
             id: editScroll
+            objectName: "playerLayoutScroll"
             visible: menu.editing
             Layout.fillWidth: true
             Layout.preferredHeight: Math.min(board.implicitHeight, Math.max(0, menu.contentHeightLimit - 79))
@@ -194,12 +195,28 @@ EchoAnchoredPopup {
                 view: editScroll
                 resourceActive: menu.visible && menu.editing
             }
+            // ScrollView owns a native Flickable for this non-Flickable body.
+            // Desktop drags edit the chips; wheel/touch/scrollbar still scroll.
+            Binding {
+                target: editScroll.contentItem
+                property: "acceptedButtons"
+                value: Qt.NoButton
+                when: menu.editing
+                restoreMode: Binding.RestoreBindingOrValue
+            }
+            Binding {
+                target: editScroll.contentItem
+                property: "interactive"
+                value: false
+                when: board.dragging
+                restoreMode: Binding.RestoreBindingOrValue
+            }
             PlayerLayoutBoard {
                 id: board
                 width: editScroll.availableWidth
                 actions: menu.actions
                 lyricStyle: menu.lyricStyle
-                resourceActive: menu.visible && menu.editing
+                resourceActive: menu.opened && menu.editing
                 narrow: menu.parent ? menu.parent.width / menu.uiScale <= 640 : false
             }
         }
