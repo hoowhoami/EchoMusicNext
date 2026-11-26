@@ -223,6 +223,17 @@ void AudioEngine::playFaded(double volume, int durationMs)
                         {"message", "播放淡入请求未被接受"}});
     });
 }
+void AudioEngine::pauseFaded(int durationMs, quint64 requestId)
+{
+    if (m_closing)
+        return;
+    QMetaObject::invokeMethod(m_worker, [sink = m_sink, durationMs, requestId] {
+        if (!echo_audio_pause_faded(sink->handle, uint32_t(durationMs), requestId))
+            sink->push({{"event", "error"},
+                        {"track_seq", qint64(sink->sequence)},
+                        {"message", "暂停淡出请求未被接受"}});
+    });
+}
 void AudioEngine::prepareNext(const QString &source, qint64 trackId, quint64 sequence,
                               quint64 requestId, quint64 revision, double gain)
 {

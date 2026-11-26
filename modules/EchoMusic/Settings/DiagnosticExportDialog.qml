@@ -15,17 +15,21 @@ EchoDialog {
     property bool includeDump: !currentSession && !!event.hasDump
     property string notes: ""
     property bool exportStarted: false
+    property bool currentOnly: false
     property bool exportingCurrentSession: false
+    property string exportingEventId: ""
+    property bool exportingDump: false
     property bool showDetails: false
     objectName: "diagnosticExportDialog"
     heading: qsTr("故障诊断")
-    description: !service.loading && currentSession ? qsTr("未找到历史故障，将导出本次运行日志。") : ""
+    description: service.loading ? qsTr("正在查找故障记录…") : currentSession ? qsTr("未找到历史故障，将导出本次运行日志。") : currentOnly ? qsTr("仅导出本次运行日志，不包含上次故障的日志和崩溃转储。") : qsTr("导出所选故障的日志和转储，并附上本次运行日志。")
     descriptionPixelSize: 12
     preferredWidth: 580
     windowHeightMargin: 70
     maximumHeight: 680
     flushBody: true
     onAboutToShow: {
+        currentOnly = false;
         service.resetExport();
         service.refresh();
     }
@@ -78,7 +82,25 @@ EchoDialog {
                 color: Theme.floatingSecondaryText
             }
             RowLayout {
-                visible: !dialog.currentSession && !!dialog.event.hasDump
+                visible: !dialog.currentSession && dialog.showDetails
+                Layout.fillWidth: true
+                Label {
+                    Layout.fillWidth: true
+                    text: qsTr("仅导出本次运行日志（不含上次故障）")
+                    wrapMode: Text.Wrap
+                    color: Theme.floatingText
+                    font: Theme.font(12, Theme.mediumWeight)
+                }
+                EchoSwitch {
+                    objectName: "diagnosticCurrentOnly"
+                    checked: dialog.currentOnly
+                    enabled: !dialog.service.busy && !dialog.service.loading
+                    Accessible.name: qsTr("仅导出本次运行日志，不含上次故障")
+                    onToggled: dialog.currentOnly = checked
+                }
+            }
+            RowLayout {
+                visible: !dialog.currentSession && !dialog.currentOnly && !!dialog.event.hasDump
                 Layout.fillWidth: true
                 Label {
                     Layout.fillWidth: true
@@ -95,7 +117,7 @@ EchoDialog {
                 }
             }
             Label {
-                visible: !dialog.currentSession
+                visible: !dialog.currentSession && !dialog.currentOnly
                 Layout.fillWidth: true
                 text: dialog.event.hasDump ? qsTr("转储及附件约 %1 MiB").arg((Number(dialog.event.estimatedBytes || 0) / 1048576).toFixed(1)) : qsTr("未找到崩溃转储，将导出已有日志与记录。")
                 textFormat: Text.PlainText
@@ -104,7 +126,7 @@ EchoDialog {
                 color: Theme.floatingSecondaryText
             }
             SettingsNotice {
-                visible: dialog.includeDump
+                visible: dialog.includeDump && !dialog.currentOnly && !dialog.currentSession
                 text: qsTr("崩溃转储可能包含内存中的个人信息，无法保证彻底脱敏。请仅发送给可信的排查人员。")
             }
             Label {
@@ -169,24 +191,17 @@ EchoDialog {
             onClicked: dialog.service.revealExport()
         }
         EchoSoftButton {
-            objectName: "diagnosticSaveCurrentZip"
-            visible: !dialog.currentSession
-            text: qsTr("导出本次运行")
-            enabled: !dialog.service.busy && !dialog.service.loading
-            colors: Theme.floating
-            onClicked: {
-                dialog.exportingCurrentSession = true;
-                pickerOwner.open();
-            }
-        }
-        EchoSoftButton {
             objectName: "diagnosticSaveZip"
-            text: qsTr("选择位置并导出")
+            text: dialog.currentSession || dialog.currentOnly ? qsTr("导出本次运行日志") : qsTr("导出故障诊断包")
             enabled: !dialog.service.busy && !dialog.service.loading && (dialog.currentSession || !!dialog.event.id)
             accent: true
             colors: Theme.floating
             onClicked: {
-                dialog.exportingCurrentSession = false;
+                // Freeze the scope before entering the native picker. A later
+                // scan must never silently switch the selected crash to current.
+                dialog.exportingCurrentSession = dialog.currentSession || dialog.currentOnly;
+                dialog.exportingEventId = dialog.exportingCurrentSession ? "" : dialog.event.id;
+                dialog.exportingDump = !dialog.exportingCurrentSession && dialog.includeDump;
                 pickerOwner.open();
             }
         }
@@ -201,14 +216,14 @@ EchoDialog {
             fileMode: EchoFileDialog.SaveFile
             nameFilters: [qsTr("ZIP 压缩文件 (*.zip)")]
             defaultSuffix: "zip"
-            currentFile: dialog.service.suggestedFileName(dialog.exportingCurrentSession ? "" : dialog.event.id || "")
+            currentFile: dialog.service.suggestedFileName(dialog.exportingEventId)
             onRejected: dialog.exportingCurrentSession = false
             onAccepted: {
                 dialog.exportStarted = true;
-                if (dialog.currentSession || dialog.exportingCurrentSession)
+                if (dialog.exportingCurrentSession)
                     dialog.service.exportCurrent(selectedFile, dialog.notes);
                 else
-                    dialog.service.exportCrash(dialog.event.id, selectedFile, dialog.includeDump, dialog.notes);
+                    dialog.service.exportCrash(dialog.exportingEventId, selectedFile, dialog.exportingDump, dialog.notes);
             }
         }
     }

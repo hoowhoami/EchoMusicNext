@@ -25,6 +25,20 @@ impl Demuxer {
         io_ctx: IoContext,
         audio_stream_ordinal: Option<usize>,
     ) -> Result<Self> {
+        Self::open(io_ctx, audio_stream_ordinal, true)
+    }
+
+    /// Parse container headers without decoding audio/video packets or allocating
+    /// a playback cache. Missing header facts remain unknown to the caller.
+    pub fn probe_audio_streams(io_ctx: IoContext) -> Result<Vec<AudioStreamInfo>> {
+        Self::open(io_ctx, None, false).map(|demuxer| demuxer.audio_streams())
+    }
+
+    fn open(
+        io_ctx: IoContext,
+        audio_stream_ordinal: Option<usize>,
+        find_stream_info: bool,
+    ) -> Result<Self> {
         unsafe {
             let mut ctx = sys::avformat_alloc_context();
             if ctx.is_null() {
@@ -50,10 +64,12 @@ impl Demuxer {
                 return Err(AudioError::from_ffmpeg(ret));
             }
 
-            let ret = sys::avformat_find_stream_info(ctx, ptr::null_mut());
-            if ret < 0 {
-                sys::avformat_close_input(&raw mut ctx);
-                return Err(AudioError::from_ffmpeg(ret));
+            if find_stream_info {
+                let ret = sys::avformat_find_stream_info(ctx, ptr::null_mut());
+                if ret < 0 {
+                    sys::avformat_close_input(&raw mut ctx);
+                    return Err(AudioError::from_ffmpeg(ret));
+                }
             }
 
             let stream_idx = if let Some(audio_stream_ordinal) = audio_stream_ordinal {
@@ -244,6 +260,28 @@ impl Demuxer {
                     stream_index: i as usize,
                     selected: i as usize == self.audio_stream_idx,
                     codec_name,
+                    bit_rate: u64::try_from((*codec_params).bit_rate)
+                        .ok()
+                        .filter(|v| *v > 0),
+                    sample_rate: u32::try_from((*codec_params).sample_rate)
+                        .ok()
+                        .filter(|v| *v > 0),
+                    channels: u32::try_from((*codec_params).ch_layout.nb_channels)
+                        .ok()
+                        .filter(|v| *v > 0),
+                    bits_per_sample: u32::try_from(
+                        (*codec_params)
+                            .bits_per_raw_sample
+                            .max((*codec_params).bits_per_coded_sample),
+                    )
+                    .ok()
+                    .filter(|v| *v > 0),
+                    profile: ((*codec_params).profile >= 0).then_some((*codec_params).profile),
+                    lossless: {
+                        let descriptor = sys::avcodec_descriptor_get((*codec_params).codec_id);
+                        !descriptor.is_null()
+                            && ((*descriptor).props & sys::AV_CODEC_PROP_LOSSLESS as i32) != 0
+                    },
                     title,
                     lang,
                 });

@@ -22,6 +22,7 @@
 #include <QSet>
 #include <QRegularExpression>
 #include <QThread>
+#include <algorithm>
 
 namespace EchoMusic
 {
@@ -153,7 +154,11 @@ DiagnosticExportResult createPackage(const QString &directory, DiagnosticRecord 
         QThread::msleep(25);
     }
     const auto snapshot = temporary.filePath("log-snapshot");
-    if (current && flush && (!QDir().mkpath(snapshot) || !flush(snapshot, cancel)))
+    const auto currentLog = sessionLogFileName();
+    const bool restartContext =
+        !current && flush && !currentLog.isEmpty() && currentLog != record.runLog;
+    if ((current || restartContext) && flush &&
+        (!QDir().mkpath(snapshot) || !flush(snapshot, cancel)))
         missing.append(QObject::tr("部分运行日志尚未写入或日志快照不可用"));
     if (!current && record.kind == "native_crash")
         captured =
@@ -198,6 +203,27 @@ DiagnosticExportResult createPackage(const QString &directory, DiagnosticRecord 
         else
             missing.append(QObject::tr("会话记录不可用（缺失或无法读取）"));
     }
+    // Restart diagnostics supplement the selected failure. Keep them separate
+    // so a successful new session can never replace the log which crashed.
+    if (restartContext) {
+        if (!QDir().mkpath(staging + "/restart"))
+            return {QObject::tr("无法创建重启日志临时目录"), false};
+        QStringList names{currentLog};
+        for (int i = 1; i <= 7; ++i) {
+            const auto name = currentLog.chopped(4) + QStringLiteral(".%1.log").arg(i);
+            if (QFileInfo::exists(QDir(snapshot).filePath(name)))
+                names.append(name);
+        }
+        for (const auto &name : names) {
+            const auto target = "restart/" + name;
+            if (sanitizeFile(QDir(snapshot).filePath(name), staging + '/' + target, cancel))
+                captured.append(target);
+            else if (cancel)
+                return {{}, true};
+            else
+                missing.append(QObject::tr("重启后的运行日志不可用：%1").arg(name));
+        }
+    }
     // Crashpad attachments are original text: sanitize them before packaging.
     for (const auto &name : std::as_const(captured)) {
         if (name.endsWith(".dmp"))
@@ -214,8 +240,14 @@ DiagnosticExportResult createPackage(const QString &directory, DiagnosticRecord 
                         {"exporterArch", QSysInfo::currentCpuArchitecture()},
                         {"notes", sanitizedLine(notes.left(2000))}};
     auto event = DiagnosticRecords::summary(record);
-    const auto scope = current ? QObject::tr("仅包含当前运行的日志")
-                               : QObject::tr("仅包含所选运行的材料，不使用重启后的日志替代");
+    const bool includesRestart =
+        std::any_of(captured.cbegin(), captured.cend(),
+                    [](const auto &name) { return name.startsWith("restart/"); });
+    const auto scope =
+        current ? QObject::tr("仅包含当前运行的日志，不包含上次故障的材料")
+        : includesRestart
+            ? QObject::tr("所选故障的原始材料；restart/另附本次运行日志，不替代故障日志")
+            : QObject::tr("仅包含所选运行的材料，不使用重启后的日志替代");
     QStringList limitations;
     if (current)
         limitations.append(QObject::tr("当前会话导出不检查上次运行材料是否齐全"));
@@ -294,6 +326,7 @@ DiagnosticExportResult createPackage(const QString &directory, DiagnosticRecord 
                          {"scopeDescription", scope},
                          {"limitations", QJsonArray::fromStringList(limitations)},
                          {"includesDump", captured.contains("crash/report.dmp")},
+                         {"includesRestartLog", includesRestart},
                          {"missing", QJsonArray::fromStringList(missing)},
                          {"files", files}};
     if (!writeFile(staging + "/manifest.json", QJsonDocument(manifest).toJson()))
@@ -368,7 +401,7 @@ DiagnosticService::DiagnosticService(QString directory, Flush flush, QObject *pa
             emit notice(result.error.isEmpty() && !result.missing.isEmpty()
                             ? tr("诊断包已保存，部分材料缺失，请查看导出详情")
                             : m_status,
-                        !result.error.isEmpty());
+                        !result.error.isEmpty() || !result.missing.isEmpty());
     });
 }
 DiagnosticService::~DiagnosticService()

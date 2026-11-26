@@ -11,8 +11,20 @@ class PlaybackFailureController final : public QObject
 {
     Q_OBJECT
 public:
+    enum class Kind
+    {
+        Source,
+        Output
+    };
     explicit PlaybackFailureController(PlaybackService &playback);
-    void failed();
+    void failed(Kind kind = Kind::Source);
+    /// A device failure can retry the AO of the same loaded source. Source or
+    /// stale-session failures still follow the normal URL/decoder reload path.
+    bool resumeOutput();
+    bool awaitingOutputRetry() const
+    {
+        return m_kind == Kind::Output;
+    }
     void sourceOperation(const QString &title);
     void sourceAdopted();
     void cancel(bool resetAttempts = false);
@@ -27,5 +39,7 @@ private:
     int m_attempts = 0;
     QString m_noticeKey, m_operationTitle;
     quint64 m_noticeSequence = 0, m_noticeSession = 0, m_noticeGeneration = 0;
+    quint64 m_failureSourceRevision = 0;
+    Kind m_kind = Kind::Source;
 };
 } // namespace EchoMusic

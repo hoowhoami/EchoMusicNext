@@ -4,11 +4,27 @@
 #[derive(Debug, Clone)]
 pub struct EngineError {
     pub reason: String,
+    pub output: bool,
+    pub cancelled: bool,
 }
 impl EngineError {
     pub fn from_reason(reason: impl Into<String>) -> Self {
         Self {
             reason: reason.into(),
+            output: false,
+            cancelled: false,
+        }
+    }
+    pub fn from_output_reason(reason: impl Into<String>) -> Self {
+        Self {
+            output: true,
+            ..Self::from_reason(reason)
+        }
+    }
+    pub(crate) fn output_start_cancelled() -> Self {
+        Self {
+            cancelled: true,
+            ..Self::from_output_reason("audio output startup was cancelled")
         }
     }
 }

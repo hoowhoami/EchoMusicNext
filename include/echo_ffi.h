@@ -207,6 +207,11 @@ bool echo_audio_commit_next(struct EchoAudio *audio, uint64_t revision);
 bool echo_audio_play_faded(struct EchoAudio *audio, double volume, uint32_t duration_ms);
 
 /**
+ * Fade to silence and pause without blocking subsequent transport commands.
+ */
+bool echo_audio_pause_faded(struct EchoAudio *audio, uint32_t duration_ms, uint64_t request_id);
+
+/**
  * The host accepted an audible prepared boundary; subsequent transport errors
  * must carry that track's sequence instead of the previous load's sequence.
  */

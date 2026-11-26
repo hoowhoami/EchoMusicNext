@@ -75,6 +75,7 @@ void PlayerEnginePreferences::setDemuxerReadaheadSecs(double value)
     m_demuxerReadaheadSecs = value;
     m_settings.setValue(EchoMusic::SettingsKeys::PlayerEngine::DemuxerReadaheadSecs, value);
     emit changed();
+    emit restartRequired(tr("普通预读时长"));
 }
 void PlayerEnginePreferences::setCacheSecs(double value)
 {
@@ -86,6 +87,7 @@ void PlayerEnginePreferences::setCacheSecs(double value)
     m_cacheSecs = value;
     m_settings.setValue(EchoMusic::SettingsKeys::PlayerEngine::CacheSecs, value);
     emit changed();
+    emit restartRequired(tr("网络缓存时长上限"));
 }
 void PlayerEnginePreferences::setCachePauseWaitSecs(double value)
 {
@@ -97,6 +99,7 @@ void PlayerEnginePreferences::setCachePauseWaitSecs(double value)
     m_cachePauseWaitSecs = value;
     m_settings.setValue(EchoMusic::SettingsKeys::PlayerEngine::CachePauseWaitSecs, value);
     emit changed();
+    emit restartRequired(tr("缓存恢复等待"));
 }
 void PlayerEnginePreferences::setDemuxerMaxMb(double value)
 {
@@ -108,6 +111,7 @@ void PlayerEnginePreferences::setDemuxerMaxMb(double value)
     m_demuxerMaxMb = value;
     m_settings.setValue(EchoMusic::SettingsKeys::PlayerEngine::DemuxerMaxMb, value);
     emit changed();
+    emit restartRequired(tr("前向缓存上限"));
 }
 void PlayerEnginePreferences::setDemuxerMaxBackMb(double value)
 {
@@ -119,6 +123,7 @@ void PlayerEnginePreferences::setDemuxerMaxBackMb(double value)
     m_demuxerMaxBackMb = value;
     m_settings.setValue(EchoMusic::SettingsKeys::PlayerEngine::DemuxerMaxBackMb, value);
     emit changed();
+    emit restartRequired(tr("回退缓存上限"));
 }
 void PlayerEnginePreferences::setAudioBufferSecs(double value)
 {
@@ -130,6 +135,7 @@ void PlayerEnginePreferences::setAudioBufferSecs(double value)
     m_audioBufferSecs = value;
     m_settings.setValue(EchoMusic::SettingsKeys::PlayerEngine::AudioBufferSecs, value);
     emit changed();
+    emit restartRequired(tr("音频设备缓冲"));
 }
 void PlayerEnginePreferences::setPlayResumeTimeout(double value)
 {
@@ -161,6 +167,7 @@ void PlayerEnginePreferences::setCacheMode(const QString &value)
     m_cacheMode = value;
     m_settings.setValue(EchoMusic::SettingsKeys::PlayerEngine::CacheMode, value);
     emit changed();
+    emit restartRequired(tr("网络缓存模式"));
 }
 void PlayerEnginePreferences::setAudioSamplerate(const QString &value)
 {
@@ -170,6 +177,7 @@ void PlayerEnginePreferences::setAudioSamplerate(const QString &value)
     m_audioSamplerate = value;
     m_settings.setValue(EchoMusic::SettingsKeys::PlayerEngine::AudioSamplerate, value);
     emit changed();
+    emit restartRequired(tr("音频采样率"));
 }
 void PlayerEnginePreferences::setAudioChannels(const QString &value)
 {
@@ -179,6 +187,7 @@ void PlayerEnginePreferences::setAudioChannels(const QString &value)
     m_audioChannels = value;
     m_settings.setValue(EchoMusic::SettingsKeys::PlayerEngine::AudioChannels, value);
     emit changed();
+    emit restartRequired(tr("音频声道"));
 }
 void PlayerEnginePreferences::setAudioFormat(const QString &value)
 {
@@ -187,6 +196,7 @@ void PlayerEnginePreferences::setAudioFormat(const QString &value)
     m_audioFormat = value;
     m_settings.setValue(EchoMusic::SettingsKeys::PlayerEngine::AudioFormat, value);
     emit changed();
+    emit restartRequired(tr("输出采样格式"));
 }
 void PlayerEnginePreferences::setGaplessAudio(const QString &value)
 {
@@ -195,6 +205,7 @@ void PlayerEnginePreferences::setGaplessAudio(const QString &value)
     m_gaplessAudio = value;
     m_settings.setValue(EchoMusic::SettingsKeys::PlayerEngine::GaplessAudio, value);
     emit changed();
+    emit restartRequired(tr("无缝播放"));
 }
 void PlayerEnginePreferences::setPlaybackStallMaxAttempts(int value)
 {
@@ -212,6 +223,7 @@ void PlayerEnginePreferences::setCachePause(bool enabled)
     m_cachePause = enabled;
     m_settings.setValue(EchoMusic::SettingsKeys::PlayerEngine::CachePause, enabled);
     emit changed();
+    emit restartRequired(tr("缓存耗尽时暂停"));
 }
 void PlayerEnginePreferences::setCacheOnDisk(bool enabled)
 {
@@ -220,6 +232,7 @@ void PlayerEnginePreferences::setCacheOnDisk(bool enabled)
     m_cacheOnDisk = enabled;
     m_settings.setValue(EchoMusic::SettingsKeys::PlayerEngine::CacheOnDisk, enabled);
     emit changed();
+    emit restartRequired(tr("磁盘缓存"));
 }
 QJsonObject PlayerEnginePreferences::startupOptions() const
 {

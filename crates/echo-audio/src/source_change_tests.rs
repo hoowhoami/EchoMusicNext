@@ -2,6 +2,22 @@
 use super::*;
 
 #[test]
+fn submitted_pause_retires_an_older_queued_play_before_output_open() {
+    let _guard = crate::transition_tests::TEST_SERIAL
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    initialize(None).unwrap();
+    let old_play = play();
+    let pause = pause_task();
+    // There is no source: an uncancelled old Play would fail rather than become
+    // a no-op. The pause intent must apply before the transport worker executes it.
+    old_play.execute().unwrap();
+    pause.execute().unwrap();
+    assert!(!get_state().unwrap().playing);
+    destroy().unwrap();
+}
+
+#[test]
 fn source_switch_eof_during_preflight_is_deferred_but_live_disconnect_and_full_queue_are_errors() {
     for eof in [false, true] {
         let shared = Arc::new(SharedAudio::new(
@@ -131,6 +147,7 @@ fn source_change_retains_output_session_but_drains_and_invalidates_old_audio() {
     })
     .unwrap();
     let mut old_play = PlayTask {
+        output_request_seq: OUTPUT_START_INTERRUPT_SEQ.load(Ordering::Acquire),
         source_request_seq: old_request,
     };
     let mut old_load = load_file_task_for_test("must-not-be-opened".to_string(), 2);
@@ -158,6 +175,7 @@ fn source_change_retains_output_session_but_drains_and_invalidates_old_audio() {
     assert_eq!(shared.position_secs(), 0.0);
     assert!(!get_state().unwrap().playing);
     let mut current_play = PlayTask {
+        output_request_seq: OUTPUT_START_INTERRUPT_SEQ.load(Ordering::Acquire),
         source_request_seq: LATEST_SOURCE_OPEN_REQUEST_SEQ.load(Ordering::Acquire),
     };
     assert!(

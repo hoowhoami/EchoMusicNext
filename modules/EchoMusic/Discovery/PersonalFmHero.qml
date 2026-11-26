@@ -13,6 +13,7 @@ Item {
     property bool resourceActive: true
     property bool boundedPreview: false
     property bool hoverPlayback: false
+    readonly property real discSpacing: 28
     readonly property var track: fm.current
     readonly property bool hasTrack: String(track.id || "").length > 0
     readonly property bool initialLoading: fm.previewLoading && !hasTrack
@@ -32,6 +33,7 @@ Item {
     objectName: "personalFmHero"
     height: implicitHeight
     PersonalFmVinyl {
+        id: currentDisc
         objectName: "personalFmCurrentDisc"
         x: hero.boundedPreview ? poster.width - 88 : 160
         y: (parent.height - height) / 2
@@ -47,30 +49,15 @@ Item {
     }
     Item {
         id: sideDiscs
-        x: hero.boundedPreview ? poster.width + 24 : 272
+        // Continue from the actual current disc, including its poster overlap.
+        x: currentDisc.x + currentDisc.width + hero.discSpacing
         width: Math.max(0, hero.width - x)
         height: parent.height
-        // Create at most three visible side discs without hidden cover instances.
-        readonly property int visibleCount: {
-            if (hero.boundedPreview)
-                return Math.max(0, Math.min(3, Math.floor((width - 112 + 28) / 204)));
-            const available = Math.max(0, width - 92 + 18);
-            const widths = [186, 168, 168];
-            let count = 0;
-            let used = 0;
-            for (let i = 0; i < widths.length; ++i) {
-                const next = widths[i] + (i > 0 ? 28 : 0);
-                if (used + next > available && count > 0)
-                    break;
-                used += next;
-                ++count;
-            }
-            return Math.max(1, count);
-        }
+        // Only complete discs own media; all gaps use the same geometry.
+        readonly property int visibleCount: Math.max(0, Math.min(3, Math.floor((width + hero.discSpacing) / (currentDisc.width + hero.discSpacing))))
         Row {
-            x: 112
-            y: (parent.height - 176) / 2
-            spacing: 28
+            y: (parent.height - currentDisc.height) / 2
+            spacing: hero.discSpacing
             Repeater {
                 // A changing numeric model recreates every disc,
                 // replaying image loading/reveal on each resize.
@@ -80,10 +67,10 @@ Item {
                     id: sideSlot
                     required property int index
                     readonly property var entry: hero.fm.sideTracks[index] || ({})
-                    active: index < (hero.initialLoading ? (hero.boundedPreview ? Math.min(2, sideDiscs.visibleCount) : 2) : Math.min(sideDiscs.visibleCount, hero.fm.sideTracks.length))
+                    active: index < Math.min(sideDiscs.visibleCount, hero.initialLoading ? 2 : hero.fm.sideTracks.length)
                     visible: active
-                    width: 176
-                    height: 176
+                    width: currentDisc.width
+                    height: currentDisc.height
                     sourceComponent: PersonalFmVinyl {
                         id: sideDisc
                         objectName: "personalFmSideDisc-" + sideSlot.index

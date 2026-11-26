@@ -5,10 +5,12 @@
 #include "CloudAudioIndex.h"
 #include <QObject>
 #include <QPointer>
+#include <QTimer>
 #include "PlaybackSourceExtensions.h"
 
 namespace EchoMusic
 {
+class NativeBridge;
 /// Shared current/preloaded source resolution. Consumes only the Rust domain
 /// contract; HTTP identity, privilege-first ordering and effect fallback are
 /// identical for both callers. Signed URLs never enter persisted queue state.
@@ -18,7 +20,8 @@ class PlaybackSourceRequest final : public QObject
 public:
     explicit PlaybackSourceRequest(ApiClient &api, MembershipService &membership,
                                    QObject *parent = nullptr, CloudAudioIndex *cloud = nullptr,
-                                   PlaybackSourceExtensions *extensions = nullptr);
+                                   PlaybackSourceExtensions *extensions = nullptr,
+                                   NativeBridge *native = nullptr);
     ~PlaybackSourceRequest() override
     {
         cancel();
@@ -62,6 +65,9 @@ private:
     void publishCloud(const QJsonObject &source);
     void finishFailure();
     void nextMvUrl();
+    void probeNextMv();
+    void publishMv();
+    void cancelMvProbe();
     void publish(QJsonObject source, const QString &kind, const QString &quality = {});
     void preparePlan();
     void tryStart();
@@ -83,6 +89,11 @@ private:
     quint64 m_cloudRequest = 0, m_mvRequest = 0;
     QHash<quint64, int> m_videoRequests;
     QMap<int, QStringList> m_videoResults;
+    QPointer<NativeBridge> m_native;
+    QJsonArray m_mvCandidates;
+    QTimer m_mvProbeBudget;
+    quint64 m_mvProbe = 0;
+    int m_mvUrlIndex = 0, m_mvProbeIndex = 0;
     quint64 m_loudnessRequest = 0;
     bool m_normalize = false;
     QJsonObject m_cloudPending, m_catalogLoudness, m_recoveredCatalogSource;

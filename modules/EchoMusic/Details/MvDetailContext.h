@@ -125,6 +125,7 @@ private:
     void releasePlayer();
     void openPlayer(const QString &url);
     void applyVersion();
+    void requestSource(const QString &hash);
     void accept(quint64, const QByteArray &);
     void fail(quint64, const QByteArray &);
     ApiClient &m_api;
@@ -144,6 +145,6 @@ private:
     quint64 m_epoch = 0, m_selection = 0;
     int m_version = 0;
     double m_volume = .5;
-    bool m_network, m_closed = false, m_presented = false;
+    bool m_network, m_closed = false, m_presented = false, m_sourceChosen = false;
 };
 } // namespace EchoMusic

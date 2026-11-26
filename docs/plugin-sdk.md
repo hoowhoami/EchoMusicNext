@@ -48,6 +48,8 @@
 
 `ctx.ui.parts`提供类型化区域引用的`query/queryAll/observe/mount`；`ctx.ui.styles.registerRule(id, selector, values, priority)`注册逐属性视觉规则，返回可更新、调整优先级及撤销的句柄。manifest以`ui.parts`、`ui.styles`协商能力，SDK版本保持1.0.0。
 
+动态贡献在目标及其祖先构造完成后才匹配；异步加载途中或已经取消的控件不发布给插件。
+
 区域以稳定address、scope/ancestor/resourceKey、role/key/surface/window或具体实例id选择，不向插件暴露宿主对象指针。原生 Qt Quick 树在扩展使用期间按需发现，Row/Column/Grid/Flow 与 Layout 共用布局适配；现有按钮的 before/after 插入不需要逐入口补插槽。`parentOf` 可锚定当前按钮组，`properties/insertionPositions/layoutEngine/composable` 描述真实能力。`EchoUiPartPalette` 使用目标呈现色板。样式在原有绑定中解析，较高priority优先，同级按插件ID与规则ID确定；停用、失败、重载和卸载恢复下一层或宿主当前基础值。精确实例规则随实例失效撤销。布局/业务状态不属于样式字段。
 
 当前公开目录：
@@ -147,7 +149,7 @@
 
 ## 宿主导航、偏好、操作与封面
 
-`ctx.ui.navigation` 接入真实 RouteController 的内置页面、当前首页、设置入口、参数、历史与观察；原 `ui.navigate` 保留本插件注册页语义。`ctx.settings` 提供 playback/shell/appearance/lyrics/mini/desktop/network 的有限目录、分域类型化读写及合并快照订阅，调用原状态所有者保存，不访问任意 QSettings 或凭证。
+`ctx.ui.navigation` 接入真实 RouteController 的内置页面、当前首页、设置入口、参数、历史与观察；原 `ui.navigate` 保留本插件注册页语义。`ctx.settings` 提供 playback/shell/appearance/lyrics/mini/desktop/network 的有限目录、分域类型化读写及合并快照订阅，调用原状态所有者保存，不访问任意 QSettings 或凭证。 `playback.compatibilityMode` 固定为 `true`，目录标记为只读；更新只读项会以 `InvalidArgument` 拒绝整个补丁。`volumeFadeMs` 接受 0–3000 毫秒；`defaultMvQuality` 为 `fhd/hd/qhd/sd/ld`，分别对应1080P/720P/540P/432P/270P，默认1080P。
 
 工具栏 definition 注册返回可 patch/refresh/invoke/cancel/dispose 的句柄，动态显隐/禁用/徽标、tooltip、默认位置/order、hover 及 Promise 忙态进入实际标题栏、播放栏和更多菜单；用户布局偏好仍优先。旧四参数注册共用此实现。
 

@@ -11,6 +11,7 @@ mod dispatcher;
 mod dsp;
 pub mod embedded_metadata;
 pub mod events;
+pub mod media_probe;
 // Windows owns exclusive mode directly in the WASAPI backend.
 #[cfg(not(target_os = "windows"))]
 mod exclusive;
@@ -36,7 +37,7 @@ pub use control::{
     SetSpeedTask, TransitionSettingsOptions, TransitionSettingsSnapshot, cancel_fade,
     configure_spectrum, fade, get_audio_devices, get_audio_graph, get_spectrum_snapshot,
     get_spectrum_status, get_transition_diagnostics, get_transition_settings, inspect_dsp_provider,
-    pause_with_fade, play_with_fade, set_audio_effect, set_audio_graph_parameter,
+    pause_faded, pause_with_fade, play_with_fade, set_audio_effect, set_audio_graph_parameter,
     set_audio_graph_plan, set_audio_output, set_equalizer, set_http_proxies, set_http_proxy,
     set_http_user_agent, set_network_timeout, set_normalization_gain,
     set_pause_on_device_disconnect, set_speed, set_stall_timeout, set_transition_settings,
@@ -98,6 +99,7 @@ static NEXT_SEEK_REQUEST_SEQ: AtomicU64 = AtomicU64::new(0);
 static LATEST_SEEK_REQUEST_SEQ: AtomicU64 = AtomicU64::new(0);
 static NEXT_SOURCE_OPEN_REQUEST_SEQ: AtomicU64 = AtomicU64::new(0);
 static LATEST_SOURCE_OPEN_REQUEST_SEQ: AtomicU64 = AtomicU64::new(0);
+static OUTPUT_START_INTERRUPT_SEQ: AtomicU64 = AtomicU64::new(0);
 static FADE_GENERATION: AtomicU64 = AtomicU64::new(0);
 type RuntimeCommand = Box<dyn FnOnce(&mut PlayerRuntime) + Send + 'static>;
 
@@ -470,12 +472,21 @@ fn next_seek_request_seq() -> u64 {
 }
 
 fn next_source_open_request_seq() -> u64 {
+    interrupt_output_start();
     let seq = NEXT_SOURCE_OPEN_REQUEST_SEQ
         .fetch_add(1, Ordering::AcqRel)
         .wrapping_add(1)
         .max(1);
     LATEST_SOURCE_OPEN_REQUEST_SEQ.store(seq, Ordering::Release);
     seq
+}
+
+/// Interrupt only output startup waiting; the owning transport command retires
+/// the session. Safe to call when submitting a command, before the host worker runs it.
+fn interrupt_output_start() -> u64 {
+    OUTPUT_START_INTERRUPT_SEQ
+        .fetch_add(1, Ordering::AcqRel)
+        .wrapping_add(1)
 }
 
 fn invalidate_source_open_requests() {
@@ -3001,6 +3012,7 @@ pub fn get_track_list(url: Option<String>, interrupt: Arc<AtomicBool>) -> Work<G
 
 pub struct PlayTask {
     source_request_seq: u64,
+    output_request_seq: u64,
 }
 
 impl Command for PlayTask {
@@ -3008,16 +3020,23 @@ impl Command for PlayTask {
 
     fn compute(&mut self) -> crate::Result<Self::Output> {
         let source_request_seq = self.source_request_seq;
+        let output_request_seq = self.output_request_seq;
         call_core_command_blocking("play", move |runtime| {
-            if !is_latest_source_open_request_seq(source_request_seq) {
+            if !is_latest_source_open_request_seq(source_request_seq)
+                || OUTPUT_START_INTERRUPT_SEQ.load(Ordering::Acquire) != output_request_seq
+            {
                 return Ok(());
             }
-            resume_runtime_playback(runtime, false)
+            resume_runtime_playback(runtime, false, output_request_seq)
         })
     }
 }
 
-fn resume_runtime_playback(runtime: &mut PlayerRuntime, fade_in: bool) -> crate::Result<()> {
+fn resume_runtime_playback(
+    runtime: &mut PlayerRuntime,
+    fade_in: bool,
+    output_request_seq: u64,
+) -> crate::Result<()> {
     if runtime.current_url.is_none() || runtime.source_open_interrupt.is_some() {
         return Err(crate::EngineError::from_reason(
             "no audio source loaded".to_string(),
@@ -3036,7 +3055,12 @@ fn resume_runtime_playback(runtime: &mut PlayerRuntime, fade_in: bool) -> crate:
         || !session.shared.output_has_started();
     if output_needs_restart {
         let config = runtime.config.clone();
-        restart_output_for_runtime(runtime, config, false)?;
+        control::output_lifecycle::restart_output_for_runtime_with_sequence(
+            runtime,
+            config,
+            false,
+            output_request_seq,
+        )?;
         runtime.cancel_idle_output_release();
     }
     let Some(session) = runtime.session.as_ref() else {
@@ -3044,9 +3068,11 @@ fn resume_runtime_playback(runtime: &mut PlayerRuntime, fade_in: bool) -> crate:
             "audio session ended while resuming output".to_string(),
         ));
     };
-    if fade_in {
+    if fade_in && (session.shared.paused.load(Ordering::Acquire) || !runtime.state.playing) {
         session.shared.set_volume(0.0);
         session.shared.store_applied_output_gain(0.0);
+    } else if !fade_in {
+        session.shared.set_volume(user_volume());
     }
     session.shared.paused.store(false, Ordering::Release);
     runtime.state.playing = true;
@@ -3061,24 +3087,51 @@ fn resume_runtime_playback(runtime: &mut PlayerRuntime, fade_in: bool) -> crate:
 }
 
 pub fn play() -> Work<PlayTask> {
+    interrupt_output_start();
+    cancel_runtime_fade();
     Work::new(PlayTask {
         source_request_seq: LATEST_SOURCE_OPEN_REQUEST_SEQ.load(Ordering::Acquire),
+        output_request_seq: OUTPUT_START_INTERRUPT_SEQ.load(Ordering::Acquire),
     })
 }
 
 pub fn pause() -> crate::Result<()> {
+    pause_task().execute()
+}
+
+fn pause_runtime_playback(runtime: &mut PlayerRuntime, fade_request_id: Option<u64>) {
+    if let Some(session) = runtime.session.as_ref() {
+        session.shared.paused.store(true, Ordering::Release);
+        session.shared.set_volume(user_volume());
+    }
+    runtime.state.playing = false;
+    runtime.state.paused = true;
+    set_runtime_core_state(runtime, PlaybackCoreState::Paused, "pause");
+    let mut event = PlayerEvent::state_change(runtime.state.clone());
+    event.fade_request_id = fade_request_id.map(|id| id as f64);
+    emit_runtime_event(runtime, event);
+    schedule_idle_output_release_for_runtime(runtime);
+}
+
+pub struct PauseTask {
+    output_request_seq: u64,
+}
+pub fn pause_task() -> Work<PauseTask> {
+    let output_request_seq = interrupt_output_start();
     cancel_runtime_fade();
-    call_core_command("pause", |runtime| {
-        if let Some(session) = runtime.session.as_ref() {
-            session.shared.paused.store(true, Ordering::Release);
-        }
-        runtime.state.playing = false;
-        runtime.state.paused = true;
-        set_runtime_core_state(runtime, PlaybackCoreState::Paused, "pause");
-        emit_runtime_event(runtime, PlayerEvent::state_change(runtime.state.clone()));
-        schedule_idle_output_release_for_runtime(runtime);
-        Ok(())
-    })
+    Work::new(PauseTask { output_request_seq })
+}
+impl Command for PauseTask {
+    type Output = ();
+    fn compute(&mut self) -> crate::Result<()> {
+        let output_request_seq = self.output_request_seq;
+        call_core_command("pause", move |runtime| {
+            if OUTPUT_START_INTERRUPT_SEQ.load(Ordering::Acquire) == output_request_seq {
+                pause_runtime_playback(runtime, None);
+            }
+            Ok(())
+        })
+    }
 }
 
 pub struct StopTask;

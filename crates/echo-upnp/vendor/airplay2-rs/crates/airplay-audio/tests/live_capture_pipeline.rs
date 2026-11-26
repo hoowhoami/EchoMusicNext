@@ -464,7 +464,8 @@ fn test_continuous_streaming_simulation() {
                 next_send += frame_duration;
             } else {
                 spin_sleep::sleep(
-                    next_send.saturating_duration_since(Instant::now())
+                    next_send
+                        .saturating_duration_since(Instant::now())
                         .min(Duration::from_millis(1)),
                 );
             }

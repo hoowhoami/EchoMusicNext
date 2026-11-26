@@ -145,6 +145,22 @@ void EchoUiPartRegistration::setState(const QVariantMap &v)
 }
 void EchoUiPartRegistration::componentComplete()
 {
+    if (!qmlEngine(this)) {
+        constructionFinished();
+        return;
+    }
+    // Parser-status callbacks run from the leaves up. Publishing here lets a
+    // plugin mutate a control while its owning Qt layout is still incomplete.
+    // Component.completed runs after all parser-status callbacks in this
+    // creation, including the enclosing layouts. Cancellation destroys the
+    // attached object and this connection with the abandoned declaration.
+    auto *completion = qmlAttachedPropertiesObject<QQmlComponent>(this, true);
+    connect(completion, SIGNAL(completed()), this, SLOT(constructionFinished()));
+}
+void EchoUiPartRegistration::constructionFinished()
+{
+    if (m_complete)
+        return;
     m_complete = true;
     if (m_nativeFactory)
         m_nativeFactory->setOwnerTag(owner());

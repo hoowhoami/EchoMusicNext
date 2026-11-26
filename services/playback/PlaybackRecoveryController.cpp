@@ -39,6 +39,7 @@ void PlaybackRecoveryController::cancel()
     m_resumeTimer.stop();
     m_recoveryTimer.stop();
     m_target = -1;
+    m_resumeWaitingForOutput = false;
 }
 void PlaybackRecoveryController::resumeRequested()
 {
@@ -47,20 +48,44 @@ void PlaybackRecoveryController::resumeRequested()
         return;
     m_sequence = p.m_sequence;
     m_revision = p.m_api.sessionRevision();
-    m_resumeTimer.start(qRound(p.m_enginePreferences.playResumeTimeout() * 1000));
+    m_resumeWaitingForOutput = p.m_progress.outputReconfiguring();
+    if (m_resumeWaitingForOutput)
+        m_resumeTimer.stop();
+    else
+        m_resumeTimer.start(qRound(p.m_enginePreferences.playResumeTimeout() * 1000));
 }
 bool PlaybackRecoveryController::handleEvent(const QJsonObject &event)
 {
-    if (event.value("event") == "state-change" && m_playback.m_playing)
+    const auto kind = event.value("event").toString();
+    if (kind == "state-change" && m_playback.m_playing) {
         m_resumeTimer.stop();
-    if (event.value("event") == "error") {
+        m_resumeWaitingForOutput = false;
+    }
+    if (kind == "core-state-change") {
+        if (m_playback.m_progress.outputReconfiguring()) {
+            // Native output startup owns its cancellable wait. Do not reload
+            // the reader while that same output attempt is still in flight.
+            if (m_resumeTimer.isActive()) {
+                m_resumeTimer.stop();
+                m_resumeWaitingForOutput = true;
+            }
+        } else if (m_resumeWaitingForOutput) {
+            m_resumeWaitingForOutput = false;
+            auto &p = m_playback;
+            if (!p.m_closing && m_sequence == p.m_sequence &&
+                m_revision == p.m_api.sessionRevision() && p.m_autoplay && !p.m_playing &&
+                !p.m_loading && p.m_enginePreferences.playResumeTimeout() > 0)
+                m_resumeTimer.start(qRound(p.m_enginePreferences.playResumeTimeout() * 1000));
+        }
+    }
+    if (kind == "error") {
         m_recoveryTimer.stop();
         m_target = -1;
     }
-    if (event.value("event") != "stalled")
+    if (kind != "stalled")
         return false;
     auto &p = m_playback;
-    if (p.m_playing && !p.m_loading && m_target < 0 &&
+    if (p.m_playing && !p.m_loading && !p.m_progress.outputReconfiguring() && m_target < 0 &&
         p.m_enginePreferences.playbackStallTimeout() > 0)
         recover(true);
     return true;

@@ -150,6 +150,27 @@ QQuickItem *visual(QQuickItem *root, const QString &name)
             return found;
     return nullptr;
 }
+// Compare real disc bounds across the poster overlap, side Row and zoom.
+void verifyFmDiscSpacing(QQuickItem *hero)
+{
+    QVERIFY(hero);
+    auto *current = visual(hero, "personalFmCurrentDisc");
+    QVERIFY(current);
+    auto previous = current->mapRectToItem(hero, current->boundingRect());
+    int count = 0;
+    for (int i = 0; i < 3; ++i) {
+        auto *disc = visual(hero, QString("personalFmSideDisc-%1").arg(i));
+        if (!disc)
+            continue;
+        const auto bounds = disc->mapRectToItem(hero, disc->boundingRect());
+        QVERIFY(qAbs(bounds.left() - previous.right() - 28.) < .01);
+        QVERIFY(qAbs(bounds.width() - previous.width()) < .01);
+        QVERIFY(bounds.right() <= hero->width() + .01);
+        previous = bounds;
+        ++count;
+    }
+    QVERIFY(count <= 3);
+}
 struct Fixture
 {
     QTemporaryDir dir;
@@ -277,6 +298,9 @@ Window {
         QVERIFY(pool->mapToScene(QPointF(pool->width(), 0)).x() <= window->width());
         auto *disc = visual(hero, "personalFmCurrentDisc");
         QVERIFY(disc && disc->x() + disc->width() <= hero->width());
+        if (testWidth > 1000)
+            QTRY_VERIFY(visual(hero, "personalFmSideDisc-2"));
+        verifyFmDiscSpacing(hero);
         QCOMPARE(pool->property("currentIndex").toInt(), f.fm().songPool());
         QVERIFY(QMetaObject::invokeMethod(pool, "picked", Q_ARG(int, 2)));
         QVERIFY(PersonalFmControllerTestAccess::resetRequest(f.fm()));
@@ -767,6 +791,7 @@ Window {
                     };
                     resize(1100);
                     QTRY_VERIFY(visual(window->contentItem(), "personalFmSideDisc-2"));
+                    verifyFmDiscSpacing(visual(window->contentItem(), "personalFmHero"));
                     QPointer<QQuickItem> first =
                         visual(window->contentItem(), "personalFmSideDisc-0");
                     QPointer<QQuickItem> second =
@@ -791,10 +816,12 @@ Window {
                              "Resizing must not recreate the remaining FM covers");
                     QCOMPARE(visual(window->contentItem(), "personalFmSideDisc-0"), first.data());
                     QVERIFY(last.isNull());
+                    verifyFmDiscSpacing(visual(window->contentItem(), "personalFmHero"));
                     resize(700);
                     QTRY_VERIFY(!visual(window->contentItem(), "personalFmSideDisc-1"));
                     QVERIFY(second.isNull());
                     QVERIFY(first && image);
+                    verifyFmDiscSpacing(visual(window->contentItem(), "personalFmHero"));
                     // Cross both responsive boundaries repeatedly, checking the
                     // still-visible image on every rendered resize step.
                     for (int direction : {-1, 1})

@@ -30,8 +30,10 @@ SettingsCatalog::SettingsCatalog(QObject *parent) : QAbstractListModel(parent)
         {"playback",
          tr("播放体验"),
          "player-play",
-         tr("音质 播放 音量 倍速 歌曲 收藏 过渡 淡入 音量均衡 LUFS 自动跳过错误 失败后切换延迟 "
-            "最大自动切换次数 防止系统休眠 智能兼容模式 MV 音频兜底"),
+         tr("音质 MV 画质 清晰度 播放 音量 倍速 歌曲 收藏 过渡 淡入 淡出 音量均衡 LUFS "
+            "自动跳过错误 "
+            "失败后切换延迟 "
+            "最大自动切换次数 防止系统休眠 MV 音频兜底"),
          "PlaybackSettingsSection",
          {}},
         {"player",

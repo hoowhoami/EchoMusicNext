@@ -89,6 +89,8 @@ add_library(
     PlaybackSourceRequest.cpp
     PlaybackSourcePlan.h
     PlaybackSourcePlan.cpp
+    MvAudioSourcePlan.h
+    MvAudioSourcePlan.cpp
     TrackTransitionController.h
     TrackTransitionController.cpp
     PlaybackRecoveryController.h

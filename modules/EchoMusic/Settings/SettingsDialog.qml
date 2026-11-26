@@ -292,9 +292,12 @@ Popup {
                     width: Math.max(0, content.width - 34)
                     height: item ? (item as Item).implicitHeight : 0
                     asynchronous: true
-                    // Keep asynchronous creation, but present the complete
-                    // section at once instead of exposing rows across frames.
-                    visible: status === Loader.Ready
+                    // Keep the unfinished section transparent and inert. Changing
+                    // effective visibility from the incubator's Ready callback
+                    // can start nested control Loaders while it is still retiring.
+                    // Opacity presents all rows together without that reentrancy.
+                    opacity: status === Loader.Ready ? 1 : 0
+                    enabled: status === Loader.Ready
                     active: dialog.visible && (navigation.source.toString().length > 0 || navigation.extensionRecipe !== null)
                     // Inject typed service references before bindings evaluate.
                     // No section QML is instantiated until selected and visible.

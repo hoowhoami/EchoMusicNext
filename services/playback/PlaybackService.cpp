@@ -155,7 +155,7 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
       m_networkPreferences(network), m_membership(api, this),
       m_engine(nullptr, engineStartupOptions(m_enginePreferences, network)),
       m_spectrum(*this, m_engine), m_cloudSources(api, this), m_sourceExtensions(this),
-      m_source(api, m_membership, this, &m_cloudSources, &m_sourceExtensions),
+      m_source(api, m_membership, this, &m_cloudSources, &m_sourceExtensions, &m_native),
       m_audioControls(m_engine, m_native, settings, this),
       m_effectCatalog(api, m_audioControls, this,
                       settings.files("audio-effect-catalog", SettingsDomain::Device) +
@@ -241,6 +241,11 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
                 &NetworkPreferences::recoverAfterWake);
     connect(&m_enginePreferences, &PlayerEnginePreferences::stallTimeoutChanged, &m_engine,
             &AudioEngine::stallTimeout);
+    connect(&m_enginePreferences, &PlayerEnginePreferences::restartRequired, this,
+            [this](const QString &setting) {
+                if (!m_closing)
+                    emit notice(tr("“%1”需重启应用后生效").arg(setting), 0);
+            });
     connect(&m_source, &PlaybackSourceRequest::privilegesReady, this,
             [this](const PlaybackTrack &track, const QJsonObject &privileges) {
                 if (m_closing || track.stableKey() != m_track.stableKey())
@@ -394,10 +399,6 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
             setQuality("hi_res");
         emit changed();
     });
-    connect(&m_preferences, &PlaybackPreferences::sourcePolicyChanged, this, [this] {
-        if (hasTrack() && m_track.localPath.isEmpty())
-            refreshCurrentSource();
-    });
     const auto effect =
         settings.value(EchoMusic::SettingsKeys::Playback::SongEffect, "none").toString();
     if (QStringList{"none", "piano", "vocal", "accompaniment", "subwoofer", "ancient", "surnay",
@@ -527,7 +528,7 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
     });
     m_mediaTimer.start();
     connect(&m_audioControls, &PlaybackAudioControls::selectedOutputDisconnected, this,
-            &PlaybackService::pause);
+            &PlaybackService::pauseImmediately);
     connect(&m_sleepTimer, &SleepTimer::actionRequested, this, [this](const QString &action) {
         if (action == "pause") {
             pause();
@@ -800,6 +801,7 @@ void PlaybackService::publishProgressStatus()
 }
 void PlaybackService::invalidate(bool preserveLyrics)
 {
+    cancelPauseFade();
     ++m_queueReadIntent;
     delete m_queueRead.data();
     m_sessionController->invalidate(preserveLyrics);
@@ -888,6 +890,7 @@ void PlaybackService::hydrateForPlayback(PlaybackTrack track,
 }
 void PlaybackService::startIndex(int index, bool preserveFailureChain)
 {
+    cancelPauseFade();
     const auto *track = queue()->at(index);
     if (m_closing || !track)
         return;
@@ -1126,13 +1129,14 @@ void PlaybackService::toggle()
         if (!m_autoplay)
             m_engine.command(AudioEngine::Pause);
         emit changed();
-    } else if (m_startPending || m_playing)
+    } else if (m_startPending || playing())
         pause();
     else
         play();
 }
 void PlaybackService::play()
 {
+    cancelPauseFade();
     m_listenTogether->localPlayRequested();
     m_cast->prepareTransportCommand();
     m_failure->cancel(true);
@@ -1151,6 +1155,7 @@ void PlaybackService::play()
         emit changed();
         return;
     }
+    m_failure->resumeOutput();
     if (!m_loaded || !m_error.isEmpty()) {
         if (m_personalFm->active() && m_personalFm->m_resetPending) {
             m_personalFm->play();
@@ -1163,12 +1168,64 @@ void PlaybackService::play()
         m_cast->playMedia();
         return;
     }
+    m_startPending = true;
+    emit changed();
     m_recovery->resumeRequested();
-    m_engine.command(AudioEngine::Play);
+    if (m_preferences.volumeFade())
+        m_engine.playFaded(m_localVolume, m_preferences.volumeFadeMs());
+    else
+        m_engine.command(AudioEngine::Play);
+}
+void PlaybackService::cancelPauseFade()
+{
+    m_pauseFadePending = false;
+    m_afterPauseFade = {};
+}
+void PlaybackService::completePauseFade(quint64 requestId)
+{
+    if (!m_pauseFadePending || requestId != m_pauseFadeSerial || m_playing)
+        return;
+    auto action = std::move(m_afterPauseFade);
+    cancelPauseFade();
+    if (action)
+        action();
+    else
+        emit changed();
+}
+bool PlaybackService::deferManualSkip(std::function<void()> action)
+{
+    if (!m_preferences.volumeFade() || m_preferences.volumeFadeMs() == 0 ||
+        m_transition->mode() != "none" || m_cast->remoteMedia() || !m_loaded || m_loading ||
+        m_startPending || !m_playing || !m_error.isEmpty() || m_progress.outputReconfiguring())
+        return false;
+    // Coalesce clicks during the same tail. A newer direction replaces the
+    // pending action; source changes, explicit pause/play and stop cancel it.
+    if (!m_pauseFadePending)
+        pauseImpl(true, false);
+    m_afterPauseFade = std::move(action);
+    return true;
 }
 void PlaybackService::pause()
 {
-    m_listenTogether->localPauseRequested();
+    pauseImpl(true);
+}
+void PlaybackService::pauseImmediately()
+{
+    pauseImpl(false);
+}
+void PlaybackService::pauseImpl(bool allowFade, bool notify)
+{
+    const bool fade = allowFade && m_preferences.volumeFade() && m_preferences.volumeFadeMs() > 0 &&
+                      m_loaded && m_playing && !m_loading && !m_startPending && m_error.isEmpty() &&
+                      !m_progress.outputReconfiguring() && !m_cast->remoteMedia();
+    cancelPauseFade();
+    if (fade) {
+        m_transition->clear();
+        m_pauseFadePending = true;
+        ++m_pauseFadeSerial;
+    }
+    if (notify)
+        m_listenTogether->localPauseRequested();
     m_discoverQueue->cancelWait();
     m_cast->prepareTransportCommand();
     m_failure->cancel(true);
@@ -1182,7 +1239,10 @@ void PlaybackService::pause()
         m_cast->pauseMedia();
         return;
     }
-    m_engine.command(AudioEngine::Pause);
+    if (fade)
+        m_engine.pauseFaded(m_preferences.volumeFadeMs(), m_pauseFadeSerial);
+    else
+        m_engine.command(AudioEngine::Pause);
 }
 void PlaybackService::stop()
 {
@@ -1202,6 +1262,8 @@ void PlaybackService::stop()
 }
 void PlaybackService::seek(qint64 position)
 {
+    if (m_pauseFadePending)
+        pauseImmediately();
     m_discoverQueue->cancelWait();
     m_listening.resetPosition();
     if (!hasTrack() || m_loading)
@@ -1217,12 +1279,16 @@ void PlaybackService::seek(qint64 position)
 }
 void PlaybackService::previous()
 {
+    if (deferManualSkip([this] { previous(); }))
+        return;
     const auto index = m_transition->previousIndex();
     if (index >= 0)
         playIndex(index);
 }
 void PlaybackService::next(bool automatic)
 {
+    if (!automatic && deferManualSkip([this] { next(false); }))
+        return;
     if (automatic && m_listenTogether->suppressAutomaticNext())
         return;
     if (!hasTrack())

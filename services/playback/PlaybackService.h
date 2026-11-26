@@ -301,7 +301,7 @@ public:
     }
     bool playing() const
     {
-        return m_playing;
+        return m_playing && !m_pauseFadePending;
     }
     bool loading() const
     {
@@ -524,6 +524,11 @@ private:
     friend class PlaybackServiceTestAccess;
     void tryStartupAutoPlay();
     void invalidate(bool preserveLyrics = false);
+    void pauseImmediately();
+    void pauseImpl(bool allowFade, bool notify = true);
+    bool deferManualSkip(std::function<void()> action);
+    void completePauseFade(quint64 requestId);
+    void cancelPauseFade();
     void cancelTrackProbe();
     void hydrateForPlayback(PlaybackTrack, std::function<void(PlaybackTrack)>);
     QPointer<QObject> m_queueRead;
@@ -659,5 +664,8 @@ private:
     // Source resolution and native Play acknowledgement are separate stages.
     // Keep presentation busy across their hand-off without blocking recovery.
     bool m_startPending = false;
+    quint64 m_pauseFadeSerial = 0;
+    bool m_pauseFadePending = false;
+    std::function<void()> m_afterPauseFade;
 };
 } // namespace EchoMusic

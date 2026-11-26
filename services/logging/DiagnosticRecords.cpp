@@ -15,6 +15,8 @@
 #include <QSet>
 #include <QObject>
 #include <QTimeZone>
+#include <QElapsedTimer>
+#include <QThread>
 #include <client/crash_report_database.h>
 #include <util/file/file_reader.h>
 #include <algorithm>
@@ -227,8 +229,23 @@ QStringList DiagnosticRecords::captureNative(const QString &directory,
     auto database = Database::Initialize(nativePath(QDir(directory).filePath("crashes/database")));
     crashpad::UUID id;
     std::unique_ptr<const Database::UploadReport> lease;
-    if (!database || !id.InitializeFromString(record.id.toStdString()) ||
-        database->GetReportForUploading(id, &lease, false) != Database::kNoError) {
+    auto status = Database::kDatabaseError;
+    if (database && id.InitializeFromString(record.id.toStdString())) {
+        // A freshly restarted process can see a report while the handler is
+        // still finishing its metadata. Only a busy lease is retryable; do not
+        // misclassify that short handoff as a missing dump or wait on the GUI.
+        QElapsedTimer handoff;
+        handoff.start();
+        do {
+            if (cancel)
+                return captured;
+            status = database->GetReportForUploading(id, &lease, false);
+            if (status != Database::kBusyError || handoff.elapsed() >= 2000)
+                break;
+            QThread::msleep(100);
+        } while (true);
+    }
+    if (status != Database::kNoError) {
         // Completed reports cannot be checked out as pending. Do not move them
         // back to pending or request an upload just to obtain local evidence.
         std::vector<Database::Report> completed;

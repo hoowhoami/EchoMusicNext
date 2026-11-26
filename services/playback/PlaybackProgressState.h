@@ -23,6 +23,10 @@ public:
     {
         return m_core == "draining";
     }
+    bool outputReconfiguring() const
+    {
+        return m_core == "output-reconfig";
+    }
 
 private:
     QString m_core;

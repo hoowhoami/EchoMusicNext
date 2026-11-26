@@ -7,15 +7,15 @@ use crate::device::platform_windows::{
 };
 use crate::events::{PlayerErrorCode, PlayerEvent};
 use crate::output::{
-    OutputStartSender, OutputStopToken, build_output_stats, output_buffer_mode_for_frames,
-    output_start_was_cancelled, report_output_start, report_output_start_failure,
-    service_wasapi_event,
+    OutputStartSender, OutputStopToken, acquire_output_owner, build_output_stats,
+    confirm_output_start, output_buffer_mode_for_frames, output_start_was_cancelled,
+    report_output_start_failure, service_wasapi_event,
 };
 use crate::platform_qos;
 use crate::shared::SharedAudio;
 use std::ptr;
 use std::slice;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT};
@@ -24,8 +24,9 @@ use windows::Win32::System::Threading;
 use windows::core::HRESULT;
 
 const WASAPI_EVENT_WAIT_MS: u32 = 10;
-const WASAPI_EXCLUSIVE_DEVICE_RELEASE_TIMEOUT: Duration = Duration::from_millis(1500);
-const WASAPI_EXCLUSIVE_DEVICE_RELEASE_RETRY: Duration = Duration::from_millis(50);
+static OUTPUT_OWNER: Mutex<()> = Mutex::new(());
+const WASAPI_OUTPUT_OPEN_RETRY_TIMEOUT: Duration = Duration::from_millis(1500);
+const WASAPI_OUTPUT_OPEN_RETRY_DELAY: Duration = Duration::from_millis(50);
 
 struct EventHandle(HANDLE);
 
@@ -82,11 +83,20 @@ impl WasapiShareMode {
 }
 
 struct WasapiOutput {
-    audio_client: Audio::IAudioClient,
+    // Release the service interface before its owning client.
     render_client: Audio::IAudioRenderClient,
+    audio_client: Audio::IAudioClient,
     buffer_frames: u32,
     buffer_duration: i64,
     stream_latency_100ns: i64,
+}
+
+impl Drop for WasapiOutput {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = self.audio_client.Stop();
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -177,6 +187,10 @@ fn handle_wasapi_output_failure(
     start_notify: &mut Option<OutputStartSender>,
     failure: WasapiOutputFailure,
 ) -> bool {
+    if stop.should_stop(shared) {
+        output_start_was_cancelled(stop, shared, start_notify);
+        return true;
+    }
     let WasapiOutputFailure { message, action } = failure;
     let startup_failure = report_output_start_failure(start_notify, message.clone());
     if startup_failure {
@@ -265,7 +279,12 @@ fn run_wasapi_output(
     emit: fn(PlayerEvent),
     start_notify: &mut Option<OutputStartSender>,
 ) -> Result<(), WasapiOutputFailure> {
+    let startup_started_at = Instant::now();
     let _com = ComApartment::init().map_err(WasapiOutputFailure::backend)?;
+    let Some(_owner) = acquire_output_owner(&OUTPUT_OWNER, || stop.should_stop(&shared)) else {
+        output_start_was_cancelled(&stop, &shared, start_notify);
+        return Ok(());
+    };
     let _mmcss = match platform_qos::boost_audio_output_thread() {
         Ok(task) => {
             emit(PlayerEvent::log(
@@ -301,13 +320,22 @@ fn run_wasapi_output(
         .map_err(WasapiOutputFailure::backend)?,
     };
     let output_format = resolved_format.output;
+    drop(probe_client);
     let event = EventHandle(
         unsafe { Threading::CreateEventA(None, false, false, windows::core::PCSTR(ptr::null())) }
             .map_err(|err| {
             WasapiOutputFailure::backend(format!("failed to create WASAPI output event: {err}"))
         })?,
     );
-    let output = open_wasapi_output(&device, event.0, resolved_format, share_mode, emit)?;
+    let output = open_wasapi_output(
+        &device,
+        event.0,
+        resolved_format,
+        share_mode,
+        &stop,
+        &shared,
+        emit,
+    )?;
     let device_buffer_secs =
         output.buffer_frames as f64 / f64::from(output_format.sample_rate.max(1));
     shared.update_output_stats(build_output_stats(
@@ -351,6 +379,14 @@ fn run_wasapi_output(
     resampler
         .reserve_realtime_capacity(realtime_frames)
         .map_err(WasapiOutputFailure::backend)?;
+    emit(PlayerEvent::log(
+        "debug",
+        format!(
+            "WASAPI {} startup prepared: elapsed_ms={}",
+            share_mode.label(),
+            startup_started_at.elapsed().as_millis()
+        ),
+    ));
 
     unsafe {
         if output_start_was_cancelled(&stop, &shared, start_notify) {
@@ -365,21 +401,35 @@ fn run_wasapi_output(
             &mut graph_scratch,
             &mut resampler,
         )?;
+        emit(PlayerEvent::log(
+            "debug",
+            format!(
+                "WASAPI {} startup primed: elapsed_ms={}",
+                share_mode.label(),
+                startup_started_at.elapsed().as_millis()
+            ),
+        ));
+        if output_start_was_cancelled(&stop, &shared, start_notify) {
+            return Ok(());
+        }
         output.audio_client.Start().map_err(|err| {
             WasapiOutputFailure::from_client_error(
                 &format!("failed to start WASAPI {} output", share_mode.label()),
                 &err,
             )
         })?;
-        shared.mark_output_started();
-        report_output_start(start_notify, Ok(()));
+        if !confirm_output_start(&stop, &shared, start_notify) {
+            let _ = output.audio_client.Stop();
+            return Ok(());
+        }
         emit(PlayerEvent::log(
             "info",
             format!(
-                "WASAPI {} output started: requested='{device_name}', sample_rate={}, engine_sample_rate={}",
+                "WASAPI {} output started: requested='{device_name}', sample_rate={}, engine_sample_rate={}, startup_elapsed_ms={}",
                 share_mode.label(),
                 output_format.sample_rate,
-                shared.mix_format.sample_rate
+                shared.mix_format.sample_rate,
+                startup_started_at.elapsed().as_millis()
             ),
         ));
         while !stop.should_stop(&shared) {
@@ -448,6 +498,8 @@ fn open_wasapi_output(
     event: HANDLE,
     resolved_format: WasapiResolvedFormat,
     share_mode: WasapiShareMode,
+    stop: &OutputStopToken,
+    shared: &SharedAudio,
     emit: fn(PlayerEvent),
 ) -> Result<WasapiOutput, WasapiOutputFailure> {
     let output_format = resolved_format.output;
@@ -456,6 +508,11 @@ fn open_wasapi_output(
     let mut logged_device_wait = false;
 
     loop {
+        if stop.should_stop(shared) {
+            return Err(WasapiOutputFailure::backend(
+                "audio output startup was cancelled",
+            ));
+        }
         let audio_client =
             activate_wasapi_audio_client(device).map_err(WasapiOutputFailure::backend)?;
         let buffer_duration = aligned_buffer_frames
@@ -525,18 +582,19 @@ fn open_wasapi_output(
                 aligned_buffer_frames = Some(frames);
             }
             Err(err)
-                if share_mode == WasapiShareMode::Exclusive
-                    && is_wasapi_device_in_use(&err)
-                    && wait_started_at.elapsed() < WASAPI_EXCLUSIVE_DEVICE_RELEASE_TIMEOUT =>
+                if (is_wasapi_device_in_use(&err)
+                    || err.code() == Audio::AUDCLNT_E_DEVICE_INVALIDATED)
+                    && wait_started_at.elapsed() < WASAPI_OUTPUT_OPEN_RETRY_TIMEOUT =>
             {
+                drop(audio_client);
                 if !logged_device_wait {
                     emit(PlayerEvent::log(
                         "info",
-                        "WASAPI exclusive output waiting for endpoint release".to_string(),
+                        "WASAPI output waiting for endpoint release before retry".to_string(),
                     ));
                     logged_device_wait = true;
                 }
-                thread::sleep(WASAPI_EXCLUSIVE_DEVICE_RELEASE_RETRY);
+                thread::sleep(WASAPI_OUTPUT_OPEN_RETRY_DELAY);
             }
             Err(err) => {
                 return Err(WasapiOutputFailure::from_client_error(

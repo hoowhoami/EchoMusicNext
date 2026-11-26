@@ -71,7 +71,21 @@ impl Sink {
         unsafe { (self.callback)(self.context as *mut c_void, &result) };
     }
     fn error(self, message: &str, sequence: Option<u64>, kind: JobKind) {
-        let bytes = serde_json::to_vec(&serde_json::json!({"event":match kind { JobKind::Transport | JobKind::SourceSwitch(_) => "error", JobKind::Media => "media-error", JobKind::Spectrum | JobKind::Control | JobKind::Output(_) | JobKind::Effect(_) => "control-error" }, "source_revision":match kind {JobKind::SourceSwitch(revision)=>Some(revision),_=>None}, "output_revision":match kind {JobKind::Output(revision)=>Some(revision),_=>None}, "effect_revision":match kind {JobKind::Effect(revision)=>Some(revision),_=>None}, "track_seq":sequence, "message":echo_audio::log::redact_sources(message)}))
+        self.coded_error(message, sequence, kind, None);
+    }
+    fn engine_error(self, error: &echo_audio::EngineError, sequence: Option<u64>, kind: JobKind) {
+        if error.cancelled && matches!(kind, JobKind::Transport | JobKind::SourceSwitch(_)) {
+            return;
+        }
+        self.coded_error(
+            &error.reason,
+            sequence,
+            kind,
+            error.output.then_some("output-runtime"),
+        );
+    }
+    fn coded_error(self, message: &str, sequence: Option<u64>, kind: JobKind, code: Option<&str>) {
+        let bytes = serde_json::to_vec(&serde_json::json!({"event":match kind { JobKind::Transport | JobKind::SourceSwitch(_) => "error", JobKind::Media => "media-error", JobKind::Spectrum | JobKind::Control | JobKind::Output(_) | JobKind::Effect(_) => "control-error" }, "source_revision":match kind {JobKind::SourceSwitch(revision)=>Some(revision),_=>None}, "output_revision":match kind {JobKind::Output(revision)=>Some(revision),_=>None}, "effect_revision":match kind {JobKind::Effect(revision)=>Some(revision),_=>None}, "track_seq":sequence, "error_code":code, "message":echo_audio::log::redact_sources(message)}))
             .unwrap_or_default();
         self.emit(EchoStatus::Internal, &bytes);
     }
@@ -128,7 +142,7 @@ pub unsafe extern "C" fn echo_audio_create(
                 // Keep the core alive while skipping cancelled queued work.
                 if stopped.load(Ordering::Acquire) && !matches!(job.kind, JobKind::Spectrum) { continue; }
                 match catch_unwind(AssertUnwindSafe(job.action)) {
-                    Ok(Ok(())) => {}, Ok(Err(error)) => sink.error(&error.reason, job.sequence, job.kind),
+                    Ok(Ok(())) => {}, Ok(Err(error)) => sink.engine_error(&error, job.sequence, job.kind),
                     Err(_) => sink.error("audio command panicked", job.sequence, job.kind),
                 }
             }
@@ -321,7 +335,7 @@ pub unsafe extern "C" fn echo_audio_play_faded(
     if audio.is_null()
         || !volume.is_finite()
         || !(0.0..=150.0).contains(&volume)
-        || !(500..=3000).contains(&duration_ms)
+        || duration_ms > 3000
     {
         return false;
     }
@@ -329,6 +343,31 @@ pub unsafe extern "C" fn echo_audio_play_faded(
         let audio = unsafe { &*audio };
         let sequence = audio.sequence.load(Ordering::Acquire);
         let work = echo_audio::play_with_fade(volume, f64::from(duration_ms));
+        enqueue(
+            audio,
+            Job {
+                sequence: Some(sequence),
+                kind: JobKind::Transport,
+                action: Box::new(move || work.execute()),
+            },
+        )
+    }))
+    .unwrap_or(false)
+}
+/// Fade to silence and pause without blocking subsequent transport commands.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn echo_audio_pause_faded(
+    audio: *mut EchoAudio,
+    duration_ms: u32,
+    request_id: u64,
+) -> bool {
+    if audio.is_null() || duration_ms > 3000 || request_id == 0 {
+        return false;
+    }
+    catch_unwind(AssertUnwindSafe(|| {
+        let audio = unsafe { &*audio };
+        let sequence = audio.sequence.load(Ordering::Acquire);
+        let work = echo_audio::pause_faded(f64::from(duration_ms), request_id);
         enqueue(
             audio,
             Job {
@@ -445,7 +484,10 @@ pub unsafe extern "C" fn echo_audio_command(
                 let work = echo_audio::seek(value);
                 Box::new(move || work.execute())
             }
-            x if x == EchoAudioCommand::Pause as u32 => Box::new(echo_audio::pause),
+            x if x == EchoAudioCommand::Pause as u32 => {
+                let work = echo_audio::pause_task();
+                Box::new(move || work.execute())
+            }
             x if x == EchoAudioCommand::Stop as u32 => {
                 let work = echo_audio::stop();
                 Box::new(move || work.execute())

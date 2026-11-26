@@ -3,6 +3,14 @@
 
 namespace EchoMusic::EchoUiLayout
 {
+bool constructionComplete(const QQuickItem *item)
+{
+    for (; item; item = item->parentItem())
+        if (!QQuickItemPrivate::get(item)->componentComplete)
+            return false;
+    return true;
+}
+
 void setDecoration(QQuickItem *item, bool decoration)
 {
     if (item)

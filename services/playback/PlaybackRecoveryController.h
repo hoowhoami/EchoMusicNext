@@ -26,5 +26,6 @@ private:
     QString m_attemptTrack;
     int m_attempts = 0;
     qint64 m_target = -1;
+    bool m_resumeWaitingForOutput = false;
 };
 } // namespace EchoMusic

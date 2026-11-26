@@ -50,6 +50,17 @@ pub struct AudioReader {
 unsafe impl Send for AudioReader {}
 
 impl AudioReader {
+    pub fn probe_audio_streams<T>(
+        source: T,
+        interrupt: Arc<AtomicBool>,
+    ) -> Result<Vec<AudioStreamInfo>>
+    where
+        T: Read + Seek + Send + 'static,
+    {
+        init_ffmpeg_logging();
+        Demuxer::probe_audio_streams(IoContext::new_with_interrupt(source, interrupt)?)
+    }
+
     pub fn new<T>(source: T) -> Result<Self>
     where
         T: Read + Seek + Send + 'static,

@@ -4,6 +4,7 @@ use crate::work::{Command, Work};
 pub struct SetAudioOutputTask {
     device_name: String,
     exclusive: bool,
+    output_request_seq: u64,
 }
 
 impl Command for SetAudioOutputTask {
@@ -12,6 +13,7 @@ impl Command for SetAudioOutputTask {
     fn compute(&mut self) -> crate::Result<Self::Output> {
         let device_name = self.device_name.clone();
         let exclusive = self.exclusive;
+        let output_request_seq = self.output_request_seq;
         crate::log::info(format!(
             "audio output switch requested: device='{}', exclusive={exclusive}",
             if device_name.trim().is_empty() {
@@ -24,7 +26,12 @@ impl Command for SetAudioOutputTask {
             let mut config = runtime.config.clone();
             config.set_audio_device(&device_name);
             config.exclusive_output = exclusive;
-            let result = restart_output_for_runtime(runtime, config, true);
+            let result = output_lifecycle::restart_output_for_runtime_with_sequence(
+                runtime,
+                config,
+                true,
+                output_request_seq,
+            );
             match &result {
                 Ok(()) => crate::log::info("audio output switch completed"),
                 Err(err) => crate::log::warn(format!("audio output switch failed: {err}")),
@@ -38,6 +45,7 @@ pub fn set_audio_output(device_name: String, exclusive: bool) -> Work<SetAudioOu
     Work::new(SetAudioOutputTask {
         device_name,
         exclusive,
+        output_request_seq: OUTPUT_START_INTERRUPT_SEQ.load(Ordering::Acquire),
     })
 }
 

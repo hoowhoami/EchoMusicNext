@@ -1,6 +1,7 @@
 #include "desktop/DesktopPagesTest.h"
 #include "desktop/DesktopPagesTestFixture.h"
 #include <QNetworkProxyFactory>
+#include <QApplication>
 
 void DesktopPagesTest::initTestCase()
 {
@@ -33,7 +34,7 @@ int main(int argc, char **argv)
     initializeNetworkEnvironment();
     // Match the production entry point for translucent secondary windows.
     QQuickWindow::setDefaultAlphaBuffer(true);
-    QGuiApplication app(argc, argv);
+    QApplication app(argc, argv);
     QCoreApplication::setOrganizationName("EchoMusicTests");
     QCoreApplication::setApplicationName("DesktopPages");
     configureUiTypography();

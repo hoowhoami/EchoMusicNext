@@ -357,6 +357,12 @@ public:
         c.m_version = 0;
         c.applyVersion();
     }
+    static void sources(MvDetailContext &c, const QJsonArray &sources)
+    {
+        c.m_versions = {QJsonObject{{"sources", sources}}};
+        c.m_version = 0;
+        c.applyVersion();
+    }
     static void open(MvDetailContext &c, const QString &url)
     {
         c.openPlayer(url);
@@ -1456,6 +1462,51 @@ Window {
         QSignalSpy drain(&playback, &PlaybackService::closed);
         playback.shutdown();
         QTRY_COMPARE_WITH_TIMEOUT(drain.size(), 1, 15000);
+        api.shutdown();
+    }
+    void defaultMvQualitySelectsResolutionAndPreservesManualChoice()
+    {
+        QTemporaryDir directory;
+        SettingsStore settings(directory.filePath("preferences.ini"));
+        settings.setValue("playback/defaultMvQuality", "auto");
+        ApiClient api(DeviceIdentity::temporary());
+        PlaybackService playback(api, settings);
+        RouteController router;
+        DetailsService service(api, playback, router, false);
+        service.registerRoutes(router);
+        QVERIFY(router.navigate("mv-detail", {{"hash", "entry-540"}}, "123"));
+        auto *mv = service.mvFor(router.current());
+        const QJsonArray sources{
+            QJsonObject{{"hash", "entry-540"}, {"quality", "qhd"}, {"codec", "H.264"}},
+            QJsonObject{{"hash", "high-1080"}, {"quality", "fhd"}, {"codec", "H.265"}},
+            QJsonObject{{"hash", "compatible-1080"}, {"quality", "fhd"}, {"codec", "H.264"}},
+            QJsonObject{{"hash", "middle-720"}, {"quality", "hd"}, {"codec", "H.264"}}};
+        DetailsTestAccess::sources(*mv, sources);
+        QCOMPARE(playback.preferences()->defaultMvQuality(), QString("fhd"));
+        QVERIFY(!settings.contains("playback/defaultMvQuality"));
+        QCOMPARE(mv->sourceHash(), QString("compatible-1080"));
+        playback.preferences()->setDefaultMvQuality("hd");
+        QCOMPARE(mv->sourceHash(), QString("middle-720"));
+        playback.preferences()->setDefaultMvQuality("qhd");
+        QCOMPARE(mv->sourceHash(), QString("entry-540"));
+        playback.preferences()->setDefaultMvQuality("ld");
+        QCOMPARE(mv->sourceHash(), QString("entry-540"));
+        mv->selectSource("middle-720");
+        playback.preferences()->setDefaultMvQuality("fhd");
+        QCOMPARE(mv->sourceHash(), QString("middle-720"));
+        DetailsTestAccess::sources(*mv, sources);
+        QCOMPARE(mv->sourceHash(), QString("middle-720"));
+        PlaybackPreferences restored(settings);
+        QCOMPARE(restored.defaultMvQuality(), QString("fhd"));
+        restored.setDefaultMvQuality("unsupported");
+        QCOMPARE(restored.defaultMvQuality(), QString("fhd"));
+        restored.setDefaultMvQuality("auto");
+        QCOMPARE(restored.defaultMvQuality(), QString("fhd"));
+        service.shutdown();
+        router.shutdown();
+        QSignalSpy closed(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
         api.shutdown();
     }
     void commentAndDetailEntrypointsStaySeparate()

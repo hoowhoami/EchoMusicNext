@@ -1,6 +1,10 @@
 use super::*;
 
 const IDLE_OUTPUT_RELEASE_DELAY_SECS: u64 = 3;
+// Startup duration alone is not a backend failure. Log a slow start once and
+// keep waiting on the same output until it confirms, fails, or is cancelled.
+const OUTPUT_START_SLOW_AFTER: Duration = Duration::from_secs(3);
+const OUTPUT_START_POLL_INTERVAL: Duration = Duration::from_millis(25);
 
 pub(crate) fn schedule_idle_output_release_for_runtime(runtime: &mut PlayerRuntime) {
     if !runtime.core_state.allows_idle_output_release() {
@@ -67,6 +71,7 @@ pub(crate) fn request_output_recovery(
     reason: &'static str,
     message: String,
 ) {
+    let output_request_seq = OUTPUT_START_INTERRUPT_SEQ.load(Ordering::Acquire);
     if !shared.try_begin_output_recovery() {
         emit_shared_event(
             &shared,
@@ -82,7 +87,7 @@ pub(crate) fn request_output_recovery(
     match thread::Builder::new()
         .name("player-output-recovery".to_string())
         .spawn(move || {
-            run_output_recovery(recovery_shared, reason, message);
+            run_output_recovery(recovery_shared, reason, message, output_request_seq);
         }) {
         Ok(_) => {}
         Err(err) => {
@@ -240,7 +245,12 @@ pub(crate) fn handle_output_device_list_change(devices: Vec<AudioDevice>) {
     );
 }
 
-fn run_output_recovery(shared: Arc<SharedAudio>, reason: &'static str, message: String) {
+fn run_output_recovery(
+    shared: Arc<SharedAudio>,
+    reason: &'static str,
+    message: String,
+    output_request_seq: u64,
+) {
     emit_shared_event(
         &shared,
         PlayerEvent::log(
@@ -256,7 +266,9 @@ fn run_output_recovery(shared: Arc<SharedAudio>, reason: &'static str, message: 
     ];
     let mut last_error = message;
     for (attempt, delay) in retry_delays.iter().enumerate() {
-        if shared.stop.load(Ordering::Acquire) {
+        if shared.stop.load(Ordering::Acquire)
+            || OUTPUT_START_INTERRUPT_SEQ.load(Ordering::Acquire) != output_request_seq
+        {
             shared.finish_output_recovery();
             return;
         }
@@ -265,6 +277,9 @@ fn run_output_recovery(shared: Arc<SharedAudio>, reason: &'static str, message: 
         }
         let attempt_shared = shared.clone();
         let result = call_core_command_blocking("output-recovery", move |runtime| {
+            if OUTPUT_START_INTERRUPT_SEQ.load(Ordering::Acquire) != output_request_seq {
+                return Ok(false);
+            }
             let Some(session) = runtime.session.as_ref() else {
                 return Ok(false);
             };
@@ -272,7 +287,7 @@ fn run_output_recovery(shared: Arc<SharedAudio>, reason: &'static str, message: 
                 return Ok(false);
             }
             let config = runtime.config.clone();
-            restart_output_for_runtime(runtime, config, false)?;
+            restart_output_for_runtime_with_sequence(runtime, config, false, output_request_seq)?;
             Ok(true)
         });
         match result {
@@ -295,6 +310,10 @@ fn run_output_recovery(shared: Arc<SharedAudio>, reason: &'static str, message: 
                 return;
             }
             Err(err) => {
+                if err.cancelled {
+                    shared.finish_output_recovery();
+                    return;
+                }
                 last_error = err.to_string();
                 emit_shared_event(
                     &shared,
@@ -313,6 +332,9 @@ fn run_output_recovery(shared: Arc<SharedAudio>, reason: &'static str, message: 
     if !shared.should_pause_on_device_disconnect() {
         let fallback_shared = shared.clone();
         let fallback = call_core_command_blocking("output-recovery-default", move |runtime| {
+            if OUTPUT_START_INTERRUPT_SEQ.load(Ordering::Acquire) != output_request_seq {
+                return Ok(false);
+            }
             if !runtime
                 .session
                 .as_ref()
@@ -326,10 +348,14 @@ fn run_output_recovery(shared: Arc<SharedAudio>, reason: &'static str, message: 
             }
             config.set_audio_device("auto");
             config.exclusive_output = false;
-            restart_output_for_runtime(runtime, config, false)?;
+            restart_output_for_runtime_with_sequence(runtime, config, false, output_request_seq)?;
             Ok(true)
         });
         if matches!(fallback, Ok(true)) {
+            shared.finish_output_recovery();
+            return;
+        }
+        if matches!(fallback, Err(ref error) if error.cancelled) {
             shared.finish_output_recovery();
             return;
         }
@@ -380,11 +406,28 @@ pub(crate) fn restart_output_for_runtime(
     next_config: PlayerConfig,
     restore_previous_on_failure: bool,
 ) -> crate::Result<()> {
+    restart_output_for_runtime_with_sequence(
+        runtime,
+        next_config,
+        restore_previous_on_failure,
+        OUTPUT_START_INTERRUPT_SEQ.load(Ordering::Acquire),
+    )
+}
+
+pub(crate) fn restart_output_for_runtime_with_sequence(
+    runtime: &mut PlayerRuntime,
+    next_config: PlayerConfig,
+    restore_previous_on_failure: bool,
+    output_request_seq: u64,
+) -> crate::Result<()> {
+    if OUTPUT_START_INTERRUPT_SEQ.load(Ordering::Acquire) != output_request_seq {
+        return Err(crate::EngineError::output_start_cancelled());
+    }
     runtime.cancel_idle_output_release();
     let previous_config = runtime.config.clone();
     if runtime.session.is_none() {
         validate_output_restart_config(&next_config, None)
-            .map_err(crate::EngineError::from_reason)?;
+            .map_err(crate::EngineError::from_output_reason)?;
         runtime.config = next_config;
         emit_runtime_event(
             runtime,
@@ -423,7 +466,13 @@ pub(crate) fn restart_output_for_runtime(
             ),
         );
         if restore_previous_on_failure {
-            restore_previous_output(runtime, shared, previous_config, &playback)?;
+            restore_previous_output(
+                runtime,
+                shared,
+                previous_config,
+                &playback,
+                output_request_seq,
+            )?;
         } else {
             set_runtime_core_state(
                 runtime,
@@ -431,21 +480,21 @@ pub(crate) fn restart_output_for_runtime(
                 "output-restart-failed",
             );
         }
-        return Err(crate::EngineError::from_reason(err));
+        return Err(crate::EngineError::from_output_reason(err));
     }
 
     shared.prepare_output_start();
-    match spawn_output_thread_confirmed(shared.clone(), &next_config) {
+    match spawn_output_thread_confirmed(shared.clone(), &next_config, output_request_seq) {
         Ok(output) => {
             let Some(session) = runtime.session.as_mut() else {
                 output.shutdown();
-                return Err(crate::EngineError::from_reason(
+                return Err(crate::EngineError::from_output_reason(
                     "audio session ended during output restart".to_string(),
                 ));
             };
             if !Arc::ptr_eq(&session.shared, &shared) {
                 output.shutdown();
-                return Err(crate::EngineError::from_reason(
+                return Err(crate::EngineError::from_output_reason(
                     "audio session changed during output restart".to_string(),
                 ));
             }
@@ -465,6 +514,18 @@ pub(crate) fn restart_output_for_runtime(
             Ok(())
         }
         Err(err) => {
+            if err.cancelled {
+                shared.paused.store(true, Ordering::Release);
+                runtime.state.playing = false;
+                runtime.state.paused = true;
+                set_runtime_core_state(
+                    runtime,
+                    PlaybackCoreState::Paused,
+                    "output-start-cancelled",
+                );
+                emit_runtime_event(runtime, PlayerEvent::state_change(runtime.state.clone()));
+                return Err(err);
+            }
             emit_shared_event(
                 &shared,
                 PlayerEvent::log(
@@ -473,7 +534,13 @@ pub(crate) fn restart_output_for_runtime(
                 ),
             );
             if restore_previous_on_failure {
-                restore_previous_output(runtime, shared, previous_config, &playback)?;
+                restore_previous_output(
+                    runtime,
+                    shared,
+                    previous_config,
+                    &playback,
+                    output_request_seq,
+                )?;
             } else {
                 set_runtime_core_state(
                     runtime,
@@ -481,7 +548,7 @@ pub(crate) fn restart_output_for_runtime(
                     "output-restart-failed",
                 );
             }
-            Err(crate::EngineError::from_reason(err))
+            Err(err)
         }
     }
 }
@@ -491,10 +558,16 @@ fn restore_previous_output(
     shared: Arc<SharedAudio>,
     previous_config: PlayerConfig,
     playback: &OutputPlaybackSnapshot,
+    output_request_seq: u64,
 ) -> crate::Result<()> {
     shared.prepare_output_start();
-    let output = match spawn_output_thread_confirmed(shared.clone(), &previous_config) {
+    let output = match spawn_output_thread_confirmed(
+        shared.clone(),
+        &previous_config,
+        output_request_seq,
+    ) {
         Ok(output) => output,
+        Err(err) if err.cancelled => return Err(err),
         Err(err) => {
             shared.paused.store(true, Ordering::Release);
             runtime.state.playing = false;
@@ -517,20 +590,20 @@ fn restore_previous_output(
                     ),
                 ],
             );
-            return Err(crate::EngineError::from_reason(format!(
+            return Err(crate::EngineError::from_output_reason(format!(
                 "output change failed and previous output could not be restored: {err}"
             )));
         }
     };
     let Some(session) = runtime.session.as_mut() else {
         output.shutdown();
-        return Err(crate::EngineError::from_reason(
+        return Err(crate::EngineError::from_output_reason(
             "audio session ended while restoring previous output".to_string(),
         ));
     };
     if !Arc::ptr_eq(&session.shared, &shared) {
         output.shutdown();
-        return Err(crate::EngineError::from_reason(
+        return Err(crate::EngineError::from_output_reason(
             "audio session changed while restoring previous output".to_string(),
         ));
     }
@@ -597,37 +670,168 @@ fn validate_output_restart_config(
 fn spawn_output_thread_confirmed(
     shared: Arc<SharedAudio>,
     config: &PlayerConfig,
-) -> Result<crate::output::AudioOutputHandle, String> {
+    output_request_seq: u64,
+) -> crate::Result<crate::output::AudioOutputHandle> {
+    if shared.stop.load(Ordering::Acquire)
+        || OUTPUT_START_INTERRUPT_SEQ.load(Ordering::Acquire) != output_request_seq
+    {
+        return Err(crate::EngineError::output_start_cancelled());
+    }
     let (start_tx, start_rx) = sync_channel(1);
     let output_thread = crate::output::spawn_output_backend(
         config.audio_device.clone(),
         config.exclusive_output,
-        shared,
+        shared.clone(),
         emit_event,
         Some(start_tx),
     );
-
-    match start_rx.recv_timeout(Duration::from_secs(3)) {
-        Ok(Ok(())) => {}
-        Ok(Err(err)) => {
-            output_thread.shutdown();
-            return Err(err);
+    let result = wait_for_output_start(
+        start_rx,
+        OUTPUT_START_SLOW_AFTER,
+        || {
+            shared.stop.load(Ordering::Acquire)
+                || OUTPUT_START_INTERRUPT_SEQ.load(Ordering::Acquire) != output_request_seq
+        },
+        || {
+            emit_shared_event(
+                &shared,
+                PlayerEvent::log(
+                    "info",
+                    "audio output startup is slow; waiting for the same attempt".to_string(),
+                ),
+            )
+        },
+    );
+    match result {
+        Ok(()) => Ok(output_thread),
+        Err(error) if error.cancelled => {
+            output_thread.shutdown_in_background("startup-cancelled");
+            Err(error)
         }
-        Err(RecvTimeoutError::Timeout) => {
-            output_thread.shutdown_in_background("startup-timeout");
-            return Err("audio output did not start within 3 seconds".to_string());
-        }
-        Err(RecvTimeoutError::Disconnected) => {
+        Err(error) => {
             output_thread.shutdown();
-            return Err("audio output exited before startup completed".to_string());
+            Err(error)
         }
     }
-    Ok(output_thread)
+}
+
+fn wait_for_output_start(
+    receiver: std::sync::mpsc::Receiver<Result<(), String>>,
+    slow_after: Duration,
+    cancelled: impl Fn() -> bool,
+    mut on_slow: impl FnMut(),
+) -> crate::Result<()> {
+    let started = std::time::Instant::now();
+    let mut slow_reported = false;
+    loop {
+        if cancelled() {
+            return Err(crate::EngineError::output_start_cancelled());
+        }
+        match receiver.recv_timeout(OUTPUT_START_POLL_INTERVAL) {
+            Ok(result) => {
+                // Cancellation may have arrived while the backend was inside Start.
+                if cancelled() {
+                    return Err(crate::EngineError::output_start_cancelled());
+                }
+                return result.map_err(crate::EngineError::from_output_reason);
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                return Err(crate::EngineError::from_output_reason(
+                    "audio output exited before startup completed",
+                ));
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                if !slow_reported && started.elapsed() >= slow_after {
+                    slow_reported = true;
+                    on_slow();
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_paused_recovery_owner_cannot_start_a_later_attempt() {
+        let _guard = crate::transition_tests::TEST_SERIAL
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        let shared = Arc::new(SharedAudio::new(
+            MixFormat::stereo_f32(48_000),
+            0.2,
+            8.0,
+            &DspSettings::default(),
+        ));
+        let sequence = OUTPUT_START_INTERRUPT_SEQ.load(Ordering::Acquire);
+        assert!(shared.try_begin_output_recovery());
+        let _pause = pause_task();
+        run_output_recovery(
+            shared.clone(),
+            "test",
+            "cancelled recovery".to_string(),
+            sequence,
+        );
+        assert!(shared.try_begin_output_recovery());
+        shared.finish_output_recovery();
+    }
+
+    #[test]
+    fn slow_output_start_keeps_the_same_attempt_until_success() {
+        let (sender, receiver) = sync_channel(1);
+        let worker = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(5200));
+            sender.send(Ok(())).unwrap();
+        });
+        let mut slow_notifications = 0;
+        wait_for_output_start(
+            receiver,
+            OUTPUT_START_SLOW_AFTER,
+            || false,
+            || slow_notifications += 1,
+        )
+        .unwrap();
+        assert_eq!(slow_notifications, 1);
+        worker.join().unwrap();
+    }
+
+    #[test]
+    fn output_start_wait_preserves_actual_backend_failure_and_disconnect() {
+        let (sender, receiver) = sync_channel(1);
+        sender.send(Err("device unavailable".to_string())).unwrap();
+        let error =
+            wait_for_output_start(receiver, OUTPUT_START_SLOW_AFTER, || false, || {}).unwrap_err();
+        assert!(error.output && !error.cancelled);
+        assert_eq!(error.reason, "device unavailable");
+        let (sender, receiver) = sync_channel(1);
+        drop(sender);
+        let error =
+            wait_for_output_start(receiver, OUTPUT_START_SLOW_AFTER, || false, || {}).unwrap_err();
+        assert!(error.output && !error.cancelled);
+        assert!(error.reason.contains("exited before startup"));
+    }
+
+    #[test]
+    fn output_start_wait_is_cancellable_without_a_backend_reply() {
+        let (_sender, receiver) = sync_channel(1);
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let worker_cancelled = cancelled.clone();
+        let worker = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(75));
+            worker_cancelled.store(true, Ordering::Release);
+        });
+        let error = wait_for_output_start(
+            receiver,
+            Duration::from_millis(25),
+            || cancelled.load(Ordering::Acquire),
+            || {},
+        )
+        .unwrap_err();
+        assert!(error.cancelled);
+        worker.join().unwrap();
+    }
 
     fn playback_snapshot(core_state: PlaybackCoreState) -> OutputPlaybackSnapshot {
         let idle = core_state.allows_idle_output_release();

@@ -4,6 +4,8 @@
 #include <QVideoFrame>
 #include <QQmlEngine>
 #include <algorithm>
+#include <limits>
+#include <QMap>
 namespace EchoMusic
 {
 namespace
@@ -46,6 +48,46 @@ QJsonArray sourceChoices(const QJsonArray &sources)
         result.append(choice);
     return result;
 }
+// Resolution is a video preference. Bitrate here describes the whole video,
+// not its audio track; do not reuse this ranking for MV audio fallback.
+QString preferredSource(const QJsonArray &sources, const QString &quality)
+{
+    const QMap<QString, int> heights{
+        {"fhd", 1080}, {"hd", 720}, {"qhd", 540}, {"sd", 432}, {"ld", 270}};
+    const int limit = heights.value(quality, 1080);
+    QJsonObject selected;
+    int best = -1;
+    QString unknown;
+    bool below = false;
+    for (const auto &value : sources) {
+        const auto source = value.toObject();
+        const int width = source.value("width").toInt(), height = source.value("height").toInt();
+        const int resolution = width > 0 && height > 0 ? std::min(width, height)
+                               : height > 0 ? height
+                                            : heights.value(source.value("quality").toString(), 0);
+        if (resolution <= 0) {
+            if (unknown.isEmpty())
+                unknown = source.value("hash").toString();
+            continue;
+        }
+        const bool fits = resolution <= limit;
+        const bool betterResolution =
+            selected.isEmpty() || (fits && !below) ||
+            (fits == below && (fits ? resolution > best : resolution < best));
+        const bool sameResolution = fits == below && resolution == best;
+        const bool compatible = source.value("codec") == "H.264";
+        const bool previousCompatible = selected.value("codec") == "H.264";
+        if (betterResolution || (sameResolution && ((compatible && !previousCompatible) ||
+                                                    (compatible == previousCompatible &&
+                                                     source.value("bit_rate").toDouble() >
+                                                         selected.value("bit_rate").toDouble())))) {
+            selected = source;
+            best = resolution;
+            below = fits;
+        }
+    }
+    return selected.isEmpty() ? unknown : selected.value("hash").toString();
+}
 } // namespace
 MvDetailContext::MvDetailContext(ApiClient &a, PlaybackService &p,
                                  VideoCollectionService &collection, RouteContext &r, bool network)
@@ -54,6 +96,10 @@ MvDetailContext::MvDetailContext(ApiClient &a, PlaybackService &p,
 {
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
     connect(&m_barrage, &BarrageController::notice, this, &MvDetailContext::notice);
+    connect(p.preferences(), &PlaybackPreferences::defaultMvQualityChanged, this, [this] {
+        if (!m_sourceChosen)
+            applyVersion();
+    });
     const auto q = r.query();
     m_fallback = QJsonObject::fromVariantMap({{"title", q.value("title")},
                                               {"artist", q.value("artist")},
@@ -160,7 +206,7 @@ void MvDetailContext::setPresented(bool v)
             }
         releasePlayer();
     } else if (m_route.active() && !m_hash.isEmpty())
-        selectSource(m_hash);
+        requestSource(m_hash);
 }
 void MvDetailContext::setNetworkPreferences(NetworkPreferences *network)
 {
@@ -190,6 +236,7 @@ void MvDetailContext::reload()
     cancel();
     releasePlayer();
     m_hash.clear();
+    m_sourceChosen = false;
     m_barrage.setResource({}, {});
     m_error.clear();
     m_versions = {};
@@ -211,7 +258,7 @@ void MvDetailContext::reload()
         if (!hash.isEmpty())
             request(m_api.videoPrivilege(hash), Privilege);
         if (!hash.isEmpty())
-            selectSource(hash);
+            requestSource(hash);
         if (m_pending.isEmpty())
             m_error = tr("暂无可用的 MV 标识");
     }
@@ -229,19 +276,15 @@ void MvDetailContext::applyVersion()
     m_sources = sourceChoices(v.value("sources").toArray());
     if (!v.value("id").isNull())
         m_collection.ensureLoaded();
-    QString preferred = m_route.query().value("hash").toString();
-    bool found = false;
-    for (const auto &s : m_sources)
-        if (s.toObject().value("hash").toString() == preferred)
-            found = true;
-    if (!found) {
-        preferred =
-            m_sources.isEmpty() ? QString() : m_sources[0].toObject().value("hash").toString();
+    QString preferred;
+    if (m_sourceChosen)
         for (const auto &source : m_sources)
-            if (source.toObject().value("codec").toString() == "H.264") {
+            if (source.toObject().value("hash").toString().compare(m_hash, Qt::CaseInsensitive) ==
+                0)
                 preferred = source.toObject().value("hash").toString();
-                break;
-            }
+    if (preferred.isEmpty()) {
+        m_sourceChosen = false;
+        preferred = preferredSource(m_sources, m_playback.preferences()->defaultMvQuality());
     }
     if (!preferred.isEmpty()) {
         bool requested = false;
@@ -250,7 +293,7 @@ void MvDetailContext::applyVersion()
         // A route hash can already be resolving while version metadata arrives.
         // Reuse that exact selection instead of issuing a second URL request.
         if (preferred != m_hash || (!m_player && !requested))
-            selectSource(preferred);
+            requestSource(preferred);
     } else {
         releasePlayer();
         m_hash.clear();
@@ -262,9 +305,17 @@ void MvDetailContext::selectVersion(int v)
     if (v < 0 || v >= m_versions.size() || v == m_version)
         return;
     m_version = v;
+    m_sourceChosen = false;
     applyVersion();
 }
 void MvDetailContext::selectSource(const QString &hash)
+{
+    if (m_closed || !m_route.active() || hash.isEmpty())
+        return;
+    m_sourceChosen = true;
+    requestSource(hash);
+}
+void MvDetailContext::requestSource(const QString &hash)
 {
     if (m_closed || !m_route.active() || hash.isEmpty())
         return;

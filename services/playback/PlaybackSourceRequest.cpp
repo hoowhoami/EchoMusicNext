@@ -1,4 +1,6 @@
 #include "PlaybackSourceRequest.h"
+#include "MvAudioSourcePlan.h"
+#include "NativeBridge.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QLoggingCategory>
@@ -16,10 +18,38 @@ Q_LOGGING_CATEGORY(playbackSourceLog, "echo.playback.source")
 
 PlaybackSourceRequest::PlaybackSourceRequest(ApiClient &api, MembershipService &membership,
                                              QObject *parent, CloudAudioIndex *cloud,
-                                             PlaybackSourceExtensions *extensions)
-    : QObject(parent), m_extensions(extensions), m_cloud(cloud), m_api(api),
+                                             PlaybackSourceExtensions *extensions,
+                                             NativeBridge *native)
+    : QObject(parent), m_extensions(extensions), m_cloud(cloud), m_native(native), m_api(api),
       m_membership(membership)
 {
+    m_mvProbeBudget.setSingleShot(true);
+    connect(&m_mvProbeBudget, &QTimer::timeout, this, &PlaybackSourceRequest::publishMv);
+    if (m_native)
+        connect(m_native, &NativeBridge::completed, this,
+                [this](quint64 id, quint64 generation, bool success, const QByteArray &bytes) {
+                    if (!m_mvProbe || id != m_mvProbe || generation != m_generation ||
+                        m_revision != m_api.sessionRevision() || !m_active)
+                        return;
+                    m_mvProbe = 0;
+                    if (success && m_mvProbeIndex < m_mvCandidates.size()) {
+                        const auto tracks =
+                            QJsonDocument::fromJson(bytes).object().value("tracks").toArray();
+                        QJsonObject selected;
+                        for (const auto &value : tracks) {
+                            const auto track = value.toObject();
+                            if (selected.isEmpty() || track.value("selected").toBool())
+                                selected = track;
+                            if (track.value("selected").toBool())
+                                break;
+                        }
+                        auto candidate = m_mvCandidates[m_mvProbeIndex].toObject();
+                        candidate.insert("audio", selected);
+                        m_mvCandidates[m_mvProbeIndex] = candidate;
+                    }
+                    ++m_mvProbeIndex;
+                    probeNextMv();
+                });
     if (m_cloud)
         connect(m_cloud, &CloudAudioIndex::settled, this, [this] {
             if (m_waitingCloud)
@@ -34,6 +64,9 @@ PlaybackSourceRequest::PlaybackSourceRequest(ApiClient &api, MembershipService &
 void PlaybackSourceRequest::cancel()
 {
     ++m_generation;
+    cancelMvProbe();
+    m_mvCandidates = {};
+    m_mvUrlIndex = m_mvProbeIndex = 0;
     delete m_extensionJob.data();
     m_extensionJob = nullptr;
     m_beforeTried = m_afterTried = m_finalTried = false;
@@ -303,8 +336,7 @@ void PlaybackSourceRequest::succeed(quint64 id, const QByteArray &bytes)
         auto source = QJsonDocument::fromJson(bytes).object();
         source["urls"] = QJsonArray{source.value("url")};
         m_videoResults[ordinal] = usableUrls(source);
-        if (m_videoRequests.isEmpty())
-            nextMvUrl();
+        nextMvUrl();
         return;
     }
     if (id && id == m_cloudRequest) {
@@ -322,7 +354,11 @@ void PlaybackSourceRequest::succeed(quint64 id, const QByteArray &bytes)
     if (id && id == m_mvRequest) {
         m_mvRequest = 0;
         const auto videos = QJsonDocument::fromJson(bytes).array();
-        m_mvHashes = mvHashes(videos);
+        m_mvCandidates = mvAudioCandidates(videos);
+        m_mvHashes.clear();
+        m_mvUrlIndex = m_mvProbeIndex = 0;
+        for (const auto &candidate : m_mvCandidates)
+            m_mvHashes.append(candidate.toObject().value("hash").toString());
         if (m_mvHashes.isEmpty()) {
             const bool allShort =
                 !videos.isEmpty() && std::all_of(videos.begin(), videos.end(), [](const auto &v) {
@@ -434,8 +470,7 @@ void PlaybackSourceRequest::fail(quint64 id, const QByteArray &bytes)
     }
     if (m_videoRequests.contains(id)) {
         m_videoRequests.remove(id);
-        if (m_videoRequests.isEmpty())
-            nextMvUrl();
+        nextMvUrl();
         return;
     }
     if (id && id == m_cloudRequest) {
@@ -601,43 +636,14 @@ bool EchoMusic::PlaybackSourceRequest::continueAfterFailure()
 }
 QStringList EchoMusic::PlaybackSourceRequest::mvHashes(const QJsonArray &videos)
 {
-    QJsonObject selected;
-    for (const auto &value : videos) {
-        const auto row = value.toObject();
-        if (!row.value("audio_fallback_eligible").toBool() ||
-            row.value("duration_ms").toInteger() <= 0 || row.value("sources").toArray().isEmpty())
-            continue;
-        if (selected.isEmpty() || row.value("recommendation_code").toInt() >
-                                      selected.value("recommendation_code").toInt())
-            selected = row;
-    }
-    QList<QJsonObject> sources;
-    for (const auto &value : selected.value("sources").toArray())
-        sources.append(value.toObject());
-    std::stable_sort(sources.begin(), sources.end(), [](const auto &a, const auto &b) {
-        const auto size = [](const auto &s) {
-            const auto n = s.value("size_bytes").toInteger();
-            return n > 0 ? n : std::numeric_limits<qint64>::max();
-        };
-        return size(a) < size(b);
-    });
-    QSet<QString> codecs;
     QStringList hashes;
-    for (const auto &source : sources) {
-        const auto hash = source.value("hash").toString();
-        const auto codec = source.value("codec").toString();
-        if (hash.isEmpty() || codecs.contains(codec))
-            continue;
-        codecs.insert(codec);
-        hashes.append(hash);
-        if (hashes.size() == 3)
-            break;
-    }
+    for (const auto &source : mvAudioCandidates(videos))
+        hashes.append(source.toObject().value("hash").toString());
     return hashes;
 }
 bool EchoMusic::PlaybackSourceRequest::tryMv(const PlaybackTrack &track)
 {
-    if (m_active || m_mvTried || m_kind == "mv" || !track.localPath.isEmpty())
+    if (m_active || m_preloading || m_mvTried || m_kind == "mv" || !track.localPath.isEmpty())
         return false;
     m_mvTried = true;
     m_context = true;
@@ -655,27 +661,85 @@ bool EchoMusic::PlaybackSourceRequest::tryMv(const PlaybackTrack &track)
 }
 void EchoMusic::PlaybackSourceRequest::nextMvUrl()
 {
-    if (!m_mvHashes.isEmpty()) {
-        const auto hashes = std::exchange(m_mvHashes, {});
-        for (int i = 0; i < hashes.size(); ++i) {
-            const auto id = m_api.videoUrl(hashes[i]);
-            if (id)
-                m_videoRequests.insert(id, i);
-        }
-        if (!m_videoRequests.isEmpty())
-            return;
+    // Resolve only two video URLs at once. The bounded candidate set is plain
+    // metadata; no video data or per-candidate decoder is retained here.
+    while (!m_mvHashes.isEmpty() && m_videoRequests.size() < 2) {
+        const auto hash = m_mvHashes.takeFirst();
+        const auto ordinal = m_mvUrlIndex++;
+        const auto id = m_api.videoUrl(hash);
+        if (id)
+            m_videoRequests.insert(id, ordinal);
     }
-    for (const auto &urls : m_videoResults)
-        for (const auto &url : urls)
-            if (!m_mvUrls.contains(url))
-                m_mvUrls.append(url);
+    if (!m_videoRequests.isEmpty())
+        return;
+    for (auto it = m_videoResults.cbegin(); it != m_videoResults.cend(); ++it) {
+        auto candidate = m_mvCandidates[it.key()].toObject();
+        candidate.insert("urls", QJsonArray::fromStringList(it.value()));
+        m_mvCandidates[it.key()] = candidate;
+    }
     m_videoResults.clear();
+    m_mvProbeIndex = 0;
+    if (!m_native) {
+        publishMv();
+        return;
+    }
+    m_mvProbeBudget.start(4000);
+    probeNextMv();
+}
+void EchoMusic::PlaybackSourceRequest::cancelMvProbe()
+{
+    m_mvProbeBudget.stop();
+    const auto id = std::exchange(m_mvProbe, 0);
+    if (m_native && id)
+        m_native->cancel(id);
+}
+void EchoMusic::PlaybackSourceRequest::probeNextMv()
+{
+    while (m_mvProbeIndex < m_mvCandidates.size()) {
+        const auto urls = m_mvCandidates[m_mvProbeIndex].toObject().value("urls").toArray();
+        if (m_native && !urls.isEmpty()) {
+            m_mvProbe = m_native->submit(NativeBridge::AudioHeaders, urls.first(), m_generation);
+            if (m_mvProbe)
+                return;
+        }
+        ++m_mvProbeIndex;
+    }
+    publishMv();
+}
+void EchoMusic::PlaybackSourceRequest::publishMv()
+{
+    cancelMvProbe();
+    if (!m_active || m_revision != m_api.sessionRevision())
+        return;
+    const auto selected = rankedMvAudioSources(m_mvCandidates);
+    if (!selected.isEmpty()) {
+        // Native stream facts only: keep diagnosis useful without persisting
+        // signed URLs, song identity or the full candidate response.
+        const QJsonObject facts{{"stage", "mv-audio-selected"},
+                                {"candidates", m_mvCandidates.size()},
+                                {"audio", selected.first().toObject().value("audio")}};
+        qCInfo(playbackSourceLog).noquote() << QJsonDocument(facts).toJson(QJsonDocument::Compact);
+    }
+    QJsonArray sources;
+    m_mvUrls = {};
+    for (const auto &value : selected) {
+        const auto candidate = value.toObject();
+        const auto audio = candidate.value("audio").toObject();
+        for (const auto &url : candidate.value("urls").toArray()) {
+            if (m_mvUrls.contains(url))
+                continue;
+            m_mvUrls.append(url);
+            sources.append(
+                QJsonObject{{"url", url}, {"audioTrackId", audio.value("id")}, {"audio", audio}});
+        }
+    }
+    m_mvCandidates = {};
     if (m_mvUrls.isEmpty()) {
         m_mvError = tr("曲库 MV 播放地址获取失败");
         finishFailure();
         return;
     }
-    publish({{"urls", m_mvUrls}, {"backup_urls", QJsonArray{}}}, "mv");
+    publish({{"urls", m_mvUrls}, {"sources", sources}, {"backup_urls", QJsonArray{}}}, "mv");
 }
 void EchoMusic::PlaybackSourceRequest::publishCloud(const QJsonObject &source)
 {
@@ -693,8 +757,10 @@ void EchoMusic::PlaybackSourceRequest::publishCloud(const QJsonObject &source)
 }
 void EchoMusic::PlaybackSourceRequest::disableMv()
 {
-    if (!m_mvRequest && m_videoRequests.isEmpty())
+    if (!m_mvRequest && m_videoRequests.isEmpty() && !m_mvProbeBudget.isActive())
         return;
+    cancelMvProbe();
+    m_mvCandidates = {};
     const auto requests = std::exchange(m_videoRequests, {});
     for (auto id : requests.keys())
         m_api.cancel(id);

@@ -12,6 +12,7 @@
 #include <QMetaMethod>
 #include <QMetaProperty>
 #include <QAbstractItemModel>
+#include <QQmlIncubationController>
 #include <QtQuick/private/qquicklistview_p.h>
 #include <QtQuick/private/qquickgridview_p.h>
 #include <QtQuick/private/qquicktableview_p.h>
@@ -250,6 +251,15 @@ void EchoUiStructure::synchronize()
         if (!item || seen.contains(item) || item->property("echoUiSurface") == "inspector")
             return;
         seen.insert(item);
+        // Discovery can run between asynchronous creation slices, before an
+        // explicit EchoUiPart has even completed. Do not expose that subtree
+        // to insertion/hiding or read its deferred control/model properties.
+        if (!EchoUiLayout::constructionComplete(item)) {
+            if (auto *controller = m_registry.engine().incubationController();
+                controller && controller->incubatingObjectCount() > 0)
+                schedule(item);
+            return;
+        }
         watchView(item);
         watchDelegate(item);
         if (!EchoUiScope::accepts(item))
@@ -283,7 +293,20 @@ void EchoUiStructure::synchronize()
                         m_update.start(0);
                 })};
         }
-        if (!internal && !m_registry.hasExplicitTarget(item)) {
+        if (m_registry.hasExplicitTarget(item)) {
+            QList<QPointer<EchoUiPartRegistration>> declarations;
+            for (auto *part : m_registry.m_targetDeclarations.value(item))
+                declarations.append(part);
+            const QPointer<QQuickItem> alive(item);
+            for (auto part : declarations) {
+                if (!alive)
+                    return;
+                if (part && part->identity().isEmpty())
+                    m_registry.attach(part);
+            }
+            if (!alive)
+                return;
+        } else if (!internal) {
             auto node = m_nodes.value(item);
             if (!node) {
                 node = new EchoUiPartRegistration(this);

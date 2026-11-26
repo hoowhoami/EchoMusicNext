@@ -12,6 +12,39 @@ unsafe extern "C" fn collect(context: *mut c_void, result: *const EchoResult) {
 }
 
 struct Audio(*mut EchoAudio);
+
+#[test]
+fn output_errors_keep_their_kind_and_cancelled_transport_is_silent() {
+    let (events, received) = mpsc::channel::<Value>();
+    let sink = Sink {
+        callback: collect,
+        context: &events as *const _ as usize,
+    };
+    sink.engine_error(
+        &echo_audio::EngineError::from_output_reason("device unavailable"),
+        Some(7),
+        JobKind::Transport,
+    );
+    let event = received.recv().unwrap();
+    assert_eq!(event["error_code"], "output-runtime");
+    assert_eq!(event["track_seq"], 7);
+    assert_eq!(event["message"], "device unavailable");
+    let mut cancelled = echo_audio::EngineError::from_output_reason("cancelled");
+    cancelled.cancelled = true;
+    sink.engine_error(&cancelled, Some(7), JobKind::Transport);
+    assert!(matches!(
+        received.try_recv(),
+        Err(mpsc::TryRecvError::Empty)
+    ));
+    sink.engine_error(
+        &echo_audio::EngineError::from_reason("decode failed"),
+        Some(8),
+        JobKind::Transport,
+    );
+    let event = received.recv().unwrap();
+    assert!(event["error_code"].is_null());
+    assert_eq!(event["track_seq"], 8);
+}
 impl Drop for Audio {
     fn drop(&mut self) {
         unsafe { echo_audio_destroy(self.0) };

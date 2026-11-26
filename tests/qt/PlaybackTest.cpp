@@ -113,6 +113,14 @@ public:
     {
         return p.m_engine;
     }
+    static bool pauseFadePending(const PlaybackService &p)
+    {
+        return p.m_pauseFadePending;
+    }
+    static bool nativePlaying(const PlaybackService &p)
+    {
+        return p.m_playing;
+    }
     static int publishedMediaPlaying(const PlaybackService &p)
     {
         const auto published = p.m_outputController->m_publishedPlaying;
@@ -121,6 +129,10 @@ public:
     static quint64 audioSequence(const PlaybackService &p)
     {
         return p.m_audioSequence;
+    }
+    static void nativeSequence(PlaybackService &p, quint64 sequence)
+    {
+        p.m_audioSequence = sequence;
     }
     static void acknowledge(PlaybackService &p, bool playing, quint64 sequence = 0)
     {
@@ -366,6 +378,153 @@ class PlaybackTest : public QObject
         return -1;
     }
 private slots:
+    void outputFailureKeepsLoadedReaderAndDoesNotSkip_data()
+    {
+        QTest::addColumn<QString>("code");
+        for (const auto &code : {"output-runtime", "output-stream", "output-device-unavailable",
+                                 "output-exclusive", "output-config"})
+            QTest::newRow(code) << QString(code);
+    }
+    void outputFailureKeepsLoadedReaderAndDoesNotSkip()
+    {
+        QFETCH(QString, code);
+        using A = PlaybackServiceTestAccess;
+        QTemporaryDir dir;
+        SettingsStore settings(dir.filePath("settings.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        api.addInterceptor(100, [](const QJsonObject &, ApiInterceptNext, ApiInterceptDone) {
+            return std::function<void()>([] {});
+        });
+        PlaybackService playback(api, settings, nullptr, dir.filePath("queue.sqlite"));
+        QTRY_VERIFY_WITH_TIMEOUT(A::ready(playback), 15000);
+        A::holdNativeEvents(playback);
+        playback.preferences()->setAutoNext(true);
+        playback.preferences()->setAutoNextDelaySeconds(1);
+        playback.enginePreferences()->setPlayResumeTimeout(0.05);
+        auto first = track(1), second = track(2);
+        first.localPath.clear();
+        first.hash = QString(32, 'a');
+        second.localPath.clear();
+        second.hash = QString(32, 'b');
+        playback.playTracks({first, second}, 0, "Output failure", "output-failure");
+        A::nativeSequence(playback, 7);
+        A::loaded(playback);
+        A::acknowledge(playback, true);
+        const auto sequence = playback.audioSequence();
+        const auto revision = playback.sourceRevision();
+        QSignalSpy notices(&playback, &PlaybackService::failureNotice);
+        A::outputEvent(playback, {{"event", "error"},
+                                  {"track_seq", qint64(sequence)},
+                                  {"error_code", code},
+                                  {"message", "WASAPI device error"}});
+        QTRY_COMPARE(notices.size(), 1);
+        QVERIFY(!notices.first().first().toString().contains("下一首"));
+        QVERIFY(notices.first().first().toString().contains("输出"));
+        A::acknowledge(playback, true); // Late acknowledgement of the failed attempt.
+        QVERIFY(!playback.playing());
+        QTest::qWait(1100); // Cross both the source-recovery and auto-skip deadlines.
+        QVERIFY(!playback.playing());
+        QVERIFY(!playback.loading());
+        QCOMPARE(playback.queue()->currentIndex(), 0);
+        QCOMPARE(playback.sourceRevision(), revision);
+        QCOMPARE(playback.audioSequence(), sequence);
+        playback.play();
+        QVERIFY(playback.loading());
+        QCOMPARE(playback.sourceRevision(), revision);
+        QCOMPARE(playback.audioSequence(), sequence);
+        A::acknowledge(playback, true);
+        QVERIFY(playback.playing());
+        QVERIFY(playback.errorMessage().isEmpty());
+        QSignalSpy closed(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+        api.shutdown();
+    }
+    void resumeRecoveryWaitsForNativeOutputAttempt_data()
+    {
+        QTest::addColumn<bool>("outputAlreadyRestarting");
+        QTest::addColumn<QString>("completion");
+        for (const bool restarting : {false, true})
+            for (const auto &completion :
+                 {QString("playing"), QString("no-ack"), QString("pause"), QString("stop")})
+                QTest::newRow(qPrintable((restarting ? "already-" : "new-") + completion))
+                    << restarting << completion;
+    }
+    void resumeRecoveryWaitsForNativeOutputAttempt()
+    {
+        QFETCH(bool, outputAlreadyRestarting);
+        QFETCH(QString, completion);
+        using A = PlaybackServiceTestAccess;
+        QTemporaryDir dir;
+        SettingsStore settings(dir.filePath("settings.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        api.addInterceptor(100, [](const QJsonObject &, ApiInterceptNext, ApiInterceptDone) {
+            return std::function<void()>([] {});
+        });
+        PlaybackService playback(api, settings, nullptr, dir.filePath("queue.sqlite"));
+        QTRY_VERIFY_WITH_TIMEOUT(A::ready(playback), 15000);
+        A::holdNativeEvents(playback);
+        playback.preferences()->setAutoNext(false);
+        playback.enginePreferences()->setPlayResumeTimeout(0.05);
+        auto song = track(1);
+        song.localPath.clear();
+        song.hash = QString(32, 'a');
+        playback.playTracks({song}, 0, "Resume coordination", "resume-coordination");
+        A::nativeSequence(playback, 7);
+        A::loaded(playback);
+        A::acknowledge(playback, true);
+        playback.pause();
+        A::acknowledge(playback, false);
+        const auto revision = playback.sourceRevision();
+        quint64 eventId = 0;
+        const auto core = [&](const QString &state, quint64 sequence) {
+            A::outputEvent(playback, {{"event", "core-state-change"},
+                                      {"track_seq", qint64(sequence)},
+                                      {"event_id", qint64(++eventId)},
+                                      {"generation", 1},
+                                      {"core_state", state}});
+        };
+        if (outputAlreadyRestarting)
+            core("output-reconfig", playback.audioSequence());
+        playback.play();
+        QVERIFY(playback.loading());
+        QSignalSpy failures(&playback, &PlaybackService::failureNotice);
+        if (!outputAlreadyRestarting)
+            core("output-reconfig", playback.audioSequence());
+        // A retired track cannot end the current output wait. Cross the real
+        // configured recovery deadline without injecting a timer callback.
+        core("paused", playback.audioSequence() + 1);
+        A::outputEvent(playback, {{"event", "core-state-change"},
+                                  {"track_seq", qint64(playback.audioSequence())},
+                                  {"event_id", 0},
+                                  {"generation", 1},
+                                  {"core_state", "paused"}});
+        QTest::qWait(120);
+        QCOMPARE(playback.sourceRevision(), revision);
+        QVERIFY(playback.loading());
+        QCOMPARE(failures.size(), 0);
+        if (completion == "pause")
+            playback.pause();
+        else if (completion == "stop")
+            playback.stop();
+        const auto finalRevision = playback.sourceRevision();
+        core("paused", playback.audioSequence());
+        if (completion == "playing")
+            A::acknowledge(playback, true);
+        if (completion == "no-ack") {
+            QTRY_VERIFY(playback.sourceRevision() > finalRevision);
+            QVERIFY(playback.loading()); // The existing source recovery still runs.
+        } else {
+            QTest::qWait(120);
+            QCOMPARE(playback.sourceRevision(), finalRevision);
+            QVERIFY(!playback.loading());
+            QCOMPARE(playback.playing(), completion == "playing");
+        }
+        QSignalSpy closed(&playback, &PlaybackService::closed);
+        playback.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+        api.shutdown();
+    }
     void manualSkipRetainsNativeSessionWhileResolvingNextTrack()
     {
         QTemporaryDir dir;
@@ -1165,14 +1324,21 @@ private slots:
     {
         QTemporaryDir directory;
         EchoMusic::SettingsStore settings(directory.filePath("preferences.ini"));
+        settings.setValue("playback/compatibilityMode", false);
         ApiClient api;
         PlaybackService playback(api, settings);
         auto *preferences = playback.preferences();
         QCOMPARE(preferences->defaultQuality(), QString("hi_res"));
         QCOMPARE(playback.quality(), QString("hi_res"));
-        QVERIFY(preferences->volumeFade());
+        QVERIFY(!preferences->volumeFade());
+        preferences->setVolumeFade(true);
         QVERIFY(preferences->compatibilityMode());
-        preferences->setCompatibilityMode(false);
+        QVERIFY(!settings.contains("playback/compatibilityMode"));
+        QVERIFY(!preferences->setProperty("compatibilityMode", false));
+        QVERIFY(preferences->compatibilityMode());
+        // Restoring an older backup cannot change the live fixed policy.
+        settings.setValue("playback/compatibilityMode", false);
+        QVERIFY(preferences->compatibilityMode());
         preferences->setQueueMode("single");
         preferences->setDefaultQuality("flac");
         playback.playFromSelection({track(0), track(1), track(2)}, 1, "Selection", "selection",
@@ -1196,18 +1362,31 @@ private slots:
         QCOMPARE(preferences->defaultQuality(), QString("hi_res"));
         preferences->setDefaultQuality("viper_atmos");
         QCOMPARE(preferences->defaultQuality(), QString("hi_res"));
+        QCOMPARE(preferences->volumeFadeMs(), 400);
+        for (const int duration : {0, 50, 100, 250, 400, 1000, 3000}) {
+            preferences->setVolumeFadeMs(duration);
+            QCOMPARE(preferences->volumeFadeMs(), duration);
+            PlaybackPreferences saved(settings);
+            QCOMPARE(saved.volumeFadeMs(), duration);
+        }
+        preferences->setVolumeFadeMs(-1);
+        QCOMPARE(preferences->volumeFadeMs(), 0);
+        preferences->setVolumeFadeMs(3001);
+        QCOMPARE(preferences->volumeFadeMs(), 3000);
         preferences->setVolumeFadeMs(100);
-        QCOMPARE(preferences->volumeFadeMs(), 500);
         QSignalSpy closed(&playback, &PlaybackService::closed), apiClosed(&api, &ApiClient::closed);
         playback.shutdown();
         api.shutdown();
         QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
         QTRY_COMPARE_WITH_TIMEOUT(apiClosed.size(), 1, 15000);
         PlaybackPreferences reopened(settings);
+        QVERIFY(reopened.volumeFade());
+        QCOMPARE(reopened.volumeFadeMs(), 100);
         QCOMPARE(reopened.queueMode(), QString("single"));
         QCOMPARE(reopened.defaultQuality(), QString("hi_res"));
         QVERIFY(!reopened.viperQualityEnabled());
-        QVERIFY(!reopened.compatibilityMode());
+        QVERIFY(reopened.compatibilityMode());
+        QVERIFY(!settings.contains("playback/compatibilityMode"));
     }
     void audibleTransitionNoticeUsesActualModeAndRoundedTimes()
     {
@@ -1224,6 +1403,139 @@ private slots:
         QVERIFY(format("none", 4, 5).isEmpty());
         QVERIFY(format("unknown", 4, 5).isEmpty());
         QVERIFY(TrackTransitionControllerTestAccess::formatNotice({}).isEmpty());
+    }
+    void playbackFadesIntegrateWithManualTransitions_data()
+    {
+        QTest::addColumn<bool>("enabled");
+        QTest::addColumn<QString>("mode");
+        QTest::addColumn<int>("durationMs");
+        QTest::newRow("default-off") << false << QString("none") << 500;
+        for (const int duration : {0, 100, 250, 400})
+            QTest::newRow(qPrintable(QString("none-%1ms").arg(duration)))
+                << true << QString("none") << duration;
+        for (const auto &mode : {"none", "gapless", "fade", "automix-basic", "automix-pro"})
+            QTest::newRow(mode) << true << QString(mode) << 500;
+    }
+    void playbackFadesIntegrateWithManualTransitions()
+    {
+        QFETCH(bool, enabled);
+        QFETCH(QString, mode);
+        QFETCH(int, durationMs);
+        const bool fades = enabled && durationMs > 0 && mode == "none";
+        QTemporaryDir directory;
+        PlaybackTracks tracks;
+        for (int index = 0; index < 3; ++index) {
+            const auto path = directory.filePath(QString("silence%1.wav").arg(index));
+            QFile file(path);
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            QDataStream stream(&file);
+            stream.setByteOrder(QDataStream::LittleEndian);
+            constexpr quint32 bytes = 48000 * 30 * 4;
+            stream.writeRawData("RIFF", 4);
+            stream << quint32(36 + bytes);
+            stream.writeRawData("WAVEfmt ", 8);
+            stream << quint32(16) << quint16(1) << quint16(2) << quint32(48000) << quint32(192000)
+                   << quint16(4) << quint16(16);
+            stream.writeRawData("data", 4);
+            stream << bytes;
+            file.write(QByteArray(bytes, '\0'));
+            file.close();
+            auto song = track(index);
+            song.localPath = path;
+            song.durationMs = 30000;
+            tracks.append(song);
+        }
+        EchoMusic::SettingsStore settings(directory.filePath("preferences.ini"));
+        ApiClient api;
+        PlaybackService playback(api, settings, nullptr, directory.filePath("playback.sqlite"));
+        QSignalSpy closed(&playback, &PlaybackService::closed), apiClosed(&api, &ApiClient::closed);
+        QSignalSpy native(&PlaybackServiceTestAccess::engine(playback),
+                          &AudioEngine::eventReceived);
+        QVERIFY(!playback.preferences()->volumeFade());
+        playback.preferences()->setVolumeFade(enabled);
+        playback.preferences()->setVolumeFadeMs(durationMs);
+        playback.transition()->setMode(mode);
+        QTRY_VERIFY_WITH_TIMEOUT(PlaybackServiceTestAccess::ready(playback), 15000);
+        playback.playTracks(tracks, 0, "Fades", "fade-test");
+        QTRY_VERIFY_WITH_TIMEOUT(playback.playing() && !playback.loading(), 15000);
+        QTest::qWait(600);
+        native.clear();
+        playback.next();
+        if (fades) {
+            QCOMPARE(playback.queue()->currentIndex(), 0);
+            QVERIFY(!playback.playing());
+            QTest::qWait(durationMs / 4);
+            QCOMPARE(playback.queue()->currentIndex(), 0);
+        } else {
+            // Cold payload hydration may be asynchronous. These paths must
+            // bypass fade admission, but need not complete SQL in this call.
+            QVERIFY(!PlaybackServiceTestAccess::pauseFadePending(playback));
+        }
+        QTRY_COMPARE_WITH_TIMEOUT(playback.queue()->currentIndex(), 1, 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(playback.playing() && !playback.loading(), 15000);
+        int fadePauses = 0;
+        for (const auto &entry : native) {
+            const auto event = entry[0].toJsonObject();
+            if (event.value("event") == "state-change" &&
+                event.value("fade_request_id").toInteger() > 0)
+                ++fadePauses;
+        }
+        QCOMPARE(fadePauses, fades ? 1 : 0);
+        if (fades && durationMs == 500) {
+            QTest::qWait(600);
+            // Reversing a pause must retire its delayed completion.
+            playback.pause();
+            QVERIFY(!playback.playing());
+            QTest::qWait(100);
+            playback.toggle();
+            QTRY_VERIFY_WITH_TIMEOUT(playback.playing() && !playback.loading(), 5000);
+            QTest::qWait(650);
+            QVERIFY(playback.playing());
+            QCOMPARE(playback.queue()->currentIndex(), 1);
+            // Editing volume cancels the ramp without losing the pause intent.
+            playback.pause();
+            QTest::qWait(100);
+            playback.setVolume(72);
+            QTRY_VERIFY_WITH_TIMEOUT(!PlaybackServiceTestAccess::nativePlaying(playback), 5000);
+            QCOMPARE(playback.volume(), 72.);
+            playback.play();
+            QTRY_VERIFY_WITH_TIMEOUT(playback.playing() && !playback.loading(), 5000);
+            QTest::qWait(600);
+            // A newer direction replaces the pending skip and executes once.
+            playback.next();
+            QTest::qWait(100);
+            playback.previous();
+            QTRY_COMPARE_WITH_TIMEOUT(playback.queue()->currentIndex(), 0, 5000);
+            QTRY_VERIFY_WITH_TIMEOUT(playback.playing() && !playback.loading(), 15000);
+            QTest::qWait(600);
+            playback.next();
+            playback.stop();
+            QTest::qWait(650);
+            QCOMPARE(playback.queue()->currentIndex(), 0);
+            QVERIFY(!playback.playing());
+            // Selecting another source retires the old skip completion.
+            playback.playIndex(1);
+            QTRY_VERIFY_WITH_TIMEOUT(playback.playing() && !playback.loading(), 15000);
+            QTest::qWait(600);
+            playback.next();
+            playback.playIndex(0);
+            QTRY_VERIFY_WITH_TIMEOUT(playback.playing() && !playback.loading(), 15000);
+            QTest::qWait(650);
+            QCOMPARE(playback.queue()->currentIndex(), 0);
+            // EOF inside a longer pause fade must not trigger automatic next.
+            playback.preferences()->setVolumeFadeMs(3000);
+            playback.seek(29000);
+            QTRY_VERIFY_WITH_TIMEOUT(playback.positionMs() >= 28900, 5000);
+            playback.pause();
+            QTRY_VERIFY_WITH_TIMEOUT(!PlaybackServiceTestAccess::nativePlaying(playback), 5000);
+            QTest::qWait(1500);
+            QCOMPARE(playback.queue()->currentIndex(), 0);
+            QVERIFY(!playback.playing());
+        }
+        playback.shutdown();
+        api.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+        QTRY_COMPARE_WITH_TIMEOUT(apiClosed.size(), 1, 15000);
     }
     void nativePreparedBoundaryRetainsQueueUntilCommit()
     {
@@ -1265,6 +1577,7 @@ private slots:
         ApiClient api;
         PlaybackService playback(api, settings, nullptr, dir.filePath("playback.sqlite"));
         QSignalSpy closed(&playback, &PlaybackService::closed), apiClosed(&api, &ApiClient::closed);
+        playback.preferences()->setVolumeFade(true);
         playback.setVolume(0);
         QSignalSpy notices(playback.transition(), &TrackTransitionController::notice);
         QJsonArray history;

@@ -32,7 +32,7 @@ TrackTransitionController::TrackTransitionController(PlaybackService &playback, 
                                                      EchoMusic::SettingsStore &settings)
     : QObject(&playback), m_playback(playback), m_api(api), m_settings(settings),
       m_source(api, playback.m_membership, this, playback.cloudSources(),
-               playback.sourceExtensions())
+               playback.sourceExtensions(), &playback.m_native)
 {
     const auto stored =
         settings.value(EchoMusic::SettingsKeys::Playback::TransitionMode, "none").toString();
@@ -364,9 +364,10 @@ void TrackTransitionController::failAttempt()
 void TrackTransitionController::tick()
 {
     auto &p = m_playback;
-    if (p.m_cast->remoteMedia() || !p.m_ready || !p.m_playing || p.m_loading || !p.m_loaded ||
-        !p.m_error.isEmpty() || p.m_position <= 0 || p.m_duration <= 0 || m_mode == "none" ||
-        p.m_sleepTimer.active() || p.m_sleepTimer.waiting())
+    if (p.m_cast->remoteMedia() || !p.m_ready || !p.m_playing || p.m_pauseFadePending ||
+        p.m_loading || !p.m_loaded || !p.m_error.isEmpty() || p.m_position <= 0 ||
+        p.m_duration <= 0 || m_mode == "none" || p.m_sleepTimer.active() ||
+        p.m_sleepTimer.waiting())
         return;
     const auto remaining = double(p.m_duration - p.m_position) / 1000.;
     const auto lead = m_mode.startsWith("automix") ? 75.

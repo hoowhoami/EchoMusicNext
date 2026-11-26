@@ -24,9 +24,9 @@ namespace
 const QMap<QString, QStringList> fields{
     {"network", {"githubProxyUrl", "apiTimeoutSeconds", "playerTimeoutSeconds", "playerUserAgent"}},
     {"playback",
-     {"mvAudioFallbackEnabled", "queueMode", "defaultQuality", "autoPlayOnLaunch",
-      "compatibilityMode", "volumeFade", "volumeFadeMs", "viperQualityEnabled", "autoNext",
-      "preventSleep", "autoNextDelaySeconds", "autoNextMaxAttempts"}},
+     {"mvAudioFallbackEnabled", "queueMode", "defaultQuality", "defaultMvQuality",
+      "autoPlayOnLaunch", "compatibilityMode", "volumeFade", "volumeFadeMs", "viperQualityEnabled",
+      "autoNext", "preventSleep", "autoNextDelaySeconds", "autoNextMaxAttempts"}},
     {"shell",
      {"keepAliveEnabled", "keepAliveMax", "motionEnabled", "searchDefaultEnabled",
       "lyricBarrageEnabled", "mvBarrageEnabled", "showFullscreenButton"}},
@@ -53,15 +53,21 @@ const QMap<QString, QStringList> fields{
       "showNextLinePreview", "playedColor", "unplayedColor", "followCoverColor",
       "unplayedFollowCoverColor", "fontSize", "secondaryFontSize", "lineGap", "fontWeight",
       "backgroundBlur"}}};
+bool writablePreference(const QString &domain, const QString &key, const QMetaProperty &property)
+{
+    // Network and these appearance fields save through explicit owner commands.
+    return property.isWritable() || domain == "network" ||
+           (domain == "appearance" && (key == "mode" || key == "panelOpacity"));
+}
 QVariantMap descriptor(const QString &domain, const QString &key, const QMetaProperty &property)
 {
     QVariantMap out{{"key", key},
                     {"type", property.metaType().id() == QMetaType::Bool      ? "boolean"
                              : property.metaType().id() == QMetaType::QString ? "string"
                                                                               : "number"},
-                    {"writable", true}};
+                    {"writable", writablePreference(domain, key, property)}};
     const QMap<QString, QPair<double, double>> ranges{
-        {"keepAliveMax", {3, 30}},          {"volumeFadeMs", {500, 3000}},
+        {"keepAliveMax", {3, 30}},          {"volumeFadeMs", {0, 3000}},
         {"autoNextDelaySeconds", {0, 600}}, {"autoNextMaxAttempts", {1, 999}},
         {"atmosphereHeight", {20, 100}},    {"atmosphereStrength", {20, 200}},
         {"transparency", {0, 100}},         {"panelOpacity", {0, 100}},
@@ -81,6 +87,7 @@ QVariantMap descriptor(const QString &domain, const QString &key, const QMetaPro
         out["integer"] = property.metaType().id() != QMetaType::Double;
     QMap<QString, QStringList> choices{
         {"queueMode", {"single", "context"}},
+        {"defaultMvQuality", {"fhd", "hd", "qhd", "sd", "ld"}},
         {"defaultQuality",
          {"standard", "higher", "flac", "hi_res", "viper_tape", "viper_clear", "viper_atmos"}},
         {"layout", {"horizontal", "vertical"}},
@@ -238,6 +245,7 @@ EchoPluginOperation *EchoPluginSettings::update(const QString &domain, const QVa
     for (auto it = patch.begin(); it != patch.end(); ++it) {
         const int index = source->metaObject()->indexOfProperty(it.key().toUtf8());
         if (!fields.value(domain).contains(it.key()) || index < 0 ||
+            !writablePreference(domain, it.key(), source->metaObject()->property(index)) ||
             !validate(descriptor(domain, it.key(), source->metaObject()->property(index)),
                       it.value(), domain))
             return m_scope.rejected("InvalidArgument", "Invalid preference: " + it.key());

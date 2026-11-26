@@ -140,16 +140,39 @@ void PluginRuntimeTest::hostSettingsPersistenceSubscriptionsAndRevocation()
     QCOMPARE(host.floating.desktop()->playedColor(), "#334466");
     QCOMPARE(host.floating.desktop()->alignment(), "both");
 
-    auto *write = settings->update(
-        "playback", {{"autoNext", true}, {"autoNextDelaySeconds", 8}, {"volumeFadeMs", 1800}});
+    auto *write = settings->update("playback", {{"autoNext", true},
+                                                {"autoNextDelaySeconds", 8},
+                                                {"volumeFadeMs", 1800},
+                                                {"defaultMvQuality", "hd"}});
     auto root = host.engine.newQObject(write);
     QTRY_COMPARE(write->state(), EchoPluginOperation::Succeeded);
+    QCOMPARE(settings->update("playback", {{"defaultMvQuality", "auto"}})->errorCode(),
+             "InvalidArgument");
+    QCOMPARE(host.playback.preferences()->defaultMvQuality(), QString("hd"));
     QVERIFY(host.playback.preferences()->autoNext());
+    QVERIFY(host.playback.preferences()->compatibilityMode());
+    QCOMPARE(settings->update("playback", {{"compatibilityMode", false}, {"autoNext", false}})
+                 ->errorCode(),
+             "InvalidArgument");
+    QVERIFY(host.playback.preferences()->autoNext());
+    bool foundCompatibility = false;
+    for (const auto &domain : settings->catalog()) {
+        if (domain.toMap().value("domain") != "playback")
+            continue;
+        for (const auto &property : domain.toMap().value("properties").toList())
+            if (property.toMap().value("key") == "compatibilityMode") {
+                foundCompatibility = true;
+                QCOMPARE(property.toMap().value("writable").toBool(), false);
+            }
+    }
+    QVERIFY(foundCompatibility);
     PlaybackPreferences restored(host.settings);
     QCOMPARE(restored.autoNextDelaySeconds(), 8);
     QCOMPARE(restored.volumeFadeMs(), 1800);
-    QCOMPARE(settings->update("playback", {{"autoNext", false}, {"volumeFadeMs", 2}})->errorCode(),
-             "InvalidArgument");
+    QCOMPARE(restored.defaultMvQuality(), QString("hd"));
+    QCOMPARE(
+        settings->update("playback", {{"autoNext", false}, {"volumeFadeMs", 3001}})->errorCode(),
+        "InvalidArgument");
     QVERIFY(host.playback.preferences()->autoNext());
     QCOMPARE(settings->update("shell", {{"userAgreementAccepted", true}})->errorCode(),
              "InvalidArgument");

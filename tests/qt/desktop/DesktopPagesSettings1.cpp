@@ -1328,27 +1328,42 @@ void DesktopPagesTest::productionDiagnosticRecordsAndExport()
     QTRY_VERIFY(exportDialog->property("opened").toBool());
     QVERIFY(!exportDialog->property("currentSession").toBool());
     QVERIFY(exportDialog->property("includeDump").toBool());
-    auto *saveCurrent = visual(session.window->contentItem(), "diagnosticSaveCurrentZip");
-    QVERIFY(saveCurrent && saveCurrent->isVisible());
-    QVERIFY(session.clickItem(saveCurrent));
+    QVERIFY(!visual(session.window->contentItem(), "diagnosticSaveCurrentZip"));
+    QVERIFY(!exportDialog->property("currentOnly").toBool());
+    auto *saveSelected = visual(session.window->contentItem(), "diagnosticSaveZip");
+    QVERIFY(saveSelected);
+    QCOMPARE(saveSelected->property("text").toString(), QStringLiteral("导出故障诊断包"));
+    const auto selectedId = exportDialog->property("event").toMap().value("id").toString();
+    QVERIFY(session.clickItem(saveSelected));
     auto *pickerOwner = exportDialog->findChild<QObject *>("diagnosticSavePickerOwner");
     QVERIFY(pickerOwner);
     QPointer<QObject> picker;
     QTRY_VERIFY((picker = pickerOwner->property("item").value<QObject *>()));
-    QVERIFY(picker->property("currentFile").toString().contains("current-session"));
-    QVERIFY(exportDialog->property("exportingCurrentSession").toBool());
+    QVERIFY(picker->property("currentFile").toString().contains(selectedId));
+    QVERIFY(!exportDialog->property("exportingCurrentSession").toBool());
+    // A refresh or UI scope change while the picker is open cannot rewrite the
+    // frozen export target, even if the reactive event temporarily disappears.
+    const auto originalEventId = exportDialog->property("eventId").toString();
+    exportDialog->setProperty("eventId", "missing-record");
+    QVERIFY(exportDialog->property("currentSession").toBool());
+    QCOMPARE(exportDialog->property("exportingEventId").toString(), selectedId);
+    QVERIFY(!exportDialog->property("exportingCurrentSession").toBool());
+    QVERIFY(exportDialog->property("exportingDump").toBool());
+    exportDialog->setProperty("eventId", originalEventId);
     QVERIFY(QMetaObject::invokeMethod(pickerOwner, "close"));
     QTRY_VERIFY(picker.isNull());
-    auto *saveSelected = visual(session.window->contentItem(), "diagnosticSaveZip");
-    QVERIFY(saveSelected);
+    exportDialog->setProperty("showDetails", true);
+    auto *currentOnly = visual(session.window->contentItem(), "diagnosticCurrentOnly");
+    QVERIFY(currentOnly && currentOnly->isVisible());
+    exportDialog->setProperty("currentOnly", true);
+    QVERIFY(saveSelected->property("text").toString().contains(QStringLiteral("本次运行日志")));
     QVERIFY(QMetaObject::invokeMethod(saveSelected, "clicked"));
     QTRY_VERIFY((picker = pickerOwner->property("item").value<QObject *>()));
-    QVERIFY(!exportDialog->property("exportingCurrentSession").toBool());
-    QVERIFY(picker->property("currentFile")
-                .toString()
-                .contains(exportDialog->property("event").toMap().value("id").toString()));
+    QVERIFY(exportDialog->property("exportingCurrentSession").toBool());
+    QVERIFY(picker->property("currentFile").toString().contains("current-session"));
     QVERIFY(QMetaObject::invokeMethod(pickerOwner, "close"));
     QTRY_VERIFY(picker.isNull());
+    exportDialog->setProperty("currentOnly", false);
     QCOMPARE(exportDialog->property("event").toMap().value("kind").toString(), "native_crash");
     QVERIFY(visual(session.window->contentItem(), "diagnosticIncludeDump"));
     QVERIFY(visual(session.window->contentItem(), "diagnosticNotes"));
@@ -1731,6 +1746,7 @@ void DesktopPagesTest::productionPlayerEngineSettingsDecimalInputAndLifecycle()
     session.preferences.setValue("playback/volume", 0);
     PlaybackService playback(session.api, session.preferences);
     QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    QSignalSpy notices(&playback, &PlaybackService::notice);
     QVERIFY(session.create(&playback));
     const auto cleanup = qScopeGuard([&session] {
         session.root.reset();
@@ -1747,6 +1763,9 @@ void DesktopPagesTest::productionPlayerEngineSettingsDecimalInputAndLifecycle()
     catalog->select("player");
     QVERIFY(session.settingsSectionReady());
     QCOMPARE(catalog->current(), QString("player"));
+    QVERIFY(!visualText(session.window->contentItem(),
+                        QStringLiteral("部分音频输出设置修改后重启生效")));
+    QCOMPARE(notices.size(), 0);
     QQuickItem *buffer = nullptr, *viewport = nullptr;
     QTRY_VERIFY((buffer = visual(session.window->contentItem(), "settingsEngineAudioBufferSecs")));
     QPointer<QQuickItem> retainedBuffer(buffer);
@@ -1758,6 +1777,10 @@ void DesktopPagesTest::productionPlayerEngineSettingsDecimalInputAndLifecycle()
     diskCache->forceActiveFocus(Qt::TabFocusReason);
     QTest::keyClick(session.window, Qt::Key_Space);
     QTRY_VERIFY(!playback.enginePreferences()->cacheOnDisk());
+    QTRY_COMPARE(notices.size(), 1);
+    QCOMPARE(notices.first().first().toString(), QStringLiteral("“磁盘缓存”需重启应用后生效"));
+    QTRY_COMPARE(session.commands.toasts()->message(), notices.first().first().toString());
+    QVERIFY(session.commands.toasts()->visible());
     QVERIFY(!playback.enginePreferences()->startupOptions().value("cache_on_disk").toBool());
     QTest::keyClick(session.window, Qt::Key_Space);
     QTRY_VERIFY(playback.enginePreferences()->cacheOnDisk());
@@ -2109,26 +2132,26 @@ void DesktopPagesTest::settingsDefaultsAndSourceEffectFileManager()
     QTRY_VERIFY((control = visual(session.window->contentItem(), "settingsDefaultQuality")));
     QTRY_COMPARE(control->property("currentText").toString(), QStringLiteral("Hi-Res 品质"));
     QCOMPARE(playback.preferences()->defaultQuality(), QString("hi_res"));
-    QQuickItem *compatibility = nullptr;
-    QTRY_VERIFY(
-        (compatibility = visual(session.window->contentItem(), "settingsCompatibilityMode")));
-    QVERIFY(compatibility->property("checked").toBool());
+    auto *mvQuality = visual(session.window->contentItem(), "settingsDefaultMvQuality");
+    QVERIFY(mvQuality);
+    QCOMPARE(mvQuality->property("currentIndex").toInt(), 0);
+    QCOMPARE(mvQuality->property("currentText").toString(), QString("1080P"));
+    bool accepted = false;
+    QVERIFY(QMetaObject::invokeMethod(mvQuality, "echoUiSelectIndex", Q_RETURN_ARG(bool, accepted),
+                                      Q_ARG(int, 2)));
+    QVERIFY(accepted);
+    QCOMPARE(playback.preferences()->defaultMvQuality(), QString("qhd"));
+    QCOMPARE(session.preferences.value("playback/defaultMvQuality").toString(), QString("qhd"));
     QVERIFY(playback.preferences()->compatibilityMode());
-    // Section incubation and scroll restoration can outlive one rendered frame.
-    // Use the shared real-input helper, which waits for stable target geometry.
-    QVERIFY(session.clickItem(compatibility));
-    QTRY_VERIFY(compatibility->property("hovered").toBool());
-    QTRY_VERIFY(!playback.preferences()->compatibilityMode());
-    QTRY_VERIFY(!compatibility->property("checked").toBool());
-    QPointer<QQuickItem> retiredCompatibility = compatibility;
+    QVERIFY(!visual(session.window->contentItem(), "settingsCompatibilityMode"));
+    QVERIFY(!visualText(session.window->contentItem(), QStringLiteral("智能兼容模式")));
     catalog->select("interface");
-    QTRY_VERIFY(retiredCompatibility.isNull());
     catalog->select("playback");
-    QTRY_VERIFY(
-        (compatibility = visual(session.window->contentItem(), "settingsCompatibilityMode")));
-    QVERIFY(!compatibility->property("checked").toBool());
-    QTRY_VERIFY(
-        visualText(session.window->contentItem(), QStringLiteral("首选音质不可用时自动尝试备选")));
+    QVERIFY(session.settingsSectionReady());
+    QTRY_VERIFY(visual(session.window->contentItem(), "settingsDefaultQuality"));
+    QVERIFY(!visual(session.window->contentItem(), "settingsCompatibilityMode"));
+    QVERIFY(
+        !visualText(session.window->contentItem(), QStringLiteral("首选音质不可用时自动尝试备选")));
     catalog->select("spatialAudio");
     QQuickItem *row = nullptr, *divider = nullptr;
     QTRY_VERIFY((row = visual(session.window->contentItem(), "settingsEffectFilesRow")));

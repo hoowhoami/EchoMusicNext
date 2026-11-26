@@ -50,6 +50,7 @@ enum Request {
     CaptureCancel,
     CaptureStatus,
     AudioTracks(String),
+    AudioHeaders(String),
     InspectDsp(String),
     EmbeddedMetadata { seq: u64, cover_cache_dir: String },
     AirplayTap { port: u32, enabled: bool },
@@ -293,6 +294,10 @@ fn execute(
             .execute()
             .map(|v| json!(v))
             .map_err(|e| e.reason),
+        Request::AudioHeaders(url) => echo_audio::media_probe::probe_audio_headers(url, cancelled)
+            .execute()
+            .map(|v| json!(v))
+            .map_err(|e| e.reason),
         Request::EmbeddedMetadata {
             seq,
             cover_cache_dir,
@@ -393,12 +398,16 @@ fn parse(kind: u32, data: &[u8]) -> Option<Request> {
                 profile: v.get("profile")?.as_str()?.into(),
             })
         }
-        31 => {
+        31 | 34 => {
             let url = v.as_str()?;
             if url.is_empty() || url.len() > 16384 {
                 return None;
             }
-            Some(Request::AudioTracks(url.into()))
+            Some(if kind == 34 {
+                Request::AudioHeaders(url.into())
+            } else {
+                Request::AudioTracks(url.into())
+            })
         }
         33 => {
             let seq = v.get("seq")?.as_u64()?;
@@ -466,7 +475,7 @@ pub unsafe extern "C" fn echo_capabilities_submit(
             request,
             cancelled,
         };
-        let accepted = if matches!(&job.request, Request::Device(_)) {
+        let accepted = if matches!(&job.request, Request::Device(_) | Request::AudioHeaders(_)) {
             // A dead SSDP endpoint must not hold playback/PIN/volume behind its
             // description timeout. Read-only metadata starts on first use;
             // control commands retain their original serial ordering.
@@ -656,66 +665,70 @@ mod tests {
 
     #[test]
     fn cancelling_active_and_queued_probes_drains_one_terminal_each() {
-        let server = TcpListener::bind("127.0.0.1:0").unwrap();
-        let url = format!("http://{}/probe.mkv", server.local_addr().unwrap());
-        let (connected_tx, connected_rx) = mpsc::channel();
-        let (stop_tx, stop_rx) = mpsc::channel();
-        let server_worker = thread::spawn(move || {
-            // Keep the socket alive but send no headers. The metadata parser
-            // cannot short-circuit on invalid audio before cancellation.
-            let (_socket, _) = server.accept().unwrap();
-            let _ = connected_tx.send(());
-            let _ = stop_rx.recv();
-        });
-        type Terminal = (u64, u64, EchoStatus);
-        unsafe extern "C" fn callback(context: *mut c_void, result: *const EchoResult) {
-            let sender = unsafe { &*(context as *const mpsc::Sender<Terminal>) };
-            let result = unsafe { &*result };
-            let _ = sender.send((result.request_id, result.session_revision, result.status));
-        }
-        let (terminal_tx, terminal_rx) = mpsc::channel::<Terminal>();
-        let mut context = Box::new(terminal_tx);
-        let native = unsafe {
-            echo_capabilities_create(
-                callback,
-                (&mut *context as *mut mpsc::Sender<Terminal>).cast(),
-            )
-        };
-        assert!(!native.is_null());
-        let data = serde_json::to_vec(&url).unwrap();
-        let active =
-            unsafe { echo_capabilities_submit(native, 31, data.as_ptr(), data.len(), 888) };
-        let connected = connected_rx.recv_timeout(Duration::from_secs(5));
-        let queued =
-            unsafe { echo_capabilities_submit(native, 31, data.as_ptr(), data.len(), 889) };
-        let queued_cancelled = unsafe { echo_capabilities_cancel(native, queued) };
-        let successor = unsafe { echo_capabilities_submit(native, 9, b"{}".as_ptr(), 2, 890) };
-        let active_cancelled = unsafe { echo_capabilities_cancel(native, active) };
-        let mut terminals = Vec::new();
-        for _ in 0..3 {
-            if let Ok(value) = terminal_rx.recv_timeout(Duration::from_secs(5)) {
-                terminals.push(value);
+        for operation in [31, 34] {
+            let server = TcpListener::bind("127.0.0.1:0").unwrap();
+            let url = format!("http://{}/probe.mkv", server.local_addr().unwrap());
+            let (connected_tx, connected_rx) = mpsc::channel();
+            let (stop_tx, stop_rx) = mpsc::channel();
+            let server_worker = thread::spawn(move || {
+                // Keep the socket alive but send no headers. The metadata parser
+                // cannot short-circuit on invalid audio before cancellation.
+                let (_socket, _) = server.accept().unwrap();
+                let _ = connected_tx.send(());
+                let _ = stop_rx.recv();
+            });
+            type Terminal = (u64, u64, EchoStatus);
+            unsafe extern "C" fn callback(context: *mut c_void, result: *const EchoResult) {
+                let sender = unsafe { &*(context as *const mpsc::Sender<Terminal>) };
+                let result = unsafe { &*result };
+                let _ = sender.send((result.request_id, result.session_revision, result.status));
             }
+            let (terminal_tx, terminal_rx) = mpsc::channel::<Terminal>();
+            let mut context = Box::new(terminal_tx);
+            let native = unsafe {
+                echo_capabilities_create(
+                    callback,
+                    (&mut *context as *mut mpsc::Sender<Terminal>).cast(),
+                )
+            };
+            assert!(!native.is_null());
+            let data = serde_json::to_vec(&url).unwrap();
+            let active = unsafe {
+                echo_capabilities_submit(native, operation, data.as_ptr(), data.len(), 888)
+            };
+            let connected = connected_rx.recv_timeout(Duration::from_secs(5));
+            let queued = unsafe {
+                echo_capabilities_submit(native, operation, data.as_ptr(), data.len(), 889)
+            };
+            let queued_cancelled = unsafe { echo_capabilities_cancel(native, queued) };
+            let successor = unsafe { echo_capabilities_submit(native, 9, b"{}".as_ptr(), 2, 890) };
+            let active_cancelled = unsafe { echo_capabilities_cancel(native, active) };
+            let mut terminals = Vec::new();
+            for _ in 0..3 {
+                if let Ok(value) = terminal_rx.recv_timeout(Duration::from_secs(5)) {
+                    terminals.push(value);
+                }
+            }
+            // Always drain the borrowed callback context before assertions/drop.
+            unsafe {
+                echo_capabilities_destroy(native);
+            }
+            let _ = stop_tx.send(());
+            server_worker.join().unwrap();
+            assert!(connected.is_ok());
+            assert!(active != 0 && queued != 0 && successor != 0);
+            assert!(queued_cancelled && active_cancelled);
+            terminals.sort_by_key(|value| value.0);
+            assert_eq!(
+                terminals,
+                vec![
+                    (active, 888, EchoStatus::Cancelled),
+                    (queued, 889, EchoStatus::Cancelled),
+                    (successor, 890, EchoStatus::Success)
+                ]
+            );
+            assert!(terminal_rx.try_recv().is_err());
         }
-        // Always drain the borrowed callback context before assertions/drop.
-        unsafe {
-            echo_capabilities_destroy(native);
-        }
-        let _ = stop_tx.send(());
-        server_worker.join().unwrap();
-        assert!(connected.is_ok());
-        assert!(active != 0 && queued != 0 && successor != 0);
-        assert!(queued_cancelled && active_cancelled);
-        terminals.sort_by_key(|value| value.0);
-        assert_eq!(
-            terminals,
-            vec![
-                (active, 888, EchoStatus::Cancelled),
-                (queued, 889, EchoStatus::Cancelled),
-                (successor, 890, EchoStatus::Success)
-            ]
-        );
-        assert!(terminal_rx.try_recv().is_err());
     }
     #[test]
     fn rejects_unknown_kinds_and_unbounded_secrets() {

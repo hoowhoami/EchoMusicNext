@@ -118,6 +118,7 @@ public:
 signals:
     void changed();
     void stallTimeoutChanged(double value);
+    void restartRequired(const QString &setting);
 
 private:
     EchoMusic::SettingsStore &m_settings;

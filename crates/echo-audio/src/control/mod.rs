@@ -4,7 +4,7 @@ mod dsp;
 mod fade;
 mod graph;
 mod output;
-mod output_lifecycle;
+pub(crate) mod output_lifecycle;
 mod provider;
 mod seek;
 mod spectrum;
@@ -25,7 +25,7 @@ pub use dsp::{
     set_equalizer, set_normalization_gain, set_speed,
 };
 pub(crate) use dsp::{prepare_dsp_settings_for_mix_rate, sync_current_session_dsp_settings};
-pub use fade::{cancel_fade, fade, pause_with_fade, play_with_fade};
+pub use fade::{cancel_fade, fade, pause_faded, pause_with_fade, play_with_fade};
 pub use graph::{
     SetAudioGraphParameterTask, SetAudioGraphPlanTask, get_audio_graph, set_audio_graph_parameter,
     set_audio_graph_plan,

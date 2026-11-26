@@ -5,6 +5,8 @@
 
 namespace EchoMusic::EchoUiLayout
 {
+// A completed child can still belong to an asynchronously constructing layout.
+bool constructionComplete(const QQuickItem *);
 // One description for inspection, insertion, moving and property application.
 // Positioners retain their native implicit-size behavior; they are never
 // replaced with a different layout just because an extension is present.

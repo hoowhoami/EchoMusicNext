@@ -14,6 +14,7 @@ private slots:
     void mainWindowUnloadRestoresProductionUi_data();
     void mainWindowUnloadRestoresProductionUi();
     void mainWindowBackgroundKeepsPluginPlaybackAndFloating();
+    void mainWindowPausedPlaybackResumesAfterOutputRelease();
     void mainWindowRecoveryRejectsStaleRetirementAndRetriesFailure();
     void initTestCase();
     void cleanup();
@@ -71,6 +72,10 @@ private slots:
     void productionExperimentalLoggingSettings();
     void productionNetworkSettingsAutoSaveResetAndTheme_data();
     void productionNetworkSettingsAutoSaveResetAndTheme();
+    void settingsSectionIncubationCanBeCancelled();
+    void settingsEngineNetworkSwitchAndClose_data();
+    void settingsEngineNetworkSwitchAndClose();
+    void settingsSectionsSurviveGcBetweenCreationSteps();
     void productionPlayerEngineSettingsDecimalInputAndLifecycle();
     void productionVariableDialogSizingReopens();
     void playbackQueueModeUsesProductionSelection();

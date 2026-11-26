@@ -24,6 +24,7 @@ void PlaybackOutputController::onEvent(const QJsonObject &event)
 
 void PlaybackOutputController::mediaRouteChanged()
 {
+    m_playback.cancelPauseFade();
     if (m_playback.m_closing)
         return;
     if (!m_playback.hasTrack()) {
@@ -113,7 +114,7 @@ void PlaybackOutputController::consumeOutputEvent(const QJsonObject &event)
         quint64(event.value("source_revision").toInteger()) != m_playback.m_sourceRevision)
         return;
     if (!m_playback.m_cast->remoteMedia() && kind != "state-change" &&
-        m_playback.m_recovery->handleEvent(event))
+        kind != "core-state-change" && m_playback.m_recovery->handleEvent(event))
         return;
     // Recovery may reject old output positions; do not let those clear busy.
     if (kind == "time-update" || kind == "seeked") {
@@ -122,6 +123,10 @@ void PlaybackOutputController::consumeOutputEvent(const QJsonObject &event)
             return;
     }
     m_playback.m_progress.observe(event);
+    // Core generations/revisions must be adopted before recovery inspects them;
+    // a stale snapshot cannot end the current output's startup wait.
+    if (!m_playback.m_cast->remoteMedia() && kind == "core-state-change")
+        m_playback.m_recovery->handleEvent(event);
     m_playback.publishProgressStatus();
     if (kind == "source-switched" ||
         (kind == "file-loaded" &&
@@ -224,6 +229,13 @@ void PlaybackOutputController::consumeOutputEvent(const QJsonObject &event)
     } else if (kind == "state-change") {
         m_playback.m_listening.resetPosition();
         const auto s = event.value("state").toObject();
+        if (s.value("playing").toBool() && !s.value("paused").toBool() && !m_playback.m_autoplay &&
+            m_playback.m_failure->awaitingOutputRetry()) {
+            // A queued Play acknowledgement can arrive after the output error.
+            // Only a new explicit play may leave the retained paused source.
+            m_playback.m_engine.command(AudioEngine::Pause);
+            return;
+        }
         m_playback.m_playing = s.value("playing").toBool() && !s.value("paused").toBool();
         if (m_playback.m_playing) {
             m_playback.m_startPending = false;
@@ -236,6 +248,8 @@ void PlaybackOutputController::consumeOutputEvent(const QJsonObject &event)
         m_playback.m_listenTick.restart();
         publishTimeline();
         emit m_playback.changed();
+        if (!m_playback.m_playing)
+            m_playback.completePauseFade(quint64(event.value("fade_request_id").toInteger()));
     } else if (kind == "playback-end") {
         if (event.value("reason").toString() != "eof")
             return;
@@ -243,9 +257,19 @@ void PlaybackOutputController::consumeOutputEvent(const QJsonObject &event)
         emit m_playback.playbackEnded();
         m_playback.m_listening.flush(true);
         m_playback.m_playing = false;
-        if (!m_playback.m_sleepTimer.trackEnded())
+        if (m_playback.m_sleepTimer.trackEnded())
+            return;
+        if (m_playback.m_pauseFadePending) {
+            // A short remaining tail may reach EOF before the ramp completes.
+            // Fulfil only the admitted pause/skip, never an extra automatic next.
+            m_playback.m_engine.command(AudioEngine::Pause);
+            m_playback.completePauseFade(m_playback.m_pauseFadeSerial);
+        } else if (m_playback.m_autoplay)
             m_playback.next(true);
+        else
+            emit m_playback.changed();
     } else if (kind == "error") {
+        m_playback.cancelPauseFade();
         m_playback.m_startPending = false;
         if (!m_playback.m_ready) {
             m_playback.m_initializationError = event.value("message").toString();
@@ -255,6 +279,18 @@ void PlaybackOutputController::consumeOutputEvent(const QJsonObject &event)
         m_playback.m_error = event.value("message").toString();
         if (!m_playback.m_seamless)
             m_playback.m_playing = false;
+        if (event.value("error_code").toString().startsWith("output-")) {
+            // Output errors belong to the device, not the song. Keep the loaded
+            // reader/cache and selection so a later play can reopen only the AO.
+            m_playback.m_loading = false;
+            m_playback.m_startPending = false;
+            m_playback.m_playing = false;
+            m_playback.pauseImmediately();
+            m_playback.m_failure->failed(PlaybackFailureController::Kind::Output);
+            publishMedia();
+            emit m_playback.changed();
+            return;
+        }
         const bool mediaFailure = PlaybackSourceRequest::mediaError(event);
         if (mediaFailure && !m_playback.m_urls.isEmpty() &&
             m_playback.m_urlIndex < m_playback.m_urls.size()) {

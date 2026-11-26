@@ -460,6 +460,11 @@ void EchoUiPartRegistry::attach(EchoUiPartRegistration *part)
     }
     if (!part->identity().isEmpty() && find(part->identity()) == part)
         return;
+    if (!EchoUiLayout::constructionComplete(part->target())) {
+        if (m_structure)
+            m_structure->schedule(part->target());
+        return;
+    }
     if (m_structure && !part->automatic())
         m_structure->supersede(part->target());
     if (!part->active() || !part->target() || !EchoUiScope::accepts(part->target()) ||

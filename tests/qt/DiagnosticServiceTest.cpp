@@ -338,6 +338,7 @@ private slots:
         QVERIFY(write(logs + '/' + old + ".1.log", "older-segment\n"));
         QVERIFY(write(logs + "/echomusicnext-20261111T102030000-12.log", "wrong-session\n"));
         DiagnosticService service(logs);
+        QSignalSpy notices(&service, &DiagnosticService::notice);
         service.refresh();
         QTRY_VERIFY(!service.loading());
         const auto zip = temporary.filePath("event.zip");
@@ -355,6 +356,8 @@ private slots:
         service.exportCrash(old, QUrl::fromLocalFile(temporary.filePath("missing.zip")), false);
         QTRY_VERIFY_WITH_TIMEOUT(!service.busy(), 20000);
         QVERIFY(service.errorString().isEmpty());
+        QVERIFY(!notices.isEmpty());
+        QVERIFY(notices.last().at(1).toBool());
         QVERIFY(unpack(temporary.filePath("missing.zip"), temporary.filePath("missing")));
         QVERIFY(!QJsonDocument::fromJson(read(temporary.filePath("missing/manifest.json")))
                      .object()
@@ -440,7 +443,11 @@ private slots:
         probe.start(executable, {mode, logs});
         QVERIFY(probe.waitForFinished(25000));
         QVERIFY(probe.exitCode() != 0 || probe.exitStatus() == QProcess::CrashExit);
-        DiagnosticService service(logs);
+        // Recreate the production log owner after the crashed subprocess. The
+        // default export must keep its old dump/log and supplement the restart.
+        LogService restarted(logs, 2, false);
+        auto &service = *restarted.diagnostics();
+        qInfo("restarted diagnostic session marker");
         for (int i = 0; i < 50; ++i) {
             service.refresh();
             QTRY_VERIFY(!service.loading());
@@ -454,15 +461,26 @@ private slots:
         QVERIFY(record.value("hasDump").toBool());
         QCOMPARE(record.value("kind").toString(), "native_crash");
         for (const auto &file : QDir(logs).entryList({"*.log"}, QDir::Files))
-            QVERIFY(QFile::remove(logs + '/' + file));
+            if (file != sessionLogFileName())
+                QVERIFY(QFile::remove(logs + '/' + file));
         const auto zip = temporary.filePath("native.zip");
-        service.exportCrash(record.value("id").toString(), QUrl::fromLocalFile(zip), true);
+        QCOMPARE(service.latestRecord().value("id"), record.value("id"));
+        service.exportCrash(service.latestRecord().value("id").toString(), QUrl::fromLocalFile(zip),
+                            true);
         QTRY_VERIFY_WITH_TIMEOUT(!service.busy(), 20000);
         QVERIFY2(service.errorString().isEmpty(), qPrintable(service.errorString()));
         const auto target = temporary.filePath("native");
         QVERIFY(unpack(zip, target));
         QVERIFY(validManifest(target));
         QVERIFY(read(target + "/crash/report.dmp").startsWith("MDMP"));
+        QVERIFY(read(target + "/restart/" + sessionLogFileName())
+                    .contains("restarted diagnostic session marker"));
+        const auto manifest = QJsonDocument::fromJson(read(target + "/manifest.json")).object();
+        QCOMPARE(manifest.value("scope").toString(), QString("selected_event"));
+        QVERIFY(manifest.value("includesDump").toBool());
+        QVERIFY(manifest.value("includesRestartLog").toBool());
+        QCOMPARE(manifest.value("event").toObject().value("id").toString(),
+                 record.value("id").toString());
         const auto summary = QJsonDocument::fromJson(read(target + "/crash/summary.json")).object();
         const auto exception = summary.value("exception").toObject();
         QVERIFY(exception.contains("thread"));

@@ -13,9 +13,10 @@ class PlaybackPreferences final : public QObject
                    setMvAudioFallbackEnabled NOTIFY mvPolicyChanged)
     Q_PROPERTY(QString queueMode READ queueMode WRITE setQueueMode NOTIFY changed)
     Q_PROPERTY(QString defaultQuality READ defaultQuality WRITE setDefaultQuality NOTIFY changed)
+    Q_PROPERTY(QString defaultMvQuality READ defaultMvQuality WRITE setDefaultMvQuality NOTIFY
+                   defaultMvQualityChanged)
     Q_PROPERTY(bool autoPlayOnLaunch READ autoPlayOnLaunch WRITE setAutoPlayOnLaunch NOTIFY changed)
-    Q_PROPERTY(bool compatibilityMode READ compatibilityMode WRITE setCompatibilityMode NOTIFY
-                   sourcePolicyChanged)
+    Q_PROPERTY(bool compatibilityMode READ compatibilityMode CONSTANT)
     Q_PROPERTY(bool volumeFade READ volumeFade WRITE setVolumeFade NOTIFY changed)
     Q_PROPERTY(int volumeFadeMs READ volumeFadeMs WRITE setVolumeFadeMs NOTIFY changed)
     Q_PROPERTY(bool viperQualityEnabled READ viperQualityEnabled WRITE setViperQualityEnabled NOTIFY
@@ -41,6 +42,11 @@ public:
     {
         return m_quality;
     }
+    QString defaultMvQuality() const
+    {
+        return m_mvQuality;
+    }
+    void setDefaultMvQuality(const QString &quality);
     bool autoPlayOnLaunch() const
     {
         return m_autoPlay;
@@ -65,9 +71,8 @@ public:
     void setViperQualityEnabled(bool enabled);
     bool compatibilityMode() const
     {
-        return m_compatibilityMode;
+        return true;
     }
-    void setCompatibilityMode(bool enabled);
     bool autoNext() const
     {
         return m_autoNext;
@@ -91,17 +96,16 @@ public:
 signals:
     void changed();
     void defaultQualityChanged();
+    void defaultMvQualityChanged();
     void failurePolicyChanged();
-    void sourcePolicyChanged();
     void mvPolicyChanged();
 
 private:
     EchoMusic::SettingsStore &m_settings;
-    QString m_queueMode = "context", m_quality = "hi_res";
-    bool m_autoPlay = false, m_fade = true, m_viper = false;
-    bool m_compatibilityMode = true;
+    QString m_queueMode = "context", m_quality = "hi_res", m_mvQuality = "fhd";
+    bool m_autoPlay = false, m_fade = false, m_viper = false;
     bool m_mvFallback = false;
-    int m_fadeMs = 1000;
+    int m_fadeMs = 400;
     bool m_autoNext = true;
     bool m_preventSleep = true;
     int m_autoNextDelaySeconds = 3;

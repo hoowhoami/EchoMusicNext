@@ -1,5 +1,6 @@
 #include "PlaybackSourceRequest.h"
 #include "PlaybackSourcePlan.h"
+#include "MvAudioSourcePlan.h"
 #include "PlaybackService.h"
 #include "TrackTransitionController.h"
 #include "PlaybackFailureController.h"
@@ -13,6 +14,8 @@
 #include <QScopeGuard>
 #include <QNetworkProxy>
 #include <QGuiApplication>
+#include <QDataStream>
+#include <QFile>
 #include <iostream>
 #include <iterator>
 #include <QtTest>
@@ -1056,11 +1059,11 @@ private slots:
             << QString("25a6f521a0335d52a94627e6da1291cd") << quint64(28006146) << quint64(8513112)
             << QStringLiteral("星星和雨的夜") << QString("standard") << QString("hi_res")
             << QString("flac") << true << false;
-        QTest::newRow("yumeng-default-hq-strict")
+        QTest::newRow("yumeng-default-hq-legacy-disabled")
             << QString("afb1eed627ae609837004f3ef9cd4e73") << quint64(106489261)
             << quint64(15462792) << QStringLiteral("遇梦记 (洛天依ver.)") << QString("higher")
             << QString("higher") << QString("higher") << false << false;
-        QTest::newRow("yumeng-manual-hq-strict")
+        QTest::newRow("yumeng-manual-hq-legacy-disabled")
             << QString("afb1eed627ae609837004f3ef9cd4e73") << quint64(106489261)
             << quint64(15462792) << QStringLiteral("遇梦记 (洛天依ver.)") << QString("standard")
             << QString("higher") << QString("higher") << false << true;
@@ -1226,7 +1229,10 @@ private slots:
         QTemporaryDir directory;
         SettingsStore settings(directory.filePath("settings.ini"));
         settings.setValue("playback/defaultQuality", "standard");
+        settings.setValue("playback/compatibilityMode", false);
         PlaybackService playback(f.api, settings);
+        QVERIFY(playback.preferences()->compatibilityMode());
+        QVERIFY(!settings.contains("playback/compatibilityMode"));
         PlaybackTrack track;
         track.id = "current-quality-selection";
         track.hash = hashA;
@@ -1480,7 +1486,7 @@ private slots:
                           QJsonObject{{"audio_fallback_eligible", true},
                                       {"duration_ms", 1000},
                                       {"sources", formats}}};
-        QCOMPARE(PlaybackSourceRequest::mvHashes(videos), QStringList({hashB, hashC}));
+        QCOMPARE(PlaybackSourceRequest::mvHashes(videos), QStringList({hashC, hashB, hashA}));
         ApiClientTestAccess::finish(f.api, id, videos);
         int count = 0;
         while ((id = ApiClientTestAccess::pending(f.api, "video_url"))) {
@@ -1489,7 +1495,7 @@ private slots:
                 QJsonObject{{"url", QString("https://example.invalid/mv%1").arg(++count)},
                             {"backup_urls", QJsonArray{}}});
         }
-        QCOMPARE(count, 2);
+        QCOMPARE(count, 3);
         QCOMPARE(resolved.size(), 1);
         QCOMPARE(resolved[0][2].toJsonObject().value("source_kind").toString(), QString("mv"));
         QVERIFY(!f.request.tryMv(track));
@@ -1499,6 +1505,138 @@ private slots:
         f.request.disableMv();
         emit f.api.succeeded(id, QJsonDocument(videos).toJson());
         QCOMPARE(resolved.size(), 1);
+    }
+    void mvAudioFactsChooseBitrateBeforeSizeAndPreserveUnknowns()
+    {
+        const auto candidate = [](const QString &hash, const QString &videoCodec, qint64 size,
+                                  qint64 rate, const QString &audioCodec = "aac") {
+            QJsonObject audio{{"codec", audioCodec},
+                              {"profile", 1},
+                              {"sample_rate", 48000},
+                              {"channels", 2},
+                              {"bit_rate", rate > 0 ? QJsonValue(rate) : QJsonValue()}};
+            return QJsonObject{{"hash", hash},
+                               {"codec", videoCodec},
+                               {"size_bytes", size},
+                               {"audio", audio},
+                               {"urls", QJsonArray{"https://example.invalid/" + hash}}};
+        };
+        // Parameters from the live Dragon Rider sample: its small H.264
+        // resource really has a lower AAC bitrate than the 432P resource.
+        auto best = rankedMvAudioSources({candidate("432", "H.264", 21549465, 125374),
+                                          candidate("270", "H.264", 17317904, 93375)});
+        QCOMPARE(best.size(), 1);
+        QCOMPARE(best.first().toObject().value("hash").toString(), QString("432"));
+        // Identical known audio parameters can prefer a smaller video transfer.
+        best = rankedMvAudioSources({candidate("1080", "H.264", 121659611, 131606),
+                                     candidate("270", "H.264", 16015950, 131606)});
+        QCOMPARE(best.first().toObject().value("hash").toString(), QString("270"));
+        // AAC/Vorbis bitrate figures do not establish cross-codec quality.
+        best = rankedMvAudioSources({candidate("aac", "H.264", 21000000, 125374),
+                                     candidate("vorbis", "MKV", 13000000, 256000, "vorbis")});
+        QCOMPARE(best.first().toObject().value("hash").toString(), QString("aac"));
+        // Unknown rates remain unknown; a small file does not prove equivalent audio.
+        best = rankedMvAudioSources({candidate("unknown-high", "MKV", 30000000, 0, "vorbis"),
+                                     candidate("unknown-small", "MKV", 10000000, 0, "vorbis")});
+        QCOMPARE(best.first().toObject().value("hash").toString(), QString("unknown-high"));
+        QVERIFY(best.first().toObject().value("audio").toObject().value("bit_rate").isNull());
+        QJsonArray many;
+        for (int index = 0; index < 100; ++index)
+            many.append(QJsonObject{{"hash", QString::number(index)},
+                                    {"codec", "H.264"},
+                                    {"width", 1920},
+                                    {"height", 270 + index}});
+        const auto inspected = mvAudioCandidates({QJsonObject{
+            {"audio_fallback_eligible", true}, {"duration_ms", 240000}, {"sources", many}}});
+        QCOMPARE(inspected.size(), 12);
+        QCOMPARE(inspected.first().toObject().value("hash").toString(), QString("99"));
+        QCOMPARE(inspected.at(1).toObject().value("hash").toString(), QString("0"));
+    }
+    void mvAudioProbeCancelsAndCarriesRealHeaderFacts()
+    {
+        Fixture f;
+        NativeBridge native;
+        PlaybackSourceRequest request(f.api, f.membership, nullptr, &f.cloud, nullptr, &native);
+        QSignalSpy resolved(&request, &PlaybackSourceRequest::resolved);
+        QTcpServer media;
+        QVERIFY(media.listen(QHostAddress::LocalHost));
+        QList<QPointer<QTcpSocket>> held;
+        connect(&media, &QTcpServer::newConnection, &media, [&] {
+            while (auto *socket = media.nextPendingConnection()) {
+                held.append(socket);
+                connect(socket, &QTcpSocket::readyRead, socket, [socket] { socket->readAll(); });
+            }
+        });
+        PlaybackTrack track;
+        track.id = "12";
+        track.songId = 12;
+        track.hash = hashA;
+        const auto start = [&](const QString &url, int count = 1) {
+            if (!request.tryMv(track))
+                return false;
+            auto id = ApiClientTestAccess::pending(f.api, "kmr_audio_mv");
+            if (!id)
+                return false;
+            QJsonArray formats;
+            for (int index = 0; index < count; ++index)
+                formats.append(QJsonObject{{"hash", QString::number(index)},
+                                           {"codec", "H.264"},
+                                           {"quality", "sd"},
+                                           {"size_bytes", 1000 + index}});
+            ApiClientTestAccess::finish(f.api, id,
+                                        QJsonArray{QJsonObject{{"audio_fallback_eligible", true},
+                                                               {"duration_ms", 60000},
+                                                               {"sources", formats}}});
+            int ordinal = 0;
+            while ((id = ApiClientTestAccess::pending(f.api, "video_url")))
+                ApiClientTestAccess::finish(
+                    f.api, id,
+                    QJsonObject{
+                        {"url", url + (count > 1 ? QString::number(ordinal++) : QString())}});
+            return true;
+        };
+        const auto blocked = QString("http://127.0.0.1:%1/held/").arg(media.serverPort());
+        QVERIFY(start(blocked));
+        QTRY_VERIFY(!held.isEmpty());
+        request.cancel();
+        QTRY_VERIFY(held.first()->state() == QAbstractSocket::UnconnectedState);
+        QCOMPARE(resolved.size(), 0);
+
+        QTemporaryDir directory;
+        const auto path = directory.filePath("header.wav");
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QDataStream wave(&file);
+        wave.setByteOrder(QDataStream::LittleEndian);
+        wave.writeRawData("RIFF", 4);
+        wave << quint32(16036);
+        wave.writeRawData("WAVEfmt ", 8);
+        wave << quint32(16) << quint16(1) << quint16(1) << quint32(8000) << quint32(16000)
+             << quint16(2) << quint16(16);
+        wave.writeRawData("data", 4);
+        wave << quint32(16000);
+        wave.writeRawData(QByteArray(16000, 0).constData(), 16000);
+        QCOMPARE(wave.status(), QDataStream::Ok);
+        file.close();
+        QVERIFY(start(QUrl::fromLocalFile(path).toString()));
+        QTRY_COMPARE_WITH_TIMEOUT(resolved.size(), 1, 5000);
+        const auto source =
+            resolved.first().at(2).toJsonObject().value("sources").toArray().first().toObject();
+        QCOMPARE(source.value("audioTrackId").toInt(), 1);
+        QCOMPARE(source.value("audio").toObject().value("codec").toString(), QString("pcm_s16le"));
+        QCOMPARE(source.value("audio").toObject().value("sample_rate").toInt(), 8000);
+
+        request.cancel();
+        QElapsedTimer budget;
+        budget.start();
+        QVERIFY(start(blocked, 12));
+        QTRY_COMPARE_WITH_TIMEOUT(resolved.size(), 2, 6500);
+        QVERIFY(budget.elapsed() < 6500);
+        QVERIFY(!native.hasPendingWork());
+        request.cancel();
+        QSignalSpy closed(&native, &NativeBridge::closed);
+        native.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 5000);
     }
     void cloudLoudnessFailureKeepsCloudAndCancelDiscardsParallelMv()
     {

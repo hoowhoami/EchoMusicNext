@@ -514,6 +514,58 @@ void DesktopPagesTest::playbackFallbackControlsUseProductionUi()
             QTRY_VERIFY(toggle->width() > 0 && toggle->isVisible());
             auto *viewport = visual(session.window->contentItem(), "settingsContentViewport");
             QVERIFY(viewport);
+            auto *fade = visual(session.window->contentItem(), "playbackVolumeFadeSwitch");
+            auto *fadeDuration =
+                visual(session.window->contentItem(), "playbackVolumeFadeDuration");
+            QVERIFY(fade && fadeDuration);
+            QCOMPARE(fadeDuration->property("from").toInt(), 0);
+            QCOMPARE(fadeDuration->property("to").toInt(), 3000);
+            QCOMPARE(fadeDuration->property("stepSize").toInt(), 50);
+            QCOMPARE(playback.preferences()->volumeFadeMs(), 400);
+            QVERIFY(!playback.preferences()->volumeFade());
+            QVERIFY(!fade->property("checked").toBool());
+            QVERIFY(!fadeDuration->isVisible());
+            const auto fadeLocal = fade->mapToItem(viewport, {0, 0});
+            viewport->setProperty("contentY",
+                                  qMax(0., fadeLocal.y() + viewport->property("contentY").toReal() -
+                                               viewport->height() / 2));
+            QVERIFY(Test::prepareNativeInput(session.window));
+            QTest::mouseClick(session.window, Qt::LeftButton, Qt::NoModifier,
+                              fade->mapToScene({fade->width() / 2, fade->height() / 2}).toPoint());
+            QTRY_VERIFY(playback.preferences()->volumeFade());
+            QTRY_VERIFY(fadeDuration->isVisible());
+            fadeDuration->forceActiveFocus();
+            QTRY_VERIFY(fadeDuration->hasActiveFocus());
+            for (int step = 0; step < 8; ++step)
+                QTest::keyClick(session.window, Qt::Key_Left);
+            QTRY_COMPARE(playback.preferences()->volumeFadeMs(), 0);
+            for (int step = 0; step < 5; ++step)
+                QTest::keyClick(session.window, Qt::Key_Right);
+            QTRY_COMPARE(playback.preferences()->volumeFadeMs(), 250);
+            QTRY_COMPARE(fadeDuration->property("value").toInt(), 250);
+            QCOMPARE(session.preferences.value("playback/volumeFadeMs").toInt(), 250);
+            for (int step = 0; step < 5; ++step)
+                QTest::keyClick(session.window, Qt::Key_Left);
+            QTRY_COMPARE(fadeDuration->property("value").toInt(), 0);
+            const auto sliderLocal = fadeDuration->mapToItem(viewport, {0, 0});
+            viewport->setProperty("contentY",
+                                  qBound(0.,
+                                         sliderLocal.y() + viewport->property("contentY").toReal() -
+                                             viewport->height() / 2,
+                                         qMax(0., viewport->property("contentHeight").toReal() -
+                                                      viewport->height())));
+            const auto trackY = fadeDuration->property("topPadding").toReal() +
+                                fadeDuration->property("availableHeight").toReal() / 2;
+            QTest::mouseClick(
+                session.window, Qt::LeftButton, Qt::NoModifier,
+                fadeDuration->mapToScene({fadeDuration->width() * .37, trackY}).toPoint());
+            QTRY_VERIFY(playback.preferences()->volumeFadeMs() > 0);
+            QCOMPARE(playback.preferences()->volumeFadeMs() % 50, 0);
+            playback.preferences()->setVolumeFadeMs(400);
+            QCOMPARE(session.preferences.value("playback/volumeFade").toBool(), true);
+            playback.preferences()->setVolumeFade(false);
+            QTRY_VERIFY(!fadeDuration->isVisible());
+
             Test::FrameSpy frames(session.window);
             session.window->update();
             QTRY_VERIFY(!frames.isEmpty());

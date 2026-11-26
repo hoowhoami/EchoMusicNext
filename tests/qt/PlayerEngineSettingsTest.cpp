@@ -418,6 +418,53 @@ private slots:
         inhibitor.setRequired(false);
         QVERIFY(!inhibitor.active());
     }
+    void restartNoticesMatchStartupOnlyChanges_data()
+    {
+        QTest::addColumn<QByteArray>("property");
+        QTest::addColumn<QVariant>("value");
+        QTest::addColumn<QString>("label");
+        const auto row = [](const char *name, const QVariant &value, const char *label) {
+            QTest::newRow(name) << QByteArray(name) << value << QString::fromUtf8(label);
+        };
+        row("demuxerReadaheadSecs", 2., "普通预读时长");
+        row("cacheSecs", 120., "网络缓存时长上限");
+        row("cachePauseWaitSecs", .5, "缓存恢复等待");
+        row("demuxerMaxMb", 128., "前向缓存上限");
+        row("demuxerMaxBackMb", 32., "回退缓存上限");
+        row("audioBufferSecs", .4, "音频设备缓冲");
+        row("cacheMode", QString("yes"), "网络缓存模式");
+        row("audioSamplerate", QString("48000"), "音频采样率");
+        row("audioChannels", QString("mono"), "音频声道");
+        row("audioFormat", QString("s16"), "输出采样格式");
+        row("gaplessAudio", QString("weak"), "无缝播放");
+        row("cachePause", false, "缓存耗尽时暂停");
+        row("cacheOnDisk", false, "磁盘缓存");
+        row("playResumeTimeout", 6., "");
+        row("playbackStallTimeout", 9., "");
+        row("playbackStallMaxAttempts", 4, "");
+    }
+    void restartNoticesMatchStartupOnlyChanges()
+    {
+        QFETCH(QByteArray, property);
+        QFETCH(QVariant, value);
+        QFETCH(QString, label);
+        QTemporaryDir directory;
+        SettingsStore settings(directory.filePath("preferences.ini"));
+        PlayerEnginePreferences preferences(settings);
+        QSignalSpy restart(&preferences, &PlayerEnginePreferences::restartRequired);
+        QVERIFY(preferences.setProperty(property.constData(), value));
+        QCOMPARE(restart.size(), label.isEmpty() ? 0 : 1);
+        if (!label.isEmpty())
+            QCOMPARE(restart.first().first().toString(), label);
+        QVERIFY(preferences.setProperty(property.constData(), value));
+        QCOMPARE(restart.size(), label.isEmpty() ? 0 : 1);
+        preferences.setAudioBufferSecs(std::numeric_limits<double>::quiet_NaN());
+        preferences.setAudioSamplerate("unsupported");
+        QCOMPARE(restart.size(), label.isEmpty() ? 0 : 1);
+        PlayerEnginePreferences reopened(settings);
+        QCOMPARE(reopened.property(property.constData()),
+                 preferences.property(property.constData()));
+    }
     void persistedDecimalOptionsAndInvalidInput()
     {
         QTemporaryDir dir;

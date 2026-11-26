@@ -50,10 +50,6 @@ SettingsSection {
         }
     }
     Component.onDestruction: password.clear()
-    SettingsNotice {
-        text: qsTr("全局代理在输入框焦点移开后自动保存并用于新连接；加速站是否直连由 bypass、系统或 PAC 决定")
-    }
-    SettingsDivider {}
     SettingsRow {
         heading: qsTr("全局网络代理")
         description: qsTr("同时用于接口、封面、音频直链、更新和其他应用网络请求")

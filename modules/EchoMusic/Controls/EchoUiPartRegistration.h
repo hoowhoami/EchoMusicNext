@@ -211,6 +211,7 @@ signals:
     void actionRequested(const QString &action, const QVariantMap &arguments);
 
 private slots:
+    void constructionFinished();
     void nativeActivated();
     void nativeStateChanged();
 

@@ -4,6 +4,7 @@
 #include "ShortcutActions.h"
 #include "EchoPluginUi.h"
 #include "TrackTransitionController.h"
+#include "SettingsKeys.h"
 #include <QScreen>
 
 namespace
@@ -30,14 +31,14 @@ QQuickWindow *createMain(Session &session, const QVariantMap &properties)
     session.window = qobject_cast<QQuickWindow *>(object);
     return session.window;
 }
-bool writeShortWave(const QString &path)
+bool writeShortWave(const QString &path, quint32 seconds = 3)
 {
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly))
         return false;
     QDataStream stream(&file);
     stream.setByteOrder(QDataStream::LittleEndian);
-    constexpr quint32 bytes = 48000 * 3 * 2;
+    const quint32 bytes = 48000 * seconds * 2;
     stream.writeRawData("RIFF", 4);
     stream << quint32(36 + bytes);
     stream.writeRawData("WAVEfmt ", 8);
@@ -358,6 +359,109 @@ void DesktopPagesTest::mainWindowBackgroundKeepsPluginPlaybackAndFloating()
     QTRY_VERIFY(selection->property("opened").toBool());
     QVERIFY(playbackClosed.isEmpty());
     QVERIFY(pluginsClosed.isEmpty());
+}
+
+void DesktopPagesTest::mainWindowPausedPlaybackResumesAfterOutputRelease()
+{
+    Session session;
+    // Exercise the real packet file cache even though the fixture is local.
+    session.preferences.setValue(SettingsKeys::PlayerEngine::CacheMode, "yes");
+    session.preferences.setValue(SettingsKeys::PlayerEngine::CacheOnDisk, true);
+    session.shell.acceptUserAgreement();
+    session.shell.setMotionEnabled(false);
+    session.api.addInterceptor(100, [](const QJsonObject &, ApiInterceptNext, ApiInterceptDone) {
+        return std::function<void()>([] {});
+    });
+    PlaybackService playback(session.api, session.preferences, nullptr,
+                             session.directory.filePath("paused-background.sqlite"));
+    playback.setVolume(0);
+    playback.transition()->setMode("none");
+    QVERIFY(session.create(&playback));
+    const auto properties = detachMain(session);
+    ShortcutService shortcuts(session.preferences, false);
+    MainWindowHost host(
+        session.engine, session.windows, shortcuts, [&] { return createMain(session, properties); },
+        &session.router);
+    QSignalSpy closed(&playback, &PlaybackService::closed);
+    const auto cleanup = qScopeGuard([&] {
+        host.shutdown();
+        session.window = nullptr;
+        session.auxiliary.reset();
+        playback.shutdown();
+        if (!QTest::qWaitFor([&] { return !closed.isEmpty(); }, 15000))
+            QTest::qFail("Paused background playback did not drain", __FILE__, __LINE__);
+    });
+    QJsonObject cacheStats;
+    int loadedSources = 0;
+    int outputConfigurations = 0;
+    QObject observation;
+    connect(&PlaybackServiceTestAccess::engine(playback), &AudioEngine::eventReceived, &observation,
+            [&](const QJsonObject &event) {
+                const auto kind = event.value("event").toString();
+                if (kind == "packet-cache-stats")
+                    cacheStats = event.value("packet_cache").toObject();
+                if (kind == "file-loaded")
+                    ++loadedSources;
+                if (kind == "output-configuration")
+                    ++outputConfigurations;
+            });
+    const auto path = session.directory.filePath("paused-background.wav");
+    QVERIFY(writeShortWave(path, 30));
+    PlaybackTrack track;
+    track.id = path;
+    track.localPath = path;
+    track.title = "Paused background";
+    track.durationMs = 30000;
+    playback.playTracks({track}, 0, "Background resume", "paused-background");
+    QTRY_VERIFY_WITH_TIMEOUT(playback.playing(), 15000);
+    QTRY_VERIFY(playback.positionMs() > 100);
+    QTRY_VERIFY(cacheStats.value("eof").toBool());
+    const auto cachedFileBytes = cacheStats.value("file_cache_bytes").toDouble();
+    QVERIFY(cachedFileBytes > 0);
+    QVERIFY(cacheStats.value("disk_cache_error").isNull());
+    const auto sequence = playback.audioSequence();
+    const auto revision = playback.sourceRevision();
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    // Compare the same released audio session with and without retiring the real
+    // Main.qml tree. Rebuilding must not reload the source or replace its owner.
+    for (const bool retireWindow : {false, true}) {
+        host.show();
+        QTRY_VERIFY(visual(host.window()->contentItem(), "shellFrame"));
+        playback.pause();
+        QTRY_VERIFY(!playback.playing());
+        QPointer<QQuickWindow> previous = host.window();
+        if (retireWindow) {
+            host.unload();
+            QTRY_VERIFY(previous.isNull());
+            QVERIFY(closed.isEmpty());
+        }
+        QTest::qWait(3500); // Cross the production engine's three-second AO release.
+        const auto pausedPosition = playback.positionMs();
+        const auto previousOutputConfigurations = outputConfigurations;
+        host.show();
+        QTRY_VERIFY(visual(host.window()->contentItem(), "shellFrame"));
+        QCOMPARE(host.window()->property("playbackService").value<PlaybackService *>(), &playback);
+        QVERIFY(!playback.playing());
+        QCOMPARE(playback.audioSequence(), sequence);
+        QCOMPARE(playback.sourceRevision(), revision);
+        playback.play();
+        QTRY_VERIFY_WITH_TIMEOUT(playback.playing(), 15000);
+        QCOMPARE(outputConfigurations, previousOutputConfigurations + 1);
+        QTRY_VERIFY_WITH_TIMEOUT(playback.positionMs() > pausedPosition + 100, 5000);
+        QCOMPARE(playback.audioSequence(), sequence);
+        QCOMPARE(playback.sourceRevision(), revision);
+        QCOMPARE(loadedSources, 1);
+        QCOMPARE(cacheStats.value("file_cache_bytes").toDouble(), cachedFileBytes);
+        QVERIFY(cacheStats.value("disk_cache_error").isNull());
+        QVERIFY(playback.errorMessage().isEmpty());
+        playback.pause();
+        QTRY_VERIFY(!playback.playing());
+        playback.seek(5000);
+        QTRY_VERIFY(qAbs(playback.positionMs() - 5000) < 250);
+        QCOMPARE(playback.audioSequence(), sequence);
+        QCOMPARE(playback.sourceRevision(), revision);
+    }
+    QCOMPARE(warnings.size(), 0);
 }
 
 void DesktopPagesTest::mainWindowRecoveryRejectsStaleRetirementAndRetriesFailure()

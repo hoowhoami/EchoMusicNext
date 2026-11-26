@@ -44,6 +44,7 @@ public:
     void transition(int mode, double fadeSeconds, bool matchTempo);
     void command(Command command, double value = 0);
     void playFaded(double volume, int durationMs);
+    void pauseFaded(int durationMs, quint64 requestId);
     void equalizer(const QList<double> &gains);
     void output(const QString &name, bool exclusive, quint64 revision = 0);
     void refreshDevices();

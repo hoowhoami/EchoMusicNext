@@ -826,6 +826,8 @@ target_link_libraries(
             echo_playlists
             echo_playlistsplugin
             echo_plugins
+            echo_plugin_sdk
+            echo_plugin_packages
             echo_logging
             echo_appuiplugin
             echo_profile
@@ -849,6 +851,7 @@ add_test(
     COMMAND
         echo-desktop-pages-test mainWindowUnloadRestoresProductionUi
         mainWindowBackgroundKeepsPluginPlaybackAndFloating
+        mainWindowPausedPlaybackResumesAfterOutputRelease
         mainWindowRecoveryRejectsStaleRetirementAndRetriesFailure backgroundRestoresPlaybackPage
 )
 set_tests_properties(
@@ -875,6 +878,16 @@ add_test(NAME desktop-pages-settings-handoff
          COMMAND echo-desktop-pages-test lyricSkinGlobalSettingsHandoff
                  lyricSkinSwitchKeepsCatalogAndPageStable
 )
+add_test(NAME desktop-settings-construction
+         COMMAND echo-desktop-pages-test settingsEngineNetworkSwitchAndClose
+                 settingsSectionsSurviveGcBetweenCreationSteps
+)
+set_tests_properties(
+    desktop-settings-construction
+    PROPERTIES ENVIRONMENT
+               "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Basic;MallocScribble=1" TIMEOUT
+               180 RUN_SERIAL TRUE
+)
 add_test(
     NAME desktop-pages-settings
     COMMAND
@@ -886,7 +899,7 @@ add_test(
         lyricVariantSettingUsesProductionSelectAndReleasesPopup miniWidthPreferencesClampAndRestore
         lyricSettingsShareCoverPickerAndExcludeTaskbar fullscreenShortcutReachesModalPlaybackPage
         productionExperimentalIdentitySettings productionExperimentalLoggingSettings
-        productionNetworkSettingsAutoSaveResetAndTheme
+        productionNetworkSettingsAutoSaveResetAndTheme settingsSectionIncubationCanBeCancelled
         productionPlayerEngineSettingsDecimalInputAndLifecycle
         productionVariableDialogSizingReopens playbackQueueModeUsesProductionSelection
         settingsDefaultsAndSourceEffectFileManager playbackZoomShortcutsFollowSharedScale
@@ -2086,6 +2099,7 @@ target_link_libraries(echo-listen-together-test PRIVATE Qt6::Sql)
 foreach(
     echo_qapplication_test IN
     ITEMS echo-share-resolve-test
+          echo-desktop-pages-test
           echo-window-resize-test
           echo-personal-fm-test
           echo-sharing-ui-test

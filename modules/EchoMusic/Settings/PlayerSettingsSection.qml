@@ -13,10 +13,6 @@ SettingsSection {
     readonly property PlayerEnginePreferences preferences: playback.enginePreferences
     heading: qsTr("播放引擎")
     glyph: "cpu"
-    SettingsNotice {
-        text: qsTr("部分音频输出设置修改后重启生效")
-    }
-    SettingsDivider {}
     SettingsRow {
         heading: qsTr("普通预读时长")
         description: qsTr("本地播放使用的解复用前读时长")
@@ -70,7 +66,7 @@ SettingsSection {
     SettingsDivider {}
     SettingsRow {
         heading: qsTr("磁盘缓存")
-        description: qsTr("缓存模式启用时将音频数据写入临时文件，结束读取后自动清理；重启生效")
+        description: qsTr("缓存模式启用时将音频数据写入临时文件，结束读取后自动清理")
         EchoSwitch {
             objectName: "settingsEngineCacheOnDisk"
             checked: section.preferences.cacheOnDisk

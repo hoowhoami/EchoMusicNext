@@ -1,5 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import QtQuick.Controls.Basic
 import EchoMusic.Controls
 import EchoMusic.Theme
 import EchoMusic.Shell
@@ -54,21 +55,25 @@ SettingsSection {
     }
     SettingsDivider {}
     SettingsRow {
+        heading: qsTr("默认 MV 画质")
+        description: qsTr("MV 默认使用此画质，当前 MV 单独选择的画质保持不变")
+        EchoSelect {
+            objectName: "settingsDefaultMvQuality"
+            colors: Theme.floating
+            implicitWidth: 180
+            model: ["1080P", "720P", "540P", "432P", "270P"]
+            readonly property list<string> keys: ["fhd", "hd", "qhd", "sd", "ld"]
+            currentIndex: keys.indexOf(section.preferences.defaultMvQuality)
+            onActivated: section.preferences.defaultMvQuality = keys[currentIndex]
+        }
+    }
+    SettingsDivider {}
+    SettingsRow {
         heading: qsTr("开启蝰蛇音质")
         description: qsTr("显示蝰蛇母带、超清和全景声，仍需歌曲支持及对应权益")
         EchoSwitch {
             checked: section.preferences.viperQualityEnabled
             onToggled: section.preferences.viperQualityEnabled = checked
-        }
-    }
-    SettingsDivider {}
-    SettingsRow {
-        heading: qsTr("智能兼容模式")
-        description: qsTr("首选音质不可用时自动尝试备选")
-        EchoSwitch {
-            objectName: "settingsCompatibilityMode"
-            checked: section.preferences.compatibilityMode
-            onToggled: section.preferences.compatibilityMode = checked
         }
     }
     SettingsDivider {}
@@ -114,9 +119,10 @@ SettingsSection {
     }
     SettingsDivider {}
     SettingsRow {
-        heading: qsTr("开始播放时淡入")
-        description: qsTr("播放新歌曲时，音量从静音渐起")
+        heading: qsTr("播放淡入淡出")
+        description: qsTr("播放、恢复时淡入，暂停时淡出；歌曲过渡关闭时，手动切歌也使用淡入淡出")
         EchoSwitch {
+            objectName: "playbackVolumeFadeSwitch"
             checked: section.preferences.volumeFade
             onToggled: section.preferences.volumeFade = checked
         }
@@ -126,18 +132,20 @@ SettingsSection {
     }
     SettingsRow {
         visible: section.preferences.volumeFade
-        heading: qsTr("淡入时长")
-        description: qsTr("调整开始播放时的音量渐起时长")
+        heading: qsTr("淡入淡出时长")
+        description: qsTr("每次淡入或淡出的时长，0 毫秒表示立即切换")
         EchoSlider {
             implicitWidth: 192
             showValue: true
             valueSuffix: "ms"
-            from: 500
+            from: 0
             to: 3000
-            stepSize: 100
+            stepSize: 50
+            snapMode: Slider.SnapAlways
+            objectName: "playbackVolumeFadeDuration"
             value: section.preferences.volumeFadeMs
             onMoved: section.preferences.volumeFadeMs = value
-            Accessible.name: qsTr("淡入时长")
+            Accessible.name: qsTr("淡入淡出时长")
         }
     }
     SettingsDivider {}

@@ -16,9 +16,11 @@ fn write_zip(root: &Path, output: &Path, progress: impl Fn(u64) -> bool) -> Resu
                 return Err("Diagnostic staging contains a link".into());
             }
             if info.is_dir() {
-                // The host staging format is flat apart from these three directories.
+                // Original failure evidence and supplemental restart logs stay
+                // in distinct, flat directories in the host staging format.
                 if path != root
-                    || !["logs", "crash"].contains(&entry.file_name().to_string_lossy().as_ref())
+                    || !["logs", "crash", "restart"]
+                        .contains(&entry.file_name().to_string_lossy().as_ref())
                 {
                     return Err("Unexpected diagnostic directory".into());
                 }
@@ -152,6 +154,8 @@ mod tests {
     fn zip_is_readable_and_cancellable() {
         let root = std::env::temp_dir().join(format!("echo-diagnostics-{}", std::process::id()));
         fs::create_dir_all(root.join("logs")).unwrap();
+        fs::create_dir_all(root.join("restart")).unwrap();
+        fs::write(root.join("restart/restarted.log"), "restarted session").unwrap();
         fs::write(root.join("logs/run.log"), "中文日志").unwrap();
         let output = root.with_extension("zip");
         let _ = fs::remove_file(&output);
@@ -164,6 +168,7 @@ mod tests {
             .read_to_string(&mut log)
             .unwrap();
         assert_eq!(log, "中文日志");
+        assert!(archive.by_name("restart/restarted.log").is_ok());
         drop(archive);
         fs::remove_file(&output).unwrap();
         assert!(write_zip(&root, &output, |_| false).is_err());

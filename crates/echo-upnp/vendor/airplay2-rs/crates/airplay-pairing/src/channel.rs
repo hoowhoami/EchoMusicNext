@@ -73,7 +73,10 @@ impl EncryptedChannel {
                 "Raw control record exceeds 1024 bytes".to_string(),
             )));
         }
-        let framed = self.write_cipher.encrypt(plaintext).map_err(Error::Crypto)?;
+        let framed = self
+            .write_cipher
+            .encrypt(plaintext)
+            .map_err(Error::Crypto)?;
         Ok(framed[2..].to_vec())
     }
 

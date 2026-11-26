@@ -97,11 +97,13 @@ void PlaybackFailureController::cancel(bool resetAttempts)
 }
 void PlaybackFailureController::started(bool preserveFailureChain)
 {
+    m_kind = Kind::Source;
     cancel(!preserveFailureChain);
     sourceAdopted();
 }
 void PlaybackFailureController::succeeded()
 {
+    m_kind = Kind::Source;
     cancel(true);
     m_noticeKey.clear();
     ++m_noticeGeneration;
@@ -114,23 +116,29 @@ void PlaybackFailureController::sourceAdopted()
 {
     m_operationTitle.clear();
 }
-void PlaybackFailureController::failed()
+void PlaybackFailureController::failed(Kind kind)
 {
     auto &p = m_playback;
     if (p.m_closing || !p.hasTrack())
         return;
+    const bool output = kind == Kind::Output;
+    if (output)
+        m_operationTitle.clear();
+    m_kind = kind;
+    m_failureSourceRevision = p.m_sourceRevision;
     // A failed new-track load has no source to resume. Retire its retained
     // output and pending opens; a paused same-track replacement still owns a
     // usable old source and must keep it. Normal user pause keeps its idle policy.
-    if (!p.m_playing && !p.loading() && !p.m_seamless)
+    if (!output && !p.m_playing && !p.loading() && !p.m_seamless)
         p.m_engine.command(AudioEngine::Stop);
-    const bool scheduled = !p.m_playing && p.m_autoplay && p.m_preferences.autoNext() &&
+    const bool scheduled = !output && !p.m_playing && p.m_autoplay && p.m_preferences.autoNext() &&
                            (p.m_personalFm->active() || p.m_discoverQueue->handlesCurrent() ||
                             p.queue()->rowCount() > 1) &&
                            m_attempts < p.m_preferences.autoNextMaxAttempts();
     const auto sequence = p.m_sequence;
     const auto session = p.m_api.sessionRevision();
-    const auto reason = presentationReason(p.m_error);
+    const auto reason =
+        output ? tr("音频输出暂不可用，请重试或选择其他输出设备") : presentationReason(p.m_error);
     const auto key =
         QString::number(p.m_sourceRevision) + QChar(0) + reason + QChar(0) + p.m_mvFailure;
     if (scheduled) {
@@ -157,7 +165,7 @@ void PlaybackFailureController::failed()
     }
     // Wait until this event's recovery/state handling has settled, like the
     // source player's post-flush watcher. A superseded track must stay silent.
-    QTimer::singleShot(0, this, [this, sequence, session, reason, key, generation] {
+    QTimer::singleShot(0, this, [this, sequence, session, reason, key, generation, output] {
         auto &player = m_playback;
         if (player.m_closing || sequence != player.m_sequence ||
             session != player.m_api.sessionRevision() || player.m_error.isEmpty() ||
@@ -165,7 +173,7 @@ void PlaybackFailureController::failed()
             return;
         QStringList details;
         const auto mvReason = presentationReason(player.m_mvFailure);
-        if (!player.m_mvFailure.isEmpty() && mvReason != reason)
+        if (!output && !player.m_mvFailure.isEmpty() && mvReason != reason)
             details.append(mvReason);
         if (m_timer.isActive())
             details.append(
@@ -184,5 +192,18 @@ void PlaybackFailureController::failed()
         emit player.failureNotice(
             reason + (details.isEmpty() ? QString() : "\n" + details.join("；")), title);
     });
+}
+bool PlaybackFailureController::resumeOutput()
+{
+    auto &p = m_playback;
+    if (m_kind != Kind::Output || !p.m_loaded || m_noticeSequence != p.m_sequence ||
+        m_noticeSession != p.m_api.sessionRevision() ||
+        m_failureSourceRevision != p.m_sourceRevision)
+        return false;
+    m_kind = Kind::Source;
+    m_noticeKey.clear();
+    ++m_noticeGeneration;
+    p.m_error.clear();
+    return true;
 }
 } // namespace EchoMusic

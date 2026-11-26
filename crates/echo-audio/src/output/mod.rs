@@ -26,6 +26,27 @@ pub(crate) use cpal_shared::fill_output_reusing;
 
 pub(crate) type OutputStartSender = SyncSender<Result<(), String>>;
 
+/// Keep the old native owner alive until its backend calls and COM clients have
+/// retired. A cancelled successor leaves the gate without opening another stream.
+#[cfg(any(target_os = "windows", test))]
+pub(crate) fn acquire_output_owner(
+    gate: &Mutex<()>,
+    cancelled: impl Fn() -> bool,
+) -> Option<std::sync::MutexGuard<'_, ()>> {
+    loop {
+        if cancelled() {
+            return None;
+        }
+        match gate.try_lock() {
+            Ok(owner) => return Some(owner),
+            Err(std::sync::TryLockError::Poisoned(error)) => return Some(error.into_inner()),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct OutputStopToken {
     stopped: Arc<AtomicBool>,
@@ -420,6 +441,22 @@ pub(crate) fn output_start_was_cancelled(
     true
 }
 
+/// A backend call can return after the startup watchdog retired this AO. Check
+/// its own stop token before publishing readiness into the surviving session.
+#[cfg(any(target_os = "windows", test))]
+fn confirm_output_start(
+    stop: &OutputStopToken,
+    shared: &SharedAudio,
+    start_notify: &mut Option<OutputStartSender>,
+) -> bool {
+    if output_start_was_cancelled(stop, shared, start_notify) {
+        return false;
+    }
+    shared.mark_output_started();
+    report_output_start(start_notify, Ok(()));
+    true
+}
+
 /// Service exactly one signalled WASAPI buffer. Exclusive event streams hand
 /// over a whole packet per event; padding is only meaningful for shared streams.
 /// Keep this protocol independent of COM so it can be tested on every platform.
@@ -450,6 +487,25 @@ mod tests {
     use super::*;
     use crate::dsp::DspSettings;
     use crate::shared::MixFormat;
+
+    #[test]
+    fn successor_waits_for_native_owner_and_can_cancel_before_opening() {
+        let gate = Arc::new(Mutex::new(()));
+        let owner = gate.lock().unwrap();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let next_gate = gate.clone();
+        let next_cancelled = cancelled.clone();
+        let (entered, waiting) = std::sync::mpsc::sync_channel(1);
+        let worker = std::thread::spawn(move || {
+            entered.send(()).unwrap();
+            acquire_output_owner(&next_gate, || next_cancelled.load(Ordering::Acquire)).is_some()
+        });
+        waiting.recv().unwrap();
+        cancelled.store(true, Ordering::Release);
+        assert!(!worker.join().unwrap());
+        drop(owner);
+        assert!(acquire_output_owner(&gate, || false).is_some());
+    }
 
     #[test]
     fn exclusive_events_consume_one_packet_without_querying_padding() {
@@ -575,6 +631,36 @@ mod tests {
 
         assert!(old.should_stop(&shared));
         assert!(!next.should_stop(&shared));
+    }
+
+    #[test]
+    fn retired_output_cannot_confirm_startup_after_replacement() {
+        let shared = SharedAudio::new(
+            MixFormat::stereo_f32(48_000),
+            0.2,
+            1.0,
+            &DspSettings::default(),
+        );
+        let retired = OutputStopToken::new();
+        let replacement = OutputStopToken::new();
+        let (old_sender, old_receiver) = std::sync::mpsc::sync_channel(1);
+        let (new_sender, new_receiver) = std::sync::mpsc::sync_channel(1);
+        retired.request_stop();
+        shared.prepare_output_start();
+        assert!(!confirm_output_start(
+            &retired,
+            &shared,
+            &mut Some(old_sender)
+        ));
+        assert!(!shared.output_has_started());
+        assert!(old_receiver.recv().unwrap().is_err());
+        assert!(confirm_output_start(
+            &replacement,
+            &shared,
+            &mut Some(new_sender)
+        ));
+        assert!(shared.output_has_started());
+        assert_eq!(new_receiver.recv().unwrap(), Ok(()));
     }
 
     #[test]

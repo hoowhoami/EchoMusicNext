@@ -22,15 +22,22 @@ PlaybackPreferences::PlaybackPreferences(EchoMusic::SettingsStore &settings, QOb
         settings.value(EchoMusic::SettingsKeys::Playback::DefaultQuality, m_quality).toString();
     if (qualities.contains(quality))
         m_quality = quality;
+    const auto mvQuality =
+        settings.value(SettingsKeys::Playback::DefaultMvQuality, m_mvQuality).toString();
+    if (mvQuality == "auto")
+        settings.remove(SettingsKeys::Playback::DefaultMvQuality);
+    else if (QStringList{"fhd", "hd", "qhd", "sd", "ld"}.contains(mvQuality))
+        m_mvQuality = mvQuality;
     m_autoPlay =
         settings.value(EchoMusic::SettingsKeys::Playback::AutoPlayOnLaunch, false).toBool();
-    m_fade = settings.value(EchoMusic::SettingsKeys::Playback::VolumeFade, true).toBool();
+    m_fade = settings.value(EchoMusic::SettingsKeys::Playback::VolumeFade, false).toBool();
     m_fadeMs = qBound(
-        500, settings.value(EchoMusic::SettingsKeys::Playback::VolumeFadeMs, 1000).toInt(), 3000);
+        0, settings.value(EchoMusic::SettingsKeys::Playback::VolumeFadeMs, m_fadeMs).toInt(), 3000);
     m_viper =
         settings.value(EchoMusic::SettingsKeys::Playback::ViperQualityEnabled, false).toBool();
-    m_compatibilityMode =
-        settings.value(EchoMusic::SettingsKeys::Playback::CompatibilityMode, true).toBool();
+    // Retire the former switch, including false values restored from old backups.
+    // Candidate fallback is now an unconditional playback policy.
+    settings.remove(EchoMusic::SettingsKeys::Playback::CompatibilityMode);
     if (!m_viper && m_quality.startsWith("viper_"))
         m_quality = "hi_res";
     m_autoNext = settings.value(EchoMusic::SettingsKeys::Playback::AutoNext, true).toBool();
@@ -61,6 +68,15 @@ void PlaybackPreferences::setDefaultQuality(const QString &quality)
     emit defaultQualityChanged();
     emit changed();
 }
+void PlaybackPreferences::setDefaultMvQuality(const QString &quality)
+{
+    if (quality == m_mvQuality || !QStringList{"fhd", "hd", "qhd", "sd", "ld"}.contains(quality))
+        return;
+    m_mvQuality = quality;
+    m_settings.setValue(SettingsKeys::Playback::DefaultMvQuality, quality);
+    emit defaultMvQualityChanged();
+    emit changed();
+}
 void PlaybackPreferences::setAutoPlayOnLaunch(bool enabled)
 {
     if (enabled == m_autoPlay)
@@ -79,7 +95,7 @@ void PlaybackPreferences::setVolumeFade(bool enabled)
 }
 void PlaybackPreferences::setVolumeFadeMs(int ms)
 {
-    ms = qBound(500, ms, 3000);
+    ms = qBound(0, ms, 3000);
     if (ms == m_fadeMs)
         return;
     m_fadeMs = ms;
@@ -106,15 +122,6 @@ void PlaybackPreferences::setAutoNext(bool enabled)
     m_autoNext = enabled;
     m_settings.setValue(EchoMusic::SettingsKeys::Playback::AutoNext, enabled);
     emit failurePolicyChanged();
-}
-void PlaybackPreferences::setCompatibilityMode(bool enabled)
-{
-    if (enabled == m_compatibilityMode)
-        return;
-    m_compatibilityMode = enabled;
-    m_settings.setValue(EchoMusic::SettingsKeys::Playback::CompatibilityMode, enabled);
-    emit sourcePolicyChanged();
-    emit changed();
 }
 void PlaybackPreferences::setAutoNextDelaySeconds(int seconds)
 {
