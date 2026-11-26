@@ -158,7 +158,7 @@ bool RouteController::unregisterPage(const QString &name, quint64 revision)
         if (m_cursor >= 0)
             present(m_history[m_cursor]);
         else if (available(homeRoute())) {
-            m_history.append({homeRoute(), homeResourceId(), {}});
+            m_history.append(Location{homeRoute(), homeResourceId(), {}});
             m_cursor = 0;
             present(m_history[0]);
         }

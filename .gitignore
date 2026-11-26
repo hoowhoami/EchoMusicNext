@@ -1,6 +1,7 @@
 # Local plans and generated build output
 .planning/
 .agentsroom
+.workbuddy
 .DS_Store
 /build/
 /target/
