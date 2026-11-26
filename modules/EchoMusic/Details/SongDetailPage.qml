@@ -41,6 +41,7 @@ RoutePage {
         stickyHeaders: [header]
         CommentsView {
             id: comments
+            contentInset: Theme.pageHorizontalInset
             anchors.fill: parent
             controller: page.detail.comments
             pageContainer: viewport

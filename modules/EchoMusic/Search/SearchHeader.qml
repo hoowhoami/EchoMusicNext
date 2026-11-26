@@ -14,9 +14,9 @@ Item {
     implicitHeight: pinned ? 56 : heading.height + 16 + (service.keyword.length ? 68 : 0)
     Text {
         id: heading
-        x: 40
+        x: Theme.pageHorizontalInset
         y: 16
-        width: parent.width - 80
+        width: parent.width - Theme.pageHorizontalInset * 2
         text: header.service.keyword.length ? qsTr("搜索「%1」").arg(header.service.keyword) : qsTr("搜索")
 
         textFormat: Text.PlainText
@@ -29,9 +29,9 @@ Item {
     }
     EchoTabBar {
         objectName: header.pinned ? "pinnedSearchTypeTabs" : "searchTypeTabs"
-        x: 40
+        x: Theme.pageHorizontalInset
         y: header.pinned ? 6 : heading.y + heading.height + 24
-        width: parent.width - 80
+        width: parent.width - Theme.pageHorizontalInset * 2
         labels: header.labels
         accessibleName: qsTr("搜索类型")
         currentIndex: header.kinds.indexOf(header.service.kind)

@@ -1032,6 +1032,11 @@ Window {
             auto *view = session.item(songs ? "searchResults" : "searchResultGrid");
             QVERIFY(view);
             QTest::qWait(50); // Polish the changed presentation before hit testing.
+            QCOMPARE(view->mapToItem(page, QPointF()).x(), 32.);
+            const qreal trailingGap = songs ? 0. : 20.;
+            QVERIFY(qAbs(page->width() -
+                         view->mapToItem(page, QPointF(view->width() - trailingGap, 0)).x() - 32.) <
+                    .01);
             QSignalSpy movement(view, SIGNAL(movementStarted()));
             QVERIFY(movement.isValid());
             for (int region = 0; region < 5; ++region) {
@@ -1747,8 +1752,8 @@ Window {
             // The asynchronous page Loader can expose the attached bar before
             // its pageContainer binding moves it to the overlay layer.
             QTRY_COMPARE(bar->parentItem(), findVisual(page, "pageScrollbarLayer"));
-            QCOMPARE(view->x(), qreal(40));
-            QCOMPARE(view->width(), page->width() - (songs ? 80 : 60));
+            QCOMPARE(view->x(), qreal(32));
+            QCOMPARE(view->width(), page->width() - (songs ? 64 : 44));
             QCOMPARE(bar->x() + bar->width(), page->width());
             QCOMPARE(bar->y(), qreal(0));
             QCOMPARE(bar->height(), page->height());

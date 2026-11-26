@@ -30,9 +30,9 @@ RoutePage {
             }
             Column {
                 id: body
-                x: 40
+                x: Theme.pageHorizontalInset
                 y: 24
-                width: Math.max(0, scroll.width - 80)
+                width: Math.max(0, scroll.width - Theme.pageHorizontalInset * 2)
                 spacing: 32
                 RowLayout {
                     objectName: "playlistRecommendationHeading"

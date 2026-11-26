@@ -15,7 +15,7 @@ Item {
     property real expandedHeight: 176
     property real coverSize: expandedHeight - 26
     property bool resourceActive: true
-    readonly property real inset: width < 768 ? 18 : 24
+    readonly property real inset: Theme.pageHorizontalInset
     readonly property real infoWidth: Math.max(0, body.width - inset * 2 - (width < 768 ? 0 : coverSize + 20))
     SongListGeometry {
         id: skeletonGeometry

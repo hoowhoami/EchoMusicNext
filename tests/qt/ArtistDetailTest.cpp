@@ -536,6 +536,10 @@ Window {
         auto *detailViewport = artistVisual(window->contentItem(), "artistDetailViewport");
         QVERIFY(initialCover && headerCover && initialPage && detailViewport);
         QCOMPARE(initialCover->size(), QSizeF(150, 150));
+        QCOMPARE(initialCover->mapToItem(pageItem, QPointF()).x(), 32.);
+        auto *coverSlot = artistVisual(pageItem, "songDetailCoverSlot");
+        QVERIFY(coverSlot);
+        QCOMPARE(coverSlot->mapToItem(pageItem, QPointF()).x(), 32.);
         QVERIFY(!detailViewport->isVisible());
         const auto skeletonArtifacts = qEnvironmentVariable("ECHO_ARTIST_ARTIFACTS");
         if (!skeletonArtifacts.isEmpty())

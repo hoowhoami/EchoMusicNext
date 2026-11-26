@@ -266,8 +266,8 @@ RoutePage {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         anchors.topMargin: page.short ? 68 : page.narrow ? 76 : 88
-        anchors.leftMargin: page.narrow ? 18 : 32
-        anchors.rightMargin: page.narrow ? 18 : 32
+        anchors.leftMargin: page.narrow ? 18 : Theme.pageHorizontalInset
+        anchors.rightMargin: page.narrow ? 18 : Theme.pageHorizontalInset
         anchors.bottomMargin: page.short ? 28 : page.narrow ? 32 : 40
         spacing: page.narrow ? 20 : 32
 
@@ -414,7 +414,7 @@ RoutePage {
     ColumnLayout {
         objectName: "discoverFlowError"
         anchors.centerIn: parent
-        width: Math.min(420, Math.max(0, parent.width - 64))
+        width: Math.min(420, Math.max(0, parent.width - Theme.pageHorizontalInset * 2))
         visible: page.errorMessage.length > 0 && page.collection.count === 0
         spacing: 0
         EchoIcon {

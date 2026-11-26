@@ -17,6 +17,7 @@
 #include <QQuickItem>
 #include <QQuickItemGrabResult>
 #include <QQuickWindow>
+#include <QSGRendererInterface>
 #include "SettingsStore.h"
 #include <QTemporaryDir>
 #include <QtTest>
@@ -1142,7 +1143,7 @@ Window {
                     for (const int sidebarWidth : {0, 216}) {
                         window->setProperty("sidebarWidth", sidebarWidth);
                         const auto logicalWidth = window->width() / shell.uiScale();
-                        const auto contentWidth = logicalWidth - sidebarWidth - 48;
+                        const auto contentWidth = logicalWidth - sidebarWidth - 64;
                         QTRY_COMPARE(statsView->width(), contentWidth);
                         const int columns = contentWidth >= 640 ? 4 : contentWidth >= 300 ? 2 : 1;
                         QTRY_COMPARE(statGrid->property("columns").toInt(), columns);
@@ -1225,15 +1226,20 @@ Window {
                                   -pixels.height() * .2)
                         .toAlignedRect(),
                     Qt::white);
-                QVERIFY(ink);
                 if (!artifacts.isEmpty())
                     QVERIFY(image.save(artifacts +
                                        QString("/history-sticky-%1-%2.png")
                                            .arg(mode == ThemeStore::Light ? "light" : "dark")
                                            .arg(zoom)));
-                const double glyphFraction = ink->width() / pixels.width();
-                QVERIFY2(glyphFraction > .30 && glyphFraction < .40,
-                         qPrintable(QString("collapsed clock fraction %1").arg(glyphFraction)));
+                // The software scene graph cannot draw EchoRoundedImage's
+                // ShaderEffect. Keep every layout/input assertion on that
+                // backend; the production RHI path still requires painted ink.
+                if (window->rendererInterface()->graphicsApi() != QSGRendererInterface::Software) {
+                    QVERIFY(ink);
+                    const double glyphFraction = ink->width() / pixels.width();
+                    QVERIFY2(glyphFraction > .30 && glyphFraction < .40,
+                             qPrintable(QString("collapsed clock fraction %1").arg(glyphFraction)));
+                }
                 QCOMPARE(detailHeader->property("heading").toString(), QString("播放历史"));
                 statsView->setProperty("contentY", -statsView->property("topMargin").toReal());
                 QTRY_COMPARE(detailHeader->property("progress").toDouble(), 1.);

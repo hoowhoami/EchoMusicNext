@@ -86,8 +86,8 @@ RoutePage {
                 ListView.onReused: pooled = false
                 Loader {
                     id: section
-                    x: 32
-                    width: Math.max(0, slot.width - 64)
+                    x: Theme.pageHorizontalInset
+                    width: Math.max(0, slot.width - Theme.pageHorizontalInset * 2)
                     readonly property bool resourceActive: page.pageActive && !slot.pooled && slot.y + slot.height > cards.contentY && slot.y < cards.contentY + cards.height
                     sourceComponent: slot.card.key === "fm" ? fmSection : songSection
                     Component {
@@ -123,8 +123,8 @@ RoutePage {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.top: parent.top
-                anchors.leftMargin: 32
-                anchors.rightMargin: 32
+                anchors.leftMargin: Theme.pageHorizontalInset
+                anchors.rightMargin: Theme.pageHorizontalInset
                 anchors.topMargin: 24
                 height: implicitHeight
                 spacing: 12

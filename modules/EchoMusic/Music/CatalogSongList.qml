@@ -31,7 +31,7 @@ Item {
                 root.recoveryPending = false;
         }
     }
-    property real contentInset: 24
+    property real contentInset: Theme.pageHorizontalInset
     property real topMargin: 0
     property real bottomMargin: 48
     property bool loading: false

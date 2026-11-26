@@ -156,7 +156,7 @@ Item {
     PluginGridModel {
         id: rows
         source: page.marketplace ? page.manager.catalog : page.manager.runtime
-        columns: Math.max(1, Math.floor((page.width - 48 + 14) / 314))
+        columns: Math.max(1, Math.floor((page.width - Theme.pageHorizontalInset * 2 + 14) / 314))
         onChanged: Qt.callLater(page.revealTarget)
     }
     ColumnLayout {
@@ -167,9 +167,9 @@ Item {
             implicitHeight: header.implicitHeight + 28
             ColumnLayout {
                 id: header
-                x: 24
+                x: Theme.pageHorizontalInset
                 y: 16
-                width: parent.width - 48
+                width: parent.width - Theme.pageHorizontalInset * 2
                 spacing: 16
                 // Fixed icon/actions columns around the expanding title/path column.
                 RowLayout {
@@ -366,9 +366,9 @@ Item {
                     height: headerContent.implicitHeight + 20 + (heading.visible ? 14 : 0)
                     ColumnLayout {
                         id: headerContent
-                        x: 24
+                        x: Theme.pageHorizontalInset
                         y: 20
-                        width: list.width - 48
+                        width: list.width - Theme.pageHorizontalInset * 2
                         spacing: 14
                         Flow {
 
@@ -528,7 +528,7 @@ Item {
                     }
                     RowLayout {
                         id: cardLayout
-                        x: 24
+                        x: Theme.pageHorizontalInset
                         spacing: 14
                         Repeater {
                             id: cardRepeater
@@ -536,7 +536,7 @@ Item {
                             delegate: PluginCard {
                                 required property var pluginRecord
                                 objectName: "pluginCard-" + (pluginRecord.id || "invalid")
-                                Layout.preferredWidth: Math.max(0, (list.width - 48 - (rows.columns - 1) * 14) / rows.columns)
+                                Layout.preferredWidth: Math.max(0, (list.width - Theme.pageHorizontalInset * 2 - (rows.columns - 1) * 14) / rows.columns)
                                 Layout.fillHeight: true
                                 record: pluginRecord
                                 marketplace: page.marketplace
@@ -594,7 +594,7 @@ Item {
                         }
                         Label {
                             Layout.topMargin: 8
-                            Layout.maximumWidth: list.width - 48
+                            Layout.maximumWidth: list.width - Theme.pageHorizontalInset * 2
                             wrapMode: Text.Wrap
                             horizontalAlignment: Text.AlignHCenter
                             text: page.filteredEmpty ? qsTr("试试其它关键词或切换插件源") : page.marketplace ? qsTr("添加插件源或刷新在线列表后再试") : qsTr("安装 .echomod 插件包，或放入上方目录后刷新")

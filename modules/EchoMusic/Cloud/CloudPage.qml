@@ -237,9 +237,9 @@ RoutePage {
             height: page.toolbarHeight
             EchoDivider {
                 objectName: "cloudTabDivider"
-                x: 24
+                x: Theme.pageHorizontalInset
                 y: page.toolbarRowHeight - 1
-                width: Math.max(0, parent.width - 48)
+                width: Math.max(0, parent.width - Theme.pageHorizontalInset * 2)
                 lineColor: Theme.subtleBorder
             }
             ColumnLayout {
@@ -252,8 +252,8 @@ RoutePage {
                     Layout.minimumHeight: page.toolbarRowHeight
                     Layout.maximumHeight: page.toolbarRowHeight
                     Layout.fillHeight: false
-                    Layout.leftMargin: 24
-                    Layout.rightMargin: 24
+                    Layout.leftMargin: Theme.pageHorizontalInset
+                    Layout.rightMargin: Theme.pageHorizontalInset
                     spacing: 8
                     EchoDetailTabs {
                         objectName: "cloudTabs"
@@ -286,8 +286,8 @@ RoutePage {
                 }
                 SongListHeader {
                     Layout.fillWidth: true
-                    Layout.leftMargin: 24
-                    Layout.rightMargin: 24
+                    Layout.leftMargin: Theme.pageHorizontalInset
+                    Layout.rightMargin: Theme.pageHorizontalInset
                     geometry: songList.geometry
                     sortField: page.service.songs.sortField
                     sortDirection: page.service.songs.sortDirection
@@ -301,7 +301,7 @@ RoutePage {
             collection: page.service.songs
             actions: page.service.actions
             pageContainer: viewport
-            contentInset: 24
+            contentInset: Theme.pageHorizontalInset
             topMargin: page.expandedHeaderHeight + page.toolbarHeight
             loading: page.service.loading && page.service.songs.totalCount === 0
             loadingMore: page.service.loading && page.service.songs.totalCount > 0
@@ -331,7 +331,7 @@ RoutePage {
             implicitHeight: 320
             ColumnLayout {
                 anchors.centerIn: parent
-                width: Math.min(420, Math.max(0, parent.width - 48))
+                width: Math.min(420, Math.max(0, parent.width - Theme.pageHorizontalInset * 2))
                 spacing: 0
                 Rectangle {
                     Layout.alignment: Qt.AlignHCenter

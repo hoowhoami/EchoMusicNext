@@ -88,6 +88,8 @@ QtObject {
     // Keep the readable token on a normal property; ThemeStore remains its owner.
     readonly property color accentForeground: store.onAccent
     readonly property color accentText: store.accentText
+    // Shared outer gutter for standard content routes, independent of card padding.
+    readonly property int pageHorizontalInset: 32
     // Use semantic radii for detail, control, card and dialog surfaces.
     // These values are independent of generic framework size names.
     readonly property int controlRadius: 6

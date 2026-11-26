@@ -124,9 +124,9 @@ RoutePage {
             height: page.toolbarHeight
             EchoDivider {
                 objectName: "favoritesTabDivider"
-                x: 24
+                x: Theme.pageHorizontalInset
                 y: page.toolbarRowHeight - 1
-                width: Math.max(0, parent.width - 48)
+                width: Math.max(0, parent.width - Theme.pageHorizontalInset * 2)
                 lineColor: Theme.subtleBorder
             }
             ColumnLayout {
@@ -139,8 +139,8 @@ RoutePage {
                     Layout.minimumHeight: page.toolbarRowHeight
                     Layout.maximumHeight: page.toolbarRowHeight
                     Layout.fillHeight: false
-                    Layout.leftMargin: 24
-                    Layout.rightMargin: 24
+                    Layout.leftMargin: Theme.pageHorizontalInset
+                    Layout.rightMargin: Theme.pageHorizontalInset
                     spacing: 8
                     EchoDetailTabs {
                         Layout.preferredHeight: 56
@@ -212,8 +212,8 @@ RoutePage {
                 SongListHeader {
                     visible: page.songsTab
                     Layout.fillWidth: true
-                    Layout.leftMargin: 24
-                    Layout.rightMargin: 24
+                    Layout.leftMargin: Theme.pageHorizontalInset
+                    Layout.rightMargin: Theme.pageHorizontalInset
                     geometry: songList.geometry
                     sortField: page.service.songs.sortField
                     sortDirection: page.service.songs.sortDirection
@@ -228,7 +228,7 @@ RoutePage {
             collection: page.service.songs
             actions: page.service.actions
             pageContainer: viewport
-            contentInset: 24
+            contentInset: Theme.pageHorizontalInset
             // Hidden song views retain their own column-header space.
             topMargin: page.expandedHeaderHeight + page.toolbarRowHeight + 44
             loading: page.service.loading && page.service.songs.totalCount === 0
@@ -265,8 +265,8 @@ RoutePage {
             id: singersGrid
             objectName: "favoritesSingersGrid"
             visible: page.singersTab
-            x: 24
-            width: Math.max(0, parent.width - 48 + 20)
+            x: Theme.pageHorizontalInset
+            width: Math.max(0, parent.width - Theme.pageHorizontalInset * 2 + 20)
             height: parent.height
             topMargin: page.gridMargin()
             bottomMargin: 48
@@ -283,8 +283,8 @@ RoutePage {
             id: usersGrid
             objectName: "favoritesUsersGrid"
             visible: page.usersTab
-            x: 24
-            width: Math.max(0, parent.width - 48 + 20)
+            x: Theme.pageHorizontalInset
+            width: Math.max(0, parent.width - Theme.pageHorizontalInset * 2 + 20)
             height: parent.height
             topMargin: page.gridMargin()
             bottomMargin: 48
@@ -299,8 +299,8 @@ RoutePage {
             id: albumsGrid
             objectName: "favoritesAlbumsGrid"
             visible: page.albumsTab
-            x: 24
-            width: Math.max(0, parent.width - 48 + 20)
+            x: Theme.pageHorizontalInset
+            width: Math.max(0, parent.width - Theme.pageHorizontalInset * 2 + 20)
             height: parent.height
             topMargin: page.gridMargin()
             bottomMargin: 48
@@ -329,8 +329,8 @@ RoutePage {
             id: videosGrid
             objectName: "favoritesVideosGrid"
             visible: page.videosTab
-            x: 24
-            width: Math.max(0, parent.width - 48 + 20)
+            x: Theme.pageHorizontalInset
+            width: Math.max(0, parent.width - Theme.pageHorizontalInset * 2 + 20)
             height: parent.height
             topMargin: page.gridMargin()
             bottomMargin: 48

@@ -20,8 +20,8 @@ RoutePage {
         ContentGrid {
             id: grid
             objectName: "playlistCategoriesGrid"
-            x: 40
-            width: Math.max(0, parent.width - 60)
+            x: Theme.pageHorizontalInset
+            width: Math.max(0, parent.width - Theme.pageHorizontalInset * 2 + 20)
             height: parent.height
             topMargin: heading.height + 32
             bottomMargin: 32
@@ -58,8 +58,8 @@ RoutePage {
             height: page.service.errorMessage.length && page.service.cards.count > 0 ? 144 : 96
             ColumnLayout {
                 anchors.fill: parent
-                anchors.leftMargin: 40
-                anchors.rightMargin: 40
+                anchors.leftMargin: Theme.pageHorizontalInset
+                anchors.rightMargin: Theme.pageHorizontalInset
                 spacing: 12
                 Label {
                     text: qsTr("分类歌单")

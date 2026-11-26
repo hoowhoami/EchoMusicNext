@@ -38,8 +38,8 @@ RoutePage {
     }
     ColumnLayout {
         anchors.fill: parent
-        anchors.leftMargin: 32
-        anchors.rightMargin: 32
+        anchors.leftMargin: Theme.pageHorizontalInset
+        anchors.rightMargin: Theme.pageHorizontalInset
         anchors.topMargin: 26
         anchors.bottomMargin: 20
         spacing: 0
@@ -112,7 +112,7 @@ RoutePage {
         EchoTabBar {
             objectName: "themeBrowseTabs"
             Layout.preferredWidth: 288
-            Layout.maximumWidth: page.width - 64
+            Layout.maximumWidth: page.width - Theme.pageHorizontalInset * 2
             Layout.bottomMargin: 26
             labels: [qsTr("主题"), qsTr("纯色"), qsTr("自定义")]
             currentIndex: page.tab
@@ -124,17 +124,17 @@ RoutePage {
             Layout.fillWidth: true
             Layout.fillHeight: true
             visible: page.tab !== 2
-            Layout.leftMargin: -32
-            Layout.rightMargin: -32
+            Layout.leftMargin: -Theme.pageHorizontalInset
+            Layout.rightMargin: -Theme.pageHorizontalInset
             pageActive: page.pageActive
             scrollView: page.tab === 0 ? catalog : paletteScroll
             resetViews: [catalog, paletteScroll]
             Flickable {
                 id: catalog
                 objectName: "themeCatalogScroll"
-                x: 32
+                x: Theme.pageHorizontalInset
                 y: 2
-                width: Math.max(0, parent.width - 64)
+                width: Math.max(0, parent.width - Theme.pageHorizontalInset * 2)
                 height: Math.max(0, parent.height - 2)
                 visible: page.tab === 0
                 interactive: visible && page.pageActive
@@ -211,9 +211,9 @@ RoutePage {
             }
             Flickable {
                 id: paletteScroll
-                x: 32
+                x: Theme.pageHorizontalInset
                 y: 2
-                width: Math.max(0, parent.width - 64)
+                width: Math.max(0, parent.width - Theme.pageHorizontalInset * 2)
                 height: Math.max(0, parent.height - 2)
                 visible: page.tab === 1
                 interactive: visible && page.pageActive

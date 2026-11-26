@@ -65,7 +65,7 @@ RoutePage {
             collection: page.detail.songs
             actions: page.detail.actions
             pageContainer: viewport
-            contentInset: 24
+            contentInset: Theme.pageHorizontalInset
             // Each view reserves its own toolbar extent even while hidden.
             // Switching tabs must not move Qt's origin before scroll restoration.
             topMargin: page.expandedHeaderHeight + page.songToolbarRowHeight + 44
@@ -80,10 +80,10 @@ RoutePage {
         GridView {
             id: albumGrid
             objectName: "artistAlbumGrid"
-            // Combine outer and album-section padding; account for the trailing
+            // Align cards with the shared page gutter; compensate for the trailing
             // virtual cell gap without adding another right inset.
-            x: 32
-            width: Math.max(0, parent.width - 64 + 20)
+            x: Theme.pageHorizontalInset
+            width: Math.max(0, parent.width - Theme.pageHorizontalInset * 2 + 20)
             height: parent.height
             visible: page.activeTab === "albums"
             topMargin: page.expandedHeaderHeight + page.songToolbarRowHeight + 16
@@ -226,9 +226,9 @@ RoutePage {
             height: page.toolbarHeight
             EchoDivider {
                 objectName: "artistTabDivider"
-                x: 24
+                x: Theme.pageHorizontalInset
                 y: page.songToolbarRowHeight - 1
-                width: Math.max(0, parent.width - 48)
+                width: Math.max(0, parent.width - Theme.pageHorizontalInset * 2)
                 lineColor: Theme.subtleBorder
             }
             ColumnLayout {
@@ -241,8 +241,8 @@ RoutePage {
                     Layout.minimumHeight: page.songToolbarRowHeight
                     Layout.maximumHeight: page.songToolbarRowHeight
                     Layout.fillHeight: false
-                    Layout.leftMargin: 24
-                    Layout.rightMargin: 24
+                    Layout.leftMargin: Theme.pageHorizontalInset
+                    Layout.rightMargin: Theme.pageHorizontalInset
                     spacing: 8
                     EchoDetailTabs {
                         Layout.preferredHeight: 56
@@ -300,8 +300,8 @@ RoutePage {
                 SongListHeader {
                     visible: page.activeTab === "songs"
                     Layout.fillWidth: true
-                    Layout.leftMargin: 24
-                    Layout.rightMargin: 24
+                    Layout.leftMargin: Theme.pageHorizontalInset
+                    Layout.rightMargin: Theme.pageHorizontalInset
                     geometry: songList.geometry
                     sortField: page.detail.songs.sortField
                     sortDirection: page.detail.songs.sortDirection

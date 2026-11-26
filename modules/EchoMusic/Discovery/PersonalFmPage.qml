@@ -24,7 +24,7 @@ RoutePage {
         id: poolSwitch
         EchoTabBar {
             objectName: "personalFmPoolSwitch"
-            width: Math.min(280, page.width - 48)
+            width: Math.min(280, page.width - Theme.pageHorizontalInset * 2)
             labels: [qsTr("口味"), qsTr("风格"), qsTr("探索")]
             currentIndex: page.fm.songPool
             enabled: !page.fm.busy
@@ -57,9 +57,9 @@ RoutePage {
             }
             ColumnLayout {
                 id: body
-                x: 24
+                x: Theme.pageHorizontalInset
                 y: 20
-                width: Math.max(0, view.width - 48)
+                width: Math.max(0, view.width - Theme.pageHorizontalInset * 2)
                 spacing: 28
                 Item {
                     Layout.fillWidth: true
@@ -311,7 +311,7 @@ RoutePage {
         visible: !page.fm.signedIn
         ColumnLayout {
             anchors.centerIn: parent
-            width: Math.max(0, parent.width - 48)
+            width: Math.max(0, parent.width - Theme.pageHorizontalInset * 2)
             spacing: 0
             Rectangle {
                 Layout.alignment: Qt.AlignHCenter

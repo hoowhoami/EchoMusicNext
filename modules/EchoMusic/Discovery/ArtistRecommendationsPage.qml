@@ -21,8 +21,8 @@ RoutePage {
         ArtistDirectory {
             id: directory
             objectName: "exploreArtistDirectory"
-            x: 40
-            width: Math.max(0, parent.width - 80 + 20)
+            x: Theme.pageHorizontalInset
+            width: Math.max(0, parent.width - Theme.pageHorizontalInset * 2 + 20)
             height: parent.height
             topMargin: 168
             bottomMargin: 40

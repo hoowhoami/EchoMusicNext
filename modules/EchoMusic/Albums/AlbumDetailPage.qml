@@ -4,6 +4,7 @@ import QtQuick.Controls.Basic
 import EchoMusic.Shell
 import EchoMusic.Controls
 import EchoMusic.Music
+import EchoMusic.Theme
 import EchoMusic.Details
 
 RoutePage {
@@ -45,6 +46,7 @@ RoutePage {
             }))
         secondaryBody: Component {
             CommentsView {
+                contentInset: Theme.pageHorizontalInset
                 controller: page.detail.comments
                 pageContainer: catalog.pageContainer
                 showSections: false

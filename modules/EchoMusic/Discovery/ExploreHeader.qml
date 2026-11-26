@@ -12,8 +12,8 @@ Item {
     implicitHeight: 136
     ColumnLayout {
         anchors.fill: parent
-        anchors.leftMargin: 40
-        anchors.rightMargin: 40
+        anchors.leftMargin: Theme.pageHorizontalInset
+        anchors.rightMargin: Theme.pageHorizontalInset
         spacing: 16
         Label {
             Layout.fillWidth: true

@@ -23,7 +23,7 @@ Item {
     // The mounted header owns expanded geometry; scroll placeholders and
     // comment pages must use that same height, including when intro is absent.
     property real expandedHeaderHeight: (heading.item as SongDetailHeader)?.expandedHeight ?? 176
-    property real contentInset: 24
+    property real contentInset: Theme.pageHorizontalInset
     property real headerTopMargin: 0
     // Explore uses a 36px control row with 10px bottom padding; detail
     // pages retain their centered 56px row. Both share the same toolbar.

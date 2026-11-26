@@ -67,7 +67,7 @@ RoutePage {
             collection: page.service.songs
             actions: page.service.actions
             pageContainer: viewport
-            contentInset: 24
+            contentInset: Theme.pageHorizontalInset
             // Tab changes do not change this view's normal-flow extent.
             topMargin: page.expandedHeaderHeight + 56 + 44
             loading: page.service.loading && !page.service.songs.totalCount
@@ -88,8 +88,8 @@ RoutePage {
         ListView {
             id: statsView
             objectName: "historyStatsView"
-            x: 24
-            width: Math.max(0, parent.width - 48)
+            x: Theme.pageHorizontalInset
+            width: Math.max(0, parent.width - Theme.pageHorizontalInset * 2)
             height: parent.height
             visible: page.activeTab === "stats"
             // Content padding scrolls with the page body.
@@ -150,9 +150,9 @@ RoutePage {
             height: page.toolbarHeight
             EchoDivider {
                 objectName: "historyTabDivider"
-                x: 24
+                x: Theme.pageHorizontalInset
                 y: 55
-                width: Math.max(0, parent.width - 48)
+                width: Math.max(0, parent.width - Theme.pageHorizontalInset * 2)
                 lineColor: Theme.subtleBorder
             }
             ColumnLayout {
@@ -165,8 +165,8 @@ RoutePage {
                     Layout.minimumHeight: 56
                     Layout.maximumHeight: 56
                     Layout.fillHeight: false
-                    Layout.leftMargin: 24
-                    Layout.rightMargin: 24
+                    Layout.leftMargin: Theme.pageHorizontalInset
+                    Layout.rightMargin: Theme.pageHorizontalInset
                     spacing: 8
                     EchoDetailTabs {
                         Layout.preferredHeight: 56
@@ -218,8 +218,8 @@ RoutePage {
                 SongListHeader {
                     visible: page.activeTab === "songs"
                     Layout.fillWidth: true
-                    Layout.leftMargin: 24
-                    Layout.rightMargin: 24
+                    Layout.leftMargin: Theme.pageHorizontalInset
+                    Layout.rightMargin: Theme.pageHorizontalInset
                     geometry: songList.geometry
                     sortField: page.service.songs.sortField
                     sortDirection: page.service.songs.sortDirection

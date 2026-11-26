@@ -4952,8 +4952,20 @@ Window {
         QVERIFY(root->property("creations").toInt() < 220);
     }
 
+    void exploreSpacingAndScrollingHeadersStayBelowPinnedContent_data()
+    {
+        QTest::addColumn<int>("routeWidth");
+        QTest::addColumn<double>("zoom");
+        for (int width : {870, 1150})
+            for (double scale : {1., 1.25})
+                QTest::newRow(qPrintable(QString("w%1-zoom%2").arg(width).arg(scale)))
+                    << width << scale;
+    }
+
     void exploreSpacingAndScrollingHeadersStayBelowPinnedContent()
     {
+        QFETCH(int, routeWidth);
+        QFETCH(double, zoom);
         QTemporaryDir dir;
         SettingsStore prefs(dir.filePath("prefs.ini"));
         ApiClient api(DeviceIdentity::temporary());
@@ -4976,7 +4988,7 @@ Window {
         component.setData(R"(import QtQuick
 import EchoMusic.Shell
 import EchoMusic.Theme
-Window {id:host;required property RouteController router;required property ShellSettings settings;visible:true;width:1150;height:800;Rectangle{anchors.fill:parent;color:Theme.main}RouteHost{anchors.fill:parent;router:host.router;settings:host.settings}})",
+Window {id:host;required property RouteController router;required property ShellSettings settings;visible:true;width:1150;height:800;Rectangle{anchors.fill:parent;color:Theme.main}Item{width:parent.width/host.settings.uiScale;height:parent.height/host.settings.uiScale;scale:host.settings.uiScale;transformOrigin:Item.TopLeft;RouteHost{anchors.fill:parent;router:host.router;settings:host.settings}}})",
                           QUrl("qrc:/playlist-square-test.qml"));
         QScopedPointer<QObject> root(
             component.createWithInitialProperties({{"router", QVariant::fromValue(&router)},
@@ -4984,6 +4996,17 @@ Window {id:host;required property RouteController router;required property Shell
         QVERIFY2(root, qPrintable(component.errorString()));
         auto *window = qobject_cast<QQuickWindow *>(root.data());
         QVERIFY(window);
+        window->resize(routeWidth, 800);
+        if (zoom > 1.)
+            for (int step = 0; step < 5; ++step)
+                settings.zoomIn();
+        auto checkEdges = [](QQuickItem *item, QQuickItem *page, qreal trailingGap = 0.) {
+            QVERIFY(item && page);
+            QTRY_COMPARE(item->mapToItem(page, QPointF()).x(), 32.);
+            QTRY_VERIFY(qAbs(page->width() -
+                             item->mapToItem(page, QPointF(item->width() - trailingGap, 0)).x() -
+                             32.) < .01);
+        };
         QVERIFY(router.navigate("explore"));
         QJsonArray cards;
         for (int i = 0; i < 60; ++i)
@@ -5000,11 +5023,18 @@ Window {id:host;required property RouteController router;required property Shell
         auto *title = findVisual(window->contentItem(), "playlistRecommendationTitle");
         auto *description = findVisual(window->contentItem(), "playlistRecommendationDescription");
         QVERIFY(heading && title && description);
+        auto *explorePage = findVisual(window->contentItem(), "playlistSquareView");
+        checkEdges(heading, explorePage);
+        for (const auto &section : {"recommended-0", "editors", "albums-chn"}) {
+            auto *item = findVisual(explorePage, QString("playlistSection-") + section);
+            if (item)
+                checkEdges(item, explorePage);
+        }
         QCOMPARE(description->mapToItem(heading, QPointF()).y() -
                      title->mapToItem(heading, QPointF(0, title->height())).y(),
                  5.);
-        QCOMPARE(recommended->mapToScene(QPointF()).y() -
-                     heading->mapToScene(QPointF(0, heading->height())).y(),
+        QCOMPARE(recommended->mapToItem(explorePage, QPointF()).y() -
+                     heading->mapToItem(explorePage, QPointF(0, heading->height())).y(),
                  32.);
         const auto capture = qEnvironmentVariable("ECHO_RECOMMENDATION_POLISH_ARTIFACTS");
         if (!capture.isEmpty()) {
@@ -5012,7 +5042,8 @@ Window {id:host;required property RouteController router;required property Shell
             Test::FrameSpy frame(window);
             window->requestUpdate();
             QVERIFY(frame.wait(1000));
-            QVERIFY(window->grabWindow().save(capture + "/playlist-heading-spacing.png"));
+            QVERIFY(window->grabWindow().save(
+                capture + QString("/playlist-heading-w%1-zoom%2.png").arg(routeWidth).arg(zoom)));
         }
         const auto filterBounds = filter->mapRectToItem(recommended, filter->boundingRect());
         QVERIFY(filterBounds.top() >= 16 && filterBounds.bottom() <= 52);
@@ -5031,6 +5062,8 @@ Window {id:host;required property RouteController router;required property Shell
         QTRY_COMPARE(router.current()->name(), QString("playlist-categories"));
         QTRY_VERIFY(findVisual(window->contentItem(), "playlistCategoriesPage"));
         QVERIFY(!findVisual(window->contentItem(), "playlistSquareView"));
+        checkEdges(findVisual(window->contentItem(), "playlistCategoriesGrid"),
+                   findVisual(window->contentItem(), "playlistCategoriesPage"), 20.);
         ExploreServiceTestAccess::complete(service, ExploreService::Playlists, cards);
         ExploreServiceTestAccess::complete(
             service, ExploreService::Categories,
@@ -5063,6 +5096,8 @@ Window {id:host;required property RouteController router;required property Shell
         QVERIFY(router.navigate("artist-recommendations"));
         QTRY_VERIFY(findVisual(window->contentItem(), "artistRecommendationsPage"));
         QVERIFY(!findVisual(window->contentItem(), "playlistSquareView"));
+        checkEdges(findVisual(window->contentItem(), "exploreArtistDirectory"),
+                   findVisual(window->contentItem(), "artistRecommendationsPage"), 20.);
         QVERIFY2(warnings.isEmpty(),
                  qPrintable(warnings.isEmpty() ? QString{}
                                                : warnings.first().toList().first().toString()));
@@ -5405,6 +5440,13 @@ Window {
                             QTest::qWait(60);
                             auto *header = findVisual(page, "songDetailHeader");
                             QTRY_COMPARE(header->property("progress").toReal(), 0.);
+                            auto *coverSlot = findVisual(header, "songDetailCoverSlot");
+                            QVERIFY(coverSlot);
+                            QCOMPARE(coverSlot->mapToItem(page, QPointF()).x(), 32.);
+                            QCOMPARE(list->mapToItem(page, QPointF()).x(), 32.);
+                            QVERIFY(qAbs(page->width() -
+                                         list->mapToItem(page, QPointF(list->width(), 0)).x() -
+                                         32.) < .01);
                             QList<QQuickItem *> rows;
                             for (const auto *name :
                                  {"songDetailTitleRow", "songDetailPrimaryDetails",
@@ -5463,7 +5505,14 @@ Window {
                             list->setProperty("contentY", 500);
                             QTRY_VERIFY(!rows[1]->isVisible());
                             auto *title = rows.first();
-                            QTRY_VERIFY(qAbs(title->height() - 32) < .01);
+                            QTRY_VERIFY2(
+                                qAbs(title->height() - 32) < .01,
+                                qPrintable(QString("route=%1 width=%2 zoom=%3 title=%4 progress=%5")
+                                               .arg(route)
+                                               .arg(width)
+                                               .arg(scale)
+                                               .arg(title->height())
+                                               .arg(header->property("progress").toReal())));
                             QVERIFY(qAbs(title->mapToItem(header, QPointF{}).y() -
                                          cover->mapToItem(header, QPointF{}).y()) < .01);
                             list->setProperty("contentY", -list->property("topMargin").toReal());

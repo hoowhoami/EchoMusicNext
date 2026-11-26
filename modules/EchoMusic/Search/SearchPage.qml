@@ -146,7 +146,7 @@ EchoPageScrollContainer {
             }
             SearchResultsSkeleton {
                 id: skeleton
-                x: parent.width < 768 ? 24 : 40
+                x: Theme.pageHorizontalInset
                 y: page.resultStart
                 width: Math.max(0, parent.width - x * 2)
                 visible: page.initialLoading
@@ -159,9 +159,9 @@ EchoPageScrollContainer {
             }
             Column {
                 visible: page.initialError
-                x: 40
+                x: Theme.pageHorizontalInset
                 y: page.resultStart + 130
-                width: parent.width - 80
+                width: parent.width - Theme.pageHorizontalInset * 2
                 spacing: 16
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -180,8 +180,8 @@ EchoPageScrollContainer {
     SongList {
         id: songList
         objectName: "searchResults"
-        x: 40
-        width: parent.width - 80
+        x: Theme.pageHorizontalInset
+        width: parent.width - Theme.pageHorizontalInset * 2
         height: parent.height
         visible: page.showResults && page.songs
         model: visible && page.pageActive ? page.service.results : null
@@ -242,8 +242,8 @@ EchoPageScrollContainer {
     ContentGrid {
         id: grid
         objectName: "searchResultGrid"
-        x: 40
-        width: parent.width - 80 + 20
+        x: Theme.pageHorizontalInset
+        width: parent.width - Theme.pageHorizontalInset * 2 + 20
         height: parent.height
         visible: page.showResults && !page.songs
         sourceModel: visible && page.pageActive ? page.service.results : null
@@ -297,8 +297,8 @@ EchoPageScrollContainer {
         id: toolbar
         objectName: "searchSongToolbar"
         container: page
-        leftInset: 40
-        rightInset: 40
+        leftInset: Theme.pageHorizontalInset
+        rightInset: Theme.pageHorizontalInset
         height: songToolbar.implicitHeight
         flowPosition: page.pinned ? 72 : page.resultStart
         stickyTop: page.pinned ? 50 : 0
@@ -330,8 +330,8 @@ EchoPageScrollContainer {
                 // Align the divider with the tabs, rather than the full-page backdrop.
                 anchors.left: parent.left
                 anchors.right: parent.right
-                anchors.leftMargin: 40
-                anchors.rightMargin: 40
+                anchors.leftMargin: Theme.pageHorizontalInset
+                anchors.rightMargin: Theme.pageHorizontalInset
                 height: 0.5
                 color: Theme.subtleBorder
             }

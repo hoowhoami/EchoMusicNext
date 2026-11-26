@@ -153,9 +153,9 @@ RoutePage {
             height: page.toolbarHeight
             EchoDivider {
                 objectName: "purchasedTabDivider"
-                x: 24
+                x: Theme.pageHorizontalInset
                 y: page.toolbarRowHeight - 1
-                width: Math.max(0, parent.width - 48)
+                width: Math.max(0, parent.width - Theme.pageHorizontalInset * 2)
                 lineColor: Theme.subtleBorder
             }
             ColumnLayout {
@@ -168,8 +168,8 @@ RoutePage {
                     Layout.minimumHeight: page.toolbarRowHeight
                     Layout.maximumHeight: page.toolbarRowHeight
                     Layout.fillHeight: false
-                    Layout.leftMargin: 24
-                    Layout.rightMargin: 24
+                    Layout.leftMargin: Theme.pageHorizontalInset
+                    Layout.rightMargin: Theme.pageHorizontalInset
                     spacing: 8
                     EchoDetailTabs {
                         Layout.preferredHeight: 56
@@ -216,8 +216,8 @@ RoutePage {
                 SongListHeader {
                     visible: page.songsTab
                     Layout.fillWidth: true
-                    Layout.leftMargin: 24
-                    Layout.rightMargin: 24
+                    Layout.leftMargin: Theme.pageHorizontalInset
+                    Layout.rightMargin: Theme.pageHorizontalInset
                     geometry: songList.geometry
                     sortField: page.service.songs.sortField
                     sortDirection: page.service.songs.sortDirection
@@ -232,7 +232,7 @@ RoutePage {
             collection: page.service.songs
             actions: page.service.actions
             pageContainer: viewport
-            contentInset: 24
+            contentInset: Theme.pageHorizontalInset
             // Hidden song views retain their own column-header space.
             topMargin: page.expandedHeaderHeight + page.toolbarRowHeight + 44
             loading: page.service.songsLoading && page.service.songs.totalCount === 0
@@ -248,8 +248,8 @@ RoutePage {
             id: albumsGrid
             objectName: "purchasedAlbumsGrid"
             visible: !page.songsTab
-            x: 24
-            width: Math.max(0, parent.width - 48 + 20)
+            x: Theme.pageHorizontalInset
+            width: Math.max(0, parent.width - Theme.pageHorizontalInset * 2 + 20)
             height: parent.height
             topMargin: page.expandedHeaderHeight + page.toolbarRowHeight + 16
             bottomMargin: 48
@@ -276,7 +276,7 @@ RoutePage {
                 ColumnLayout {
                     anchors.horizontalCenter: parent.horizontalCenter
                     y: 24
-                    width: Math.min(420, parent.width - 48)
+                    width: Math.min(420, parent.width - Theme.pageHorizontalInset * 2)
                     visible: albumsFooter.hasError
                     Label {
                         Layout.fillWidth: true
@@ -344,7 +344,7 @@ RoutePage {
             implicitHeight: 320
             ColumnLayout {
                 anchors.centerIn: parent
-                width: Math.min(420, Math.max(0, parent.width - 48))
+                width: Math.min(420, Math.max(0, parent.width - Theme.pageHorizontalInset * 2))
                 spacing: 0
                 Rectangle {
                     Layout.alignment: Qt.AlignHCenter

@@ -41,7 +41,7 @@ RoutePage {
             boundsBehavior: Flickable.StopAtBounds
             ColumnLayout {
                 id: body
-                width: Math.max(0, Math.min(1000, view.width) - (page.Window.window && page.Window.window.width <= 600 ? 32 : 48))
+                width: Math.max(0, Math.min(1000, view.width) - Theme.pageHorizontalInset * 2)
                 x: (view.width - width) / 2
                 y: 16
                 visible: page.account.userId > 0

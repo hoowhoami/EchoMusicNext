@@ -112,7 +112,7 @@ RoutePage {
             }
             Label {
                 id: heading
-                x: 32
+                x: Theme.pageHorizontalInset
                 y: 24
                 text: qsTr("听歌识曲")
                 font: Theme.spacedFont(22, Theme.extraBoldWeight, -0.3)
@@ -121,9 +121,9 @@ RoutePage {
             Loader {
                 id: stage
                 objectName: "recognitionStage"
-                x: 32
+                x: Theme.pageHorizontalInset
                 y: heading.y + heading.implicitHeight + entranceOffset
-                width: Math.max(0, scroll.width - 64)
+                width: Math.max(0, scroll.width - Theme.pageHorizontalInset * 2)
                 height: Math.max(0, scroll.contentHeight - heading.y - heading.implicitHeight - 40)
                 property real entranceOffset: 0
                 opacity: 1
