@@ -77,6 +77,8 @@ private slots:
     void pageSkinLifecycleAndBoundedDelegates();
     void lyricLineDoubleClickSeeksSourceTime_data();
     void lyricLineDoubleClickSeeksSourceTime();
+    void browsedLyricDoubleClickWaitsForConfirmedTimeline_data();
+    void browsedLyricDoubleClickWaitsForConfirmedTimeline();
     void manualScrollRecoversAndLargeSeeksRemainVirtualized();
     void renderThemesScaleAndNarrowViewport();
     void coverBackgroundRendersAndReleasesItsSource();

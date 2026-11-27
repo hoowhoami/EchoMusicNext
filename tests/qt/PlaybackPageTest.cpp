@@ -4263,6 +4263,80 @@ void PlaybackPageTest::lyricLineDoubleClickSeeksSourceTime()
         }
     }
 }
+void PlaybackPageTest::browsedLyricDoubleClickWaitsForConfirmedTimeline_data()
+{
+    QTest::addColumn<QString>("skin");
+    QTest::addColumn<int>("target");
+    QTest::addColumn<bool>("animated");
+    for (const auto &skin : {QString("cover"), QString("lyric"), QString("portrait")}) {
+        for (const int target : {2, 42}) {
+            const auto name = skin + QString::number(target);
+            QTest::newRow(qPrintable(name)) << skin << target << true;
+        }
+    }
+    QTest::newRow("reduced-motion") << QString("cover") << 42 << false;
+}
+void PlaybackPageTest::browsedLyricDoubleClickWaitsForConfirmedTimeline()
+{
+    QFETCH(QString, skin);
+    QFETCH(int, target);
+    QFETCH(bool, animated);
+    Session session;
+    QVERIFY(session.theme.extensions()->chooseSkin(skin));
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    QVERIFY(session.create());
+    QTRY_VERIFY(session.page()->property("opened").toBool());
+    session.theme.setMotionEnabled(animated);
+    PlaybackServiceTestAccess::playing(session.playback, true);
+    auto *list = session.item("playbackLyricList");
+    QVERIFY(list);
+    auto *viewport = session.item(skin == "cover"   ? "playbackLyricViewport"
+                                  : skin == "lyric" ? "simpleLyricViewport"
+                                                    : "portraitLyricViewport");
+    QVERIFY(viewport);
+    QTRY_VERIFY(list->property("initialized").toBool());
+    const auto oldIndex = list->property("currentIndex").toInt();
+    QVERIFY(qAbs(oldIndex - target) > 2);
+    // Browse to a row outside the original virtual slice. Qt owns placement
+    // and recycling; the pending seek confirmation is delivered separately.
+    list->setProperty("following", false);
+    QVERIFY(QMetaObject::invokeMethod(list, "positionViewAtIndex", Q_ARG(int, target),
+                                      Q_ARG(int, 1))); // ListView.Center
+    QVERIFY(QMetaObject::invokeMethod(list, "forceLayout"));
+    const auto rowName = QString("lyricTextRow%1").arg(target);
+    QTRY_VERIFY(session.item(rowName));
+    QTest::qWait(50);
+    auto *row = session.item(rowName);
+    QObject *tap = nullptr;
+    for (auto *child : row->children())
+        if (child->inherits("QQuickTapHandler"))
+            tap = child;
+    QVERIFY(tap);
+    QSignalSpy doubleTapped(tap, SIGNAL(doubleTapped(QEventPoint, Qt::MouseButton)));
+    QVERIFY(doubleTapped.isValid());
+    const auto point = row->mapToScene({row->width() * .3, row->height() / 2}).toPoint();
+    QVERIFY(list->contains(list->mapFromScene(point)));
+    const auto browsedY = list->property("contentY").toReal();
+    QSignalSpy scrolls(viewport, SIGNAL(scrollRequested(double, double, bool)));
+    QVERIFY(scrolls.isValid());
+    QTest::mouseDClick(session.window, Qt::LeftButton, {}, point, 10);
+    // No old-time follow may run synchronously or on subsequent clock frames.
+    QTest::qWait(80);
+    QCOMPARE(doubleTapped.count(), 1);
+    QCOMPARE(scrolls.count(), 0);
+    QVERIFY(!list->property("following").toBool());
+    QCOMPARE(list->property("currentIndex").toInt(), oldIndex);
+    QVERIFY(qAbs(list->property("contentY").toReal() - browsedY) < .1);
+    const auto sourceTime = session.playback.lyrics()->startAt(target);
+    const auto beforeResume = row->mapToScene({0, 0}).y();
+    PlaybackServiceTestAccess::position(session.playback, sourceTime);
+    QVERIFY(qAbs(row->mapToScene({0, 0}).y() - beforeResume) < .1);
+    QTRY_VERIFY(list->property("following").toBool());
+    QTRY_COMPARE(list->property("currentIndex").toInt(), target);
+    QVERIFY(!scrolls.isEmpty());
+    QVERIFY(lyricItems(session.window->contentItem()) < 35);
+    QVERIFY(warnings.isEmpty());
+}
 void PlaybackPageTest::manualScrollRecoversAndLargeSeeksRemainVirtualized()
 {
     Session session;

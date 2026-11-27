@@ -420,11 +420,11 @@ EchoUiPartHost {
         Connections {
             target: lines
             function onFollowingChanged(): void {
-                if (!lines.following) {
-                    line.animatePosition = false;
-                    scrollMotion.snap(lines.contentY);
-                    dotMotion.snap(lines.contentY);
-                }
+                // Browsing moves contentY without advancing the row springs.
+                // Rebase before their transforms become visible on resume.
+                line.animatePosition = false;
+                scrollMotion.snap(lines.contentY);
+                dotMotion.snap(lines.contentY);
             }
         }
         Connections {
@@ -685,12 +685,14 @@ EchoUiPartHost {
             if (!Number.isFinite(sourceTime))
                 return;
             lines.cancelFlick();
-            lines.following = true;
+            // The audio engine confirms seeks asynchronously. Keep the browsed
+            // slice until timelineReset supplies the new time, rather than
+            // following the still-current singing line before that confirmation.
+            lines.following = false;
             resume.stop();
             viewport.playback.seek(Math.max(0, Math.round(sourceTime)));
             if (!viewport.playback.playing)
                 viewport.playback.play();
-            viewport.follow(false);
         }
         Accessible.role: viewport.playback.lyrics.scrollable ? Accessible.Button : Accessible.StaticText
         Accessible.name: line.lineText
