@@ -55,20 +55,6 @@ SettingsSection {
     }
     SettingsDivider {}
     SettingsRow {
-        heading: qsTr("默认 MV 画质")
-        description: qsTr("MV 默认使用此画质，当前 MV 单独选择的画质保持不变")
-        EchoSelect {
-            objectName: "settingsDefaultMvQuality"
-            colors: Theme.floating
-            implicitWidth: 180
-            model: ["1080P", "720P", "540P", "432P", "270P"]
-            readonly property list<string> keys: ["fhd", "hd", "qhd", "sd", "ld"]
-            currentIndex: keys.indexOf(section.preferences.defaultMvQuality)
-            onActivated: section.preferences.defaultMvQuality = keys[currentIndex]
-        }
-    }
-    SettingsDivider {}
-    SettingsRow {
         heading: qsTr("开启蝰蛇音质")
         description: qsTr("显示蝰蛇母带、超清和全景声，仍需歌曲支持及对应权益")
         EchoSwitch {
@@ -176,6 +162,20 @@ SettingsSection {
             value: section.audio.referenceLufs
             onMoved: section.audio.referenceLufs = value
             Accessible.name: qsTr("参考响度")
+        }
+    }
+    SettingsDivider {}
+    SettingsRow {
+        heading: qsTr("默认 MV 画质")
+        description: qsTr("MV 默认使用此画质，当前 MV 单独选择的画质保持不变")
+        EchoSelect {
+            objectName: "settingsDefaultMvQuality"
+            colors: Theme.floating
+            implicitWidth: 180
+            model: ["1080P", "720P", "540P", "432P", "270P"]
+            readonly property list<string> keys: ["fhd", "hd", "qhd", "sd", "ld"]
+            currentIndex: keys.indexOf(section.preferences.defaultMvQuality)
+            onActivated: section.preferences.defaultMvQuality = keys[currentIndex]
         }
     }
     SettingsDivider {}
