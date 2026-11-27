@@ -18,7 +18,7 @@ PlaybackRecoveryController::PlaybackRecoveryController(PlaybackService &playback
     });
     connect(&m_recoveryTimer, &QTimer::timeout, this, [this] {
         auto &p = m_playback;
-        if (m_target < 0 || p.m_closing || m_sequence != p.m_sequence ||
+        if ((!p.live() && m_target < 0) || p.m_closing || m_sequence != p.m_sequence ||
             m_revision != p.m_api.sessionRevision())
             return;
         // Never leave a stalled reload pinned to a progress guard indefinitely.
@@ -41,6 +41,13 @@ void PlaybackRecoveryController::cancel()
     m_target = -1;
     m_resumeWaitingForOutput = false;
 }
+void PlaybackRecoveryController::liveInputEnded()
+{
+    // Native EOF has already published Paused. An ended live input still
+    // belongs to the current play intent and must never advance the queue.
+    if (m_playback.live())
+        recover(true);
+}
 void PlaybackRecoveryController::resumeRequested()
 {
     auto &p = m_playback;
@@ -59,6 +66,8 @@ bool PlaybackRecoveryController::handleEvent(const QJsonObject &event)
     const auto kind = event.value("event").toString();
     if (kind == "state-change" && m_playback.m_playing) {
         m_resumeTimer.stop();
+        if (m_playback.live())
+            m_recoveryTimer.stop();
         m_resumeWaitingForOutput = false;
     }
     if (kind == "core-state-change") {
@@ -124,7 +133,7 @@ void PlaybackRecoveryController::recover(bool stall)
     if (stall)
         ++m_attempts;
     m_resumeTimer.stop();
-    m_target = p.m_position;
+    m_target = p.live() ? -1 : p.m_position;
     m_sequence = p.m_sequence;
     m_revision = p.m_api.sessionRevision();
     p.m_transition->clear();
@@ -137,7 +146,10 @@ void PlaybackRecoveryController::recover(bool stall)
     p.m_startPending = false;
     p.m_resumePosition = m_target;
     p.m_error.clear();
-    p.m_engine.command(AudioEngine::Stop);
+    if (p.live())
+        p.m_engine.beginSourceChange();
+    else
+        p.m_engine.command(AudioEngine::Stop);
     m_recoveryTimer.start(20000);
     // Try an unused backup before resolving signed URLs again.
     if (stall && p.m_urlIndex < p.m_urls.size())

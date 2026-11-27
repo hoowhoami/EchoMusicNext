@@ -35,7 +35,7 @@ void PlaybackOutputController::mediaRouteChanged()
     m_playback.m_recovery->cancel();
     m_playback.cancelTrackProbe();
     const bool autoplay = m_playback.m_playing || (m_playback.m_loading && m_playback.m_autoplay);
-    m_playback.m_resumePosition = m_playback.m_position;
+    m_playback.m_resumePosition = m_playback.live() ? -1 : m_playback.m_position;
     m_playback.m_engine.command(AudioEngine::Pause);
     m_playback.m_playing = false;
     m_playback.m_startPending = false;
@@ -122,6 +122,20 @@ void PlaybackOutputController::consumeOutputEvent(const QJsonObject &event)
             !m_playback.m_recovery->acceptsPosition(qint64(event.value("time").toDouble() * 1000)))
             return;
     }
+    if (kind == "file-loaded" &&
+        quint64(event.value("seq").toDouble()) != m_playback.m_audioSequence)
+        return;
+    if ((kind == "file-loaded" || kind == "source-switched") &&
+        event.value("capabilities").isObject()) {
+        const auto capabilities = event.value("capabilities").toObject();
+        m_playback.m_timelineKind = capabilities.value("timelineKind").toString("unknown");
+        m_playback.m_seekable = capabilities.value("seekable").toBool(true);
+        if (m_playback.live()) {
+            m_playback.m_duration = 0;
+            m_playback.m_resumePosition = -1;
+            m_playback.m_transition->clear();
+        }
+    }
     m_playback.m_progress.observe(event);
     // Core generations/revisions must be adopted before recovery inspects them;
     // a stale snapshot cannot end the current output's startup wait.
@@ -145,7 +159,8 @@ void PlaybackOutputController::consumeOutputEvent(const QJsonObject &event)
         m_playback.m_appliedEffect = m_playback.m_sourceEffect;
         m_playback.m_seamless = false;
         m_playback.m_position = qint64(event.value("time").toDouble() * 1000);
-        m_playback.m_duration = qint64(event.value("duration").toDouble() * 1000);
+        m_playback.m_duration =
+            m_playback.live() ? 0 : qint64(event.value("duration").toDouble() * 1000);
         m_playback.m_error.clear();
         publishMedia();
         m_playback.m_lyricText.setPosition(m_playback.m_position);
@@ -198,7 +213,8 @@ void PlaybackOutputController::consumeOutputEvent(const QJsonObject &event)
         m_playback.m_listenTogether->nativeTrackReady();
         emit m_playback.changed();
     } else if (kind == "duration-change") {
-        m_playback.m_duration = qint64(event.value("duration").toDouble() * 1000);
+        m_playback.m_duration =
+            m_playback.live() ? 0 : qint64(event.value("duration").toDouble() * 1000);
         m_playback.m_climax.setDuration(m_playback.m_duration);
         m_playback.m_lyricSource.setDuration(m_playback.m_duration);
         emit m_playback.changed();
@@ -248,11 +264,24 @@ void PlaybackOutputController::consumeOutputEvent(const QJsonObject &event)
         m_playback.m_listenTick.restart();
         publishTimeline();
         emit m_playback.changed();
+        if (!m_playback.m_playing && !m_playback.m_autoplay && m_playback.live() &&
+            m_playback.m_loaded && !m_playback.m_failure->awaitingOutputRetry()) {
+            m_playback.m_loaded = false;
+            m_playback.m_resumePosition = -1;
+            // Retire requests/PCM while retaining the output's normal three
+            // second paused release policy. The next Play opens a fresh input.
+            m_playback.m_engine.beginSourceChange();
+            m_playback.m_engine.command(AudioEngine::Pause);
+        }
         if (!m_playback.m_playing)
             m_playback.completePauseFade(quint64(event.value("fade_request_id").toInteger()));
     } else if (kind == "playback-end") {
         if (event.value("reason").toString() != "eof")
             return;
+        if (m_playback.live()) {
+            m_playback.m_recovery->liveInputEnded();
+            return;
+        }
         m_playback.m_startPending = false;
         emit m_playback.playbackEnded();
         m_playback.m_listening.flush(true);
@@ -320,9 +349,9 @@ void PlaybackOutputController::publishMedia()
 {
     if (!m_playback.m_ready || m_playback.m_closing)
         return;
-    m_playback.m_engine.mediaMetadata(m_playback.m_track.title, m_playback.m_track.artist,
-                                      m_playback.m_track.album, m_playback.m_duration,
-                                      m_playback.m_coverPng);
+    m_playback.m_engine.mediaMetadata(
+        m_playback.m_track.title, m_playback.m_track.artist, m_playback.m_track.album,
+        m_playback.m_duration, m_playback.m_coverPng, m_playback.live(), m_playback.seekable());
     publishTimeline();
 }
 

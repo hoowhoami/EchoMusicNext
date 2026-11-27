@@ -124,6 +124,16 @@ struct FloatTexture::Native : std::enable_shared_from_this<Native>
             QObject::disconnect(invalidated);
         }
     }
+    void suspend()
+    {
+        if (!provider)
+            return;
+        // Qt may retain ShaderEffect nodes across this stop. Destroying their
+        // provider clears the sampler binding, which a new provider alone cannot
+        // restore. Retire the allocation, and keep the provider until invalidation.
+        provider->revision = std::numeric_limits<quint64>::max();
+        provider->replace({});
+    }
     Provider *get()
     {
         if (!provider && !retired && window && window->isSceneGraphInitialized())
@@ -137,7 +147,13 @@ struct FloatTexture::Native : std::enable_shared_from_this<Native>
         // discarded during shutdown. No native texture is then deleted on GUI.
         const auto self = shared_from_this();
         stopping = QObject::connect(
-            target, &QQuickWindow::sceneGraphAboutToStop, target, [self] { self->release(); },
+            target, &QQuickWindow::sceneGraphAboutToStop, target,
+            [self] {
+                if (self->retired)
+                    self->release();
+                else
+                    self->suspend();
+            },
             Qt::DirectConnection);
         invalidated = QObject::connect(
             target, &QQuickWindow::sceneGraphInvalidated, target, [self] { self->release(); },
@@ -160,6 +176,8 @@ public:
 } // namespace
 FloatTexture::FloatTexture(QQuickItem *parent) : QQuickItem(parent), m_size(0, 0)
 {
+    m_uploadRelay =
+        std::shared_ptr<QObject>(new QObject, [](QObject *relay) { relay->deleteLater(); });
     setFlag(ItemHasContents, true);
     m_presentation = new ItemPresentationObserver(*this, [this] {
         if (!ownerPresented())
@@ -405,20 +423,15 @@ void FloatTexture::rendered(quint64 epoch, qint64 bytes, bool uploaded, const QS
 {
     if (uploaded)
         m_uploads.fetch_add(1);
-    QMetaObject::invokeMethod(
-        this,
-        [this, epoch, bytes, error] {
-            // New frame data may already be queued when this upload report
-            // reaches the GUI. It still reports a real usable allocation.
-            // Retirement, unlike a payload update, invalidates every old report.
-            if (epoch != m_renderEpoch || !m_active || !isVisible())
-                return;
-            m_gpuBytes.store(bytes);
-            if (!error.isEmpty())
-                setError(error);
-            emit renderingChanged();
-        },
-        Qt::QueuedConnection);
+    // The relay invokes this only on the GUI thread, after checking ownership.
+    // Retirement, unlike a payload update, invalidates every old report.
+    if (epoch != m_renderEpoch || !m_active || !isVisible())
+        return;
+    m_gpuBytes.store(bytes);
+    if (!error.isEmpty())
+        setError(error);
+    else
+        emit renderingChanged();
 }
 QSGNode *FloatTexture::updatePaintNode(QSGNode *node, UpdatePaintNodeData *)
 {
@@ -441,9 +454,17 @@ QSGNode *FloatTexture::updatePaintNode(QSGNode *node, UpdatePaintNodeData *)
             texture->setMipmapFiltering(QSGTexture::None);
             const QPointer<FloatTexture> guard(this);
             const auto epoch = m_renderEpoch;
-            texture->report = [guard, epoch](qint64 bytes, bool uploaded, const QString &error) {
-                if (guard)
-                    guard->rendered(epoch, bytes, uploaded, error);
+            texture->report = [relay = m_uploadRelay, guard, epoch](qint64 bytes, bool uploaded,
+                                                                    const QString &error) {
+                // The QML owner can be destroyed concurrently with rendering.
+                // Retain a separate receiver and inspect the guard only on GUI.
+                QMetaObject::invokeMethod(
+                    relay.get(),
+                    [guard, epoch, bytes, uploaded, error] {
+                        if (guard)
+                            guard->rendered(epoch, bytes, uploaded, error);
+                    },
+                    Qt::QueuedConnection);
             };
             provider->updated();
         } else

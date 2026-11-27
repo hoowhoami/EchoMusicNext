@@ -12,6 +12,10 @@ pub struct MetadataPayload {
     pub cover_data: Option<std::sync::Arc<Vec<u8>>>,
     /// 歌曲时长，单位毫秒
     pub duration_ms: Option<f64>,
+    #[serde(default)]
+    pub live: bool,
+    #[serde(default = "default_seekable")]
+    pub seekable: bool,
 }
 
 /// 播放状态
@@ -120,4 +124,8 @@ impl MediaControlEvent {
             offset_ms,
         }
     }
+}
+
+fn default_seekable() -> bool {
+    true
 }

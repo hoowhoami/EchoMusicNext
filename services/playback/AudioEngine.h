@@ -54,7 +54,8 @@ public:
     void effect(const QJsonObject &configuration, quint64 revision = 0);
     void normalization(double gainDb);
     void mediaMetadata(const QString &title, const QString &artist, const QString &album,
-                       qint64 durationMs, const QByteArray &cover = {});
+                       qint64 durationMs, const QByteArray &cover = {}, bool live = false,
+                       bool seekable = true);
     void mediaTimeline(qint64 positionMs, qint64 durationMs, bool playing, double rate);
     void retryInitialization(const QJsonObject &options);
     void shutdown();

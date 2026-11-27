@@ -245,22 +245,34 @@ Item {
             textureSize: frostedBody.compositePixels
             smooth: true
         }
-        MultiEffect {
+        Item {
             id: blurred
             objectName: "floatingBackdropBlur"
-            visible: false
+            visible: floatingSurface.hasBackdrop
             width: backdrop.width
             height: backdrop.height
-            source: floatingSurface.hasBackdrop ? backdrop : null
-            blurEnabled: true
-            blurMax: 32
-            blur: Math.min(1, floatingSurface.blurSigma / 24)
-            autoPaddingEnabled: false
+            // A transparent shell leaves alpha in the captured scene. Resolve
+            // the blurred result against its base before masking/compositing,
+            // or source-over reveals the original sharp content underneath.
+            // Reuse the cropped texture below; no extra capture or blur pass.
+            Rectangle {
+                anchors.fill: parent
+                color: Theme.withAlpha(Theme.shell, 1)
+            }
+            MultiEffect {
+                anchors.fill: parent
+                source: floatingSurface.hasBackdrop ? backdrop : null
+                blurEnabled: true
+                blurMax: 32
+                blur: Math.min(1, floatingSurface.blurSigma / 24)
+                autoPaddingEnabled: false
+            }
         }
         ShaderEffectSource {
             id: blurredTexture
             objectName: "floatingBackdropTexture"
             visible: false
+            hideSource: true
             width: backdrop.width
             height: backdrop.height
             textureSize: Qt.size(Math.ceil(frostedBody.compositeRect.width / 4), Math.ceil(frostedBody.compositeRect.height / 4))

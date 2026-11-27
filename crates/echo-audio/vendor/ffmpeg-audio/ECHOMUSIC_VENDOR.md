@@ -30,6 +30,13 @@ This directory vendors `ffmpeg-audio` as ordinary source files, not as a Git sub
 - Keep `crates/soundtouch` pointed at the local vendored `soundtouch-rs` path.
 - Keep the `futures-util` constraint at `0.3.32` to stay compatible with the current native player lockfile.
 
+- HLS custom resource IO uses a caller-owned opener/session, effective-URL AVOptions,
+  cancellation and read deadlines. The pinned FFmpeg HLS patch publishes timeline
+  facts and permits HTTP(S) with custom IO while FFmpeg networking stays disabled.
+  `scripts/enable_hls_bundle.py` deterministically adds the configure-verified HLS
+  source/component delta to all existing configurations without changing platform
+  flags. The upstream bundle workflow applies `scripts/hls-custom-io.patch` too.
+
 ## Local Usage
 
 EchoMusic uses `crates/ffmpeg_audio` from this vendored tree in:

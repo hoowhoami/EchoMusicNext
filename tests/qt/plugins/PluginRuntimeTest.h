@@ -134,6 +134,12 @@ private slots:
     void marketplaceNetworkFailureDetailsUi();
     void lyricSnapshotsShareDocumentsAcrossLineChanges();
     void resourceAuthorizationDoesNotConsumeActivationDeadline();
+    void outboundWebSocketDuplexAndClose();
+    void outboundWebSocketErrorsAuthorizationAndLimits();
+    void outboundWebSocketTls();
+    void outboundWebSocketLifecycle();
+    void outboundWebSocketHostProxy_data();
+    void outboundWebSocketHostProxy();
     void tcpRealBinaryCancellationAndRevocation();
     void tcpHalfCloseReceivesResponseAfterFin();
     void localHttpRealRequestsChunkingAndErrors();

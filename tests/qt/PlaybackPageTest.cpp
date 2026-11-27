@@ -185,6 +185,17 @@ public:
 class PlaybackServiceTestAccess
 {
 public:
+    static void inputFacts(PlaybackService &playback, bool live)
+    {
+        playback.m_track.id = "radio-render";
+        playback.m_track.localPath = "/render-only-radio.wav";
+        playback.m_timelineKind = live ? "live" : "finite";
+        playback.m_seekable = !live;
+        playback.m_loading = false;
+        playback.m_startPending = false;
+        playback.m_duration = live ? 0 : 60000;
+        emit playback.changed();
+    }
     static void deliver(PlaybackService &playback, const QJsonObject &event)
     {
         playback.onEvent(event);
@@ -361,6 +372,72 @@ struct Session
     }
 };
 } // namespace
+void PlaybackPageTest::liveProgressCapabilities_data()
+{
+    QTest::addColumn<int>("width");
+    QTest::addColumn<bool>("edgeToEdge");
+    QTest::addColumn<bool>("dark");
+    for (bool dark : {false, true}) {
+        QTest::newRow(dark ? "playerbar-dark" : "playerbar-light") << 480 << false << dark;
+        QTest::newRow(dark ? "page-dark" : "page-light") << 900 << true << dark;
+        QTest::newRow(dark ? "mini-dark" : "mini-light") << 253 << true << dark;
+    }
+}
+void PlaybackPageTest::liveProgressCapabilities()
+{
+    QFETCH(int, width);
+    QFETCH(bool, edgeToEdge);
+    QFETCH(bool, dark);
+    Session session;
+    QTRY_VERIFY(!PlaybackServiceTestAccess::queueRestorePending(session.playback));
+    session.theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
+    const auto qml = session.directory.filePath("live.qml");
+    QFile file(qml);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(R"(
+import QtQuick
+import EchoMusic.Playback
+import EchoMusic.Shell
+import EchoMusic.Theme
+Window {
+    id: window
+    required property PlaybackService playback
+    required property ShellController controller
+    required property RouteController router
+    width: 960; height: 100; visible: true
+    color: Theme.colors.card
+    PlaybackProgress { objectName: "liveProgress"; x: 20; y: 30; width: 900; playback: window.playback }
+})");
+    file.close();
+    QVERIFY(session.create(false, QUrl::fromLocalFile(qml).toString()));
+    auto *progress = session.item("liveProgress");
+    QVERIFY(progress);
+    progress->setWidth(width);
+    progress->setProperty("edgeToEdge", edgeToEdge);
+    PlaybackServiceTestAccess::inputFacts(session.playback, true);
+    auto *label = session.item("playbackLiveText");
+    auto *slider = session.item("playbackSeekSlider");
+    QVERIFY(label && slider);
+    QTRY_VERIFY(label->isVisible());
+    QCOMPARE(label->property("text").toString(), QStringLiteral("直播"));
+    QVERIFY(!slider->isVisible());
+    QVERIFY(!slider->isEnabled());
+    session.window->update();
+    QTest::qWait(40);
+    const auto frame = session.window->grabWindow();
+    QVERIFY(!frame.isNull());
+    if (const auto directory = qEnvironmentVariable("ECHO_HLS_UI_ARTIFACTS");
+        !directory.isEmpty()) {
+        QDir().mkpath(directory);
+        QVERIFY(
+            frame.save(directory + "/" + QString::fromLatin1(QTest::currentDataTag()) + ".png"));
+    }
+    PlaybackServiceTestAccess::inputFacts(session.playback, false);
+    QTRY_VERIFY(!label->isVisible());
+    QVERIFY(slider->isVisible());
+    QVERIFY(slider->isEnabled());
+}
+
 void PlaybackPageTest::progressReleaseWaitsForSeekConfirmation_data()
 {
     QTest::addColumn<int>("width");

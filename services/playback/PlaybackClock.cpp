@@ -20,8 +20,8 @@ bool PlaybackClock::observe(QVariantMap state, bool sample, const QString &expli
     if (identity)
         reason = "load";
     bool changed = identity || !reason.isEmpty() || sample;
-    for (const auto &key :
-         {"isPlaying", "isAdvancing", "playbackRate", "durationMs", "displayState", "busyReason"})
+    for (const auto &key : {"isPlaying", "isAdvancing", "playbackRate", "durationMs",
+                            "timelineKind", "live", "seekable", "displayState", "busyReason"})
         changed = changed || state.value(key) != m_state.value(key);
     if (!changed)
         return false;

@@ -364,7 +364,7 @@ void TrackTransitionController::failAttempt()
 void TrackTransitionController::tick()
 {
     auto &p = m_playback;
-    if (p.m_cast->remoteMedia() || !p.m_ready || !p.m_playing || p.m_pauseFadePending ||
+    if (p.live() || p.m_cast->remoteMedia() || !p.m_ready || !p.m_playing || p.m_pauseFadePending ||
         p.m_loading || !p.m_loaded || !p.m_error.isEmpty() || p.m_position <= 0 ||
         p.m_duration <= 0 || m_mode == "none" || p.m_sleepTimer.active() ||
         p.m_sleepTimer.waiting())

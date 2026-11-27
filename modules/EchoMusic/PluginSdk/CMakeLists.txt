@@ -122,6 +122,8 @@ qt_add_qml_module(
     EchoPluginWindow.cpp
     EchoPluginTcp.h
     EchoPluginTcp.cpp
+    EchoPluginWebSocketClient.h
+    EchoPluginWebSocketClient.cpp
     EchoPluginWebServer.h
     EchoPluginWebServer.cpp
     PluginWebServerWorker_p.h

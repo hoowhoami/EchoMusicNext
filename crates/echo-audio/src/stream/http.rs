@@ -13,6 +13,14 @@ pub fn open(
     interrupt: Arc<AtomicBool>,
     options: &StreamOptions,
 ) -> Result<Box<dyn ReadSeek>, String> {
+    open_with_route(url, interrupt, options).map(|(source, _)| source)
+}
+
+pub(super) fn open_with_route(
+    url: &str,
+    interrupt: Arc<AtomicBool>,
+    options: &StreamOptions,
+) -> Result<(Box<dyn ReadSeek>, Option<String>), String> {
     let candidates = if options.http_proxies.is_empty() {
         vec![None]
     } else {
@@ -25,12 +33,12 @@ pub fn open(
             HttpAudioSourceOptions {
                 connect_timeout: connect_timeout(options.network_timeout),
                 recv_timeout: options.network_timeout,
-                proxy_url,
+                proxy_url: proxy_url.clone(),
                 user_agent: Some(options.user_agent.clone()),
             },
             interrupt.clone(),
         ) {
-            Ok(source) => return Ok(Box::new(source) as Box<dyn ReadSeek>),
+            Ok(source) => return Ok((Box::new(source) as Box<dyn ReadSeek>, proxy_url)),
             Err(error) => {
                 let can_fallback = can_fallback_proxy_candidate(&error);
                 last_error = Some(error);

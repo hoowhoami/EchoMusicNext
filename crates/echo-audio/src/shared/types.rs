@@ -48,6 +48,7 @@ pub struct TrackSwitchInfo {
     pub audio_stream_ordinal: Option<usize>,
     pub seq: u64,
     pub duration: f64,
+    pub capabilities: crate::events::MediaCapabilities,
     /// Timeline position (seconds) of the first sample of the new track that reaches the
     /// output. Non-zero when a transition starts the incoming track at a cue point.
     pub start_position_secs: f64,
@@ -66,6 +67,7 @@ impl TrackSwitchInfo {
             audio_stream_ordinal,
             seq,
             duration,
+            capabilities: Default::default(),
             start_position_secs: 0.0,
             transition: None,
             normalization_gain_db: None,

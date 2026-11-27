@@ -86,6 +86,9 @@ class PlaybackService final : public QObject
     Q_PROPERTY(bool hasTrack READ hasTrack NOTIFY changed)
     Q_PROPERTY(qint64 positionMs READ positionMs NOTIFY positionChanged)
     Q_PROPERTY(qint64 durationMs READ durationMs NOTIFY changed)
+    Q_PROPERTY(QString timelineKind READ timelineKind NOTIFY changed)
+    Q_PROPERTY(bool live READ live NOTIFY changed)
+    Q_PROPERTY(bool seekable READ seekable NOTIFY changed)
     Q_PROPERTY(double volume READ volume WRITE setVolume NOTIFY changed)
     Q_PROPERTY(double speed READ speed WRITE setSpeed NOTIFY changed)
     Q_PROPERTY(PlayMode playMode READ playMode WRITE setPlayMode NOTIFY changed)
@@ -318,6 +321,18 @@ public:
     qint64 durationMs() const
     {
         return m_duration;
+    }
+    QString timelineKind() const
+    {
+        return m_timelineKind;
+    }
+    bool live() const
+    {
+        return m_timelineKind == "live";
+    }
+    bool seekable() const
+    {
+        return m_seekable;
     }
     double volume() const
     {
@@ -657,6 +672,9 @@ private:
     quint64 m_castRefreshSequence = 0;
     quint64 m_sequence = 0, m_revision = 0;
     qint64 m_position = 0, m_duration = 0;
+    // Adopted native input facts; duration zero alone never means live.
+    QString m_timelineKind = "unknown";
+    bool m_seekable = true;
     double m_volume = DefaultVolume, m_speed = 1;
     PlayMode m_mode = ListLoop;
     bool m_playing = false, m_loading = false, m_autoplay = false, m_ready = false,

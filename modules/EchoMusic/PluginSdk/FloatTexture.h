@@ -95,6 +95,9 @@ private:
     QList<QMetaObject::Connection> m_scopeConnections, m_windowConnections;
     ItemPresentationObserver *m_presentation;
     std::shared_ptr<Reservation> m_reservation;
+    // Upload callbacks may outlive this item on the render thread. Only the
+    // independent GUI relay may inspect the item's weak reference.
+    std::shared_ptr<QObject> m_uploadRelay;
     mutable QMutex m_nativeMutex;
     mutable std::shared_ptr<Native> m_native;
     QByteArray m_bytes;

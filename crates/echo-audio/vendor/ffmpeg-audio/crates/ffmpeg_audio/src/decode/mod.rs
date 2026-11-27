@@ -5,6 +5,7 @@ mod engine;
 pub mod io;
 mod packet_cache;
 mod packet_file;
+pub mod resource;
 
 pub(crate) use decoder::Decoder;
 pub(crate) use demuxer::Demuxer;

@@ -15,6 +15,7 @@ RowLayout {
     property bool compact: true
     property ThemeColors colors: Theme.colors
     property bool edgeToEdge: false
+    readonly property bool live: playback !== null && playback.live
     implicitHeight: compact ? 16 : 24
     spacing: 12
     function time(value) {
@@ -23,15 +24,25 @@ RowLayout {
     }
     Label {
         objectName: "playbackPositionText"
-        visible: !root.edgeToEdge
+        visible: !root.edgeToEdge && !root.live
         text: root.time(slider.previewing ? slider.value : root.playback ? root.playback.positionMs : 0)
         color: root.colors.secondaryText
         font: Theme.font(root.compact ? 10 : 12, Theme.mediumWeight)
         Layout.preferredWidth: root.compact ? 36 : 46
         horizontalAlignment: Text.AlignRight
     }
+    Label {
+        objectName: "playbackLiveText"
+        visible: root.live
+        text: qsTr("直播")
+        color: root.colors.secondaryText
+        font: Theme.font(root.compact ? 10 : 12, Theme.mediumWeight)
+        Layout.fillWidth: true
+        horizontalAlignment: Text.AlignHCenter
+    }
     EchoSlider {
         id: slider
+        visible: !root.live
         colors: root.colors
         objectName: "playbackSeekSlider"
         Layout.fillWidth: true
@@ -44,7 +55,7 @@ RowLayout {
         opacity: enabled ? 1 : 0.5
         from: 0
         to: Math.max(1, root.playback ? root.playback.durationMs : 0)
-        enabled: root.playback && root.playback.hasTrack && !root.playback.loading
+        enabled: root.playback && root.playback.hasTrack && root.playback.seekable && !root.playback.loading
         property bool held: false
         property bool submitted: false
         property string heldTrackSequence: ""
@@ -90,7 +101,7 @@ RowLayout {
         }
     }
     Label {
-        visible: !root.edgeToEdge
+        visible: !root.edgeToEdge && !root.live
         text: root.time(root.playback ? root.playback.durationMs : 0)
         color: root.colors.secondaryText
         font: Theme.font(root.compact ? 10 : 12, Theme.mediumWeight)

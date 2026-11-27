@@ -23,7 +23,7 @@ Item {
 
     opacity: active ? 1 : 0
     visible: opacity > 0.01
-    enabled: active
+    enabled: active && playback !== null && playback.seekable
     Behavior on opacity {
         NumberAnimation {
             duration: Theme.store.motionEnabled ? 180 : 0

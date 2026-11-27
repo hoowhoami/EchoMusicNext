@@ -284,16 +284,22 @@ void AudioEngine::transition(int mode, double fadeSeconds, bool matchTempo)
         });
 }
 void AudioEngine::mediaMetadata(const QString &title, const QString &artist, const QString &album,
-                                qint64 duration, const QByteArray &cover)
+                                qint64 duration, const QByteArray &cover, bool live, bool seekable)
 {
     if (m_closing || cover.size() > 2 * 1024 * 1024)
         return;
-    QMetaObject::invokeMethod(m_worker, [sink = m_sink, title, artist, album, duration, cover] {
-        const auto data = QJsonDocument(QJsonObject{{"title", title},
-                                                    {"artist", artist},
-                                                    {"album", album},
-                                                    {"duration_ms", double(duration)}})
-                              .toJson(QJsonDocument::Compact);
+    QMetaObject::invokeMethod(m_worker, [sink = m_sink, title, artist, album, duration, cover, live,
+                                         seekable] {
+        const auto data =
+            QJsonDocument(
+                QJsonObject{{"title", title},
+                            {"artist", artist},
+                            {"album", album},
+                            {"duration_ms",
+                             live || duration <= 0 ? QJsonValue() : QJsonValue(double(duration))},
+                            {"live", live},
+                            {"seekable", seekable}})
+                .toJson(QJsonDocument::Compact);
         echo_audio_media_metadata(
             sink->handle, reinterpret_cast<const uint8_t *>(data.constData()), size_t(data.size()),
             reinterpret_cast<const uint8_t *>(cover.constData()), size_t(cover.size()));

@@ -780,6 +780,9 @@ void PlaybackService::syncClock(bool sample, const QString &reason)
                        {"sourceRevision", QString::number(m_sourceRevision)},
                        {"positionMs", m_position},
                        {"durationMs", m_duration},
+                       {"timelineKind", m_timelineKind},
+                       {"live", live()},
+                       {"seekable", seekable()},
                        {"isPlaying", m_playing},
                        {"playbackRate", speed()},
                        {"isAdvancing", hasTrack() && !m_closing && !m_loading &&
@@ -985,6 +988,8 @@ void PlaybackService::startTrack(const PlaybackTrack &snapshot, int index,
     m_sourceKind = "catalog";
     m_sourceNoticeCode.clear();
     m_sourceEffect = "none";
+    m_timelineKind = "unknown";
+    m_seekable = true;
     m_track = resolved;
     queue()->consumePlayedPriority(resolved.id.isEmpty() ? resolved.key() : resolved.id);
     m_pendingLoudness = {};
@@ -1079,7 +1084,7 @@ void PlaybackService::loadNextUrl()
     }
     m_progress.reset();
     publishProgressStatus();
-    if (m_seamless)
+    if (m_seamless && !live())
         m_engine.switchSource(source, m_audioSequence, m_audioTrack, ++m_sourceRevision);
     else
         m_engine.load(source, (m_audioSequence = ++m_audioSerial), m_audioTrack);
@@ -1156,6 +1161,22 @@ void PlaybackService::play()
         return;
     }
     m_failure->resumeOutput();
+    if (live() && !m_loaded) {
+        // Re-resolve expiring radio URLs without replacing the queue item or
+        // ending its listening/history session. A fresh input joins live now.
+        m_source.cancel();
+        ++m_sourceRevision;
+        m_resumePosition = -1;
+        m_position = 0;
+        m_loading = true;
+        m_startPending = false;
+        m_seamless = false;
+        m_error.clear();
+        emit changed();
+        emit positionChanged();
+        resolve();
+        return;
+    }
     if (!m_loaded || !m_error.isEmpty()) {
         if (m_personalFm->active() && m_personalFm->m_resetPending) {
             m_personalFm->play();
@@ -1262,6 +1283,8 @@ void PlaybackService::stop()
 }
 void PlaybackService::seek(qint64 position)
 {
+    if (!seekable())
+        return;
     if (m_pauseFadePending)
         pauseImmediately();
     m_discoverQueue->cancelWait();
@@ -1483,11 +1506,11 @@ void PlaybackService::refreshCurrentSource()
     // An MV edition may have a different timeline/codec. Load a normal source
     // through the regular transport, then restore position; a same-song PCM
     // replacement can retain the MV when its hand-off buffer is unavailable.
-    m_seamless = m_loaded && m_playing && !m_cast->remoteMedia() && m_sourceKind != "mv";
+    m_seamless = !live() && m_loaded && m_playing && !m_cast->remoteMedia() && m_sourceKind != "mv";
     m_loading = true;
     m_startPending = false;
     if (!m_seamless) {
-        m_resumePosition = m_position;
+        m_resumePosition = live() ? -1 : m_position;
         m_autoplay = m_playing || m_autoplay;
     }
     m_source.resolve(m_track, apiQuality(), apiEffect(), m_privileges,
@@ -1719,7 +1742,7 @@ bool EchoMusic::PlaybackService::recoverSource(const QString &reason)
         m_loading = true;
         m_loaded = false;
         m_seamless = false;
-        m_resumePosition = m_position;
+        m_resumePosition = live() ? -1 : m_position;
         if (!m_source.hasContext(m_track)) {
             m_source.resolve(m_track, apiQuality(), apiEffect(), m_privileges,
                              m_preferences.compatibilityMode(), m_preferences.viperQualityEnabled(),

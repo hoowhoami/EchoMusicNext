@@ -15,6 +15,8 @@ class PlaybackPageTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void liveProgressCapabilities_data();
+    void liveProgressCapabilities();
     void simpleSkinPreferencesLayoutAndLifecycle();
     void progressReleaseWaitsForSeekConfirmation_data();
     void progressReleaseWaitsForSeekConfirmation();

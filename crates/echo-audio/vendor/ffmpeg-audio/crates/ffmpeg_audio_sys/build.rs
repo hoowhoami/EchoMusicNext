@@ -158,6 +158,8 @@ mod utils {
             .allowlist_type("AV.*")
             .allowlist_type("Swr.*")
             .allowlist_var("AV_.*")
+            .allowlist_var("AVIO_.*")
+            .allowlist_function("avutil_version")
             .allowlist_var("AVERROR_.*")
             .allowlist_var("AVFMT_.*")
             .allowlist_var("AVSEEK.*")

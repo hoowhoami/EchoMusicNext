@@ -61,7 +61,9 @@ QJsonObject describe(const QMetaObject &meta)
 QJsonObject pluginSdkContract()
 {
     QJsonObject types;
-    const QMetaObject *publicTypes[] = {&EchoPluginImageDropArea::staticMetaObject,
+    const QMetaObject *publicTypes[] = {&EchoPluginWebSocketClient::staticMetaObject,
+                                        &EchoPluginWebSocketConnection::staticMetaObject,
+                                        &EchoPluginImageDropArea::staticMetaObject,
                                         &FloatTexture::staticMetaObject,
                                         &NativeShaderEffect::staticMetaObject,
                                         &EchoGpuSurface::staticMetaObject,

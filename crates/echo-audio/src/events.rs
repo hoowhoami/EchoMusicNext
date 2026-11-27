@@ -57,6 +57,22 @@ pub struct SpectrumOptions {
     pub include_waveform: Option<bool>,
 }
 
+/// Facts of the adopted media input, independent of unknown/zero duration.
+#[derive(serde::Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaCapabilities {
+    pub timeline_kind: &'static str,
+    pub seekable: bool,
+}
+impl Default for MediaCapabilities {
+    fn default() -> Self {
+        Self {
+            timeline_kind: "unknown",
+            seekable: true,
+        }
+    }
+}
+
 #[derive(serde::Serialize, Clone, Debug)]
 pub struct PlayerEvent {
     pub event: String,
@@ -69,6 +85,7 @@ pub struct PlayerEvent {
     pub transition: Option<TrackTransitionInfo>,
     pub duration: Option<f64>,
     pub state: Option<PlayerState>,
+    pub capabilities: Option<MediaCapabilities>,
     pub fade_request_id: Option<f64>,
     pub reason: Option<String>,
     pub message: Option<String>,
@@ -162,6 +179,11 @@ impl PlayerEvent {
             time: Some(start_secs.max(0.0)),
             ..Self::file_loaded(path, seq)
         }
+    }
+
+    pub fn with_capabilities(mut self, capabilities: MediaCapabilities) -> Self {
+        self.capabilities = Some(capabilities);
+        self
     }
 
     pub fn with_transition(mut self, transition: Option<TrackTransitionInfo>) -> Self {
@@ -327,6 +349,7 @@ impl PlayerEvent {
             transition: None,
             duration: None,
             state: None,
+            capabilities: None,
             fade_request_id: None,
             reason: None,
             message: None,

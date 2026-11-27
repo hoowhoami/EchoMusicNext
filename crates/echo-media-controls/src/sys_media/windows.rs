@@ -16,6 +16,7 @@ pub struct WindowsMediaControls {
     player: Option<MediaPlayer>,
     smtc: Option<SystemMediaTransportControls>,
     callback: Arc<Mutex<Option<EventCallback>>>,
+    seekable: std::sync::atomic::AtomicBool,
 }
 
 unsafe impl Send for WindowsMediaControls {}
@@ -29,6 +30,7 @@ impl WindowsMediaControls {
             player: None,
             smtc: None,
             callback: Arc::new(Mutex::new(None)),
+            seekable: std::sync::atomic::AtomicBool::new(true),
         }
     }
 
@@ -206,7 +208,11 @@ impl SystemMediaControls for WindowsMediaControls {
     }
 
     fn update_metadata(&self, payload: &MetadataPayload) {
+        self.seekable
+            .store(payload.seekable, std::sync::atomic::Ordering::Release);
         let Some(ref smtc) = self.smtc else { return };
+        smtc.SetIsFastForwardEnabled(payload.seekable).ok();
+        smtc.SetIsRewindEnabled(payload.seekable).ok();
         let updater = match smtc.DisplayUpdater() {
             Ok(u) => u,
             Err(e) => {
@@ -257,12 +263,19 @@ impl SystemMediaControls for WindowsMediaControls {
             Ok(p) => p,
             Err(_) => return,
         };
-        let current = windows::Foundation::TimeSpan::from(std::time::Duration::from_millis(
-            payload.current_time_ms as u64,
-        ));
-        let total = windows::Foundation::TimeSpan::from(std::time::Duration::from_millis(
-            payload.total_time_ms as u64,
-        ));
+        let seekable = self.seekable.load(std::sync::atomic::Ordering::Acquire);
+        let current =
+            windows::Foundation::TimeSpan::from(std::time::Duration::from_millis(if seekable {
+                payload.current_time_ms as u64
+            } else {
+                0
+            }));
+        let total =
+            windows::Foundation::TimeSpan::from(std::time::Duration::from_millis(if seekable {
+                payload.total_time_ms as u64
+            } else {
+                0
+            }));
         let zero = windows::Foundation::TimeSpan::from(std::time::Duration::ZERO);
         let _ = props.SetPosition(current);
         let _ = props.SetStartTime(zero);

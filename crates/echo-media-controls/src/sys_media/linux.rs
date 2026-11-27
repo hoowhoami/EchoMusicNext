@@ -23,6 +23,7 @@ enum MprisCommand {
         album: String,
         duration_ms: Option<f64>,
         cover_data: Option<std::sync::Arc<Vec<u8>>>,
+        seekable: bool,
     },
     UpdatePlayState(PlaybackStatus),
     /// 更新播放位置（微秒）
@@ -218,8 +219,9 @@ async fn run_mpris_loop(
                 let Some(cmd) = cmd_opt else { break };
                 match cmd {
                     MprisCommand::UpdateMetadata {
-                        title, artist, album, duration_ms, cover_data,
+                        title, artist, album, duration_ms, cover_data, seekable,
                     } => {
+                        player.set_can_seek(seekable).await.ok();
                         process_metadata_update(
                             &player,
                             title,
@@ -291,8 +293,9 @@ impl SystemMediaControls for LinuxMediaControls {
                 title: payload.title.clone(),
                 artist: payload.artist.clone(),
                 album: payload.album.clone(),
-                duration_ms: payload.duration_ms,
+                duration_ms: payload.duration_ms.filter(|_| !payload.live),
                 cover_data: payload.cover_data.clone(),
+                seekable: payload.seekable,
             });
         }
     }

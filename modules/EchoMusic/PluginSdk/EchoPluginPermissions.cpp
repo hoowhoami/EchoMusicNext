@@ -80,6 +80,8 @@ QString label(const QString &cap)
         return QObject::tr("更改宿主封面回退样式");
     if (cap == "tcp")
         return QObject::tr("连接 TCP 设备或服务");
+    if (cap == "webSocket")
+        return QObject::tr("连接远端 WebSocket 服务");
     if (cap == "webServer")
         return QObject::tr("启动本机 HTTP / WebSocket 服务");
     if (cap == "process")
@@ -92,9 +94,9 @@ QString label(const QString &cap)
 }
 bool supported(const QString &cap)
 {
-    return QStringList{"tcp",        "webServer",    "windows", "process",    "serverIntercept",
-                       "navigation", "hostSettings", "cover",   "appearance", "appIcons",
-                       "kugouAuth"}
+    return QStringList{"webSocket",       "tcp",        "webServer",    "windows", "process",
+                       "serverIntercept", "navigation", "hostSettings", "cover",   "appearance",
+                       "appIcons",        "kugouAuth"}
         .contains(cap);
 }
 } // namespace

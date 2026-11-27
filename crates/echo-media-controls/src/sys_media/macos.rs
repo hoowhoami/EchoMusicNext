@@ -15,8 +15,9 @@ use objc2_media_player::{
     MPChangePlaybackPositionCommandEvent, MPMediaItemArtwork, MPMediaItemPropertyAlbumTitle,
     MPMediaItemPropertyArtist, MPMediaItemPropertyArtwork, MPMediaItemPropertyPlaybackDuration,
     MPMediaItemPropertyTitle, MPNowPlayingInfoCenter, MPNowPlayingInfoPropertyElapsedPlaybackTime,
-    MPNowPlayingInfoPropertyPlaybackRate, MPNowPlayingPlaybackState, MPRemoteCommand,
-    MPRemoteCommandCenter, MPRemoteCommandEvent, MPRemoteCommandHandlerStatus,
+    MPNowPlayingInfoPropertyIsLiveStream, MPNowPlayingInfoPropertyPlaybackRate,
+    MPNowPlayingPlaybackState, MPRemoteCommand, MPRemoteCommandCenter, MPRemoteCommandEvent,
+    MPRemoteCommandHandlerStatus,
 };
 
 struct ArtworkEntry {
@@ -131,6 +132,7 @@ pub struct MacMediaControls {
     cmd_ctr: Retained<MPRemoteCommandCenter>,
     info: Mutex<Retained<NSMutableDictionary<NSString, AnyObject>>>,
     artwork_cache: Mutex<ArtworkCache>,
+    live: std::sync::atomic::AtomicBool,
     event_handler: Arc<Mutex<Option<EventCallback>>>,
     target_tokens: Mutex<Vec<(Retained<MPRemoteCommand>, Retained<AnyObject>)>>,
 }
@@ -149,6 +151,7 @@ impl MacMediaControls {
                 cmd_ctr,
                 info: Mutex::new(info),
                 artwork_cache: Mutex::new(ArtworkCache::default()),
+                live: std::sync::atomic::AtomicBool::new(false),
                 event_handler: Arc::new(Mutex::new(None)),
                 target_tokens: Mutex::new(Vec::new()),
             }
@@ -314,10 +317,22 @@ impl SystemMediaControls for MacMediaControls {
     }
 
     fn update_metadata(&self, payload: &MetadataPayload) {
+        self.live
+            .store(payload.live, std::sync::atomic::Ordering::Release);
         autoreleasepool(|_| {
             let Ok(info) = self.info.lock() else { return };
 
             unsafe {
+                self.cmd_ctr
+                    .changePlaybackPositionCommand()
+                    .setEnabled(payload.seekable);
+                info.setObject_forKey(
+                    &NSNumber::new_bool(payload.live),
+                    ProtocolObject::from_ref(MPNowPlayingInfoPropertyIsLiveStream),
+                );
+                if payload.live || payload.duration_ms.is_none() {
+                    info.removeObjectForKey(MPMediaItemPropertyPlaybackDuration);
+                }
                 // 基础文本信息
                 info.setObject_forKey(
                     &NSString::from_str(&payload.title),
@@ -339,7 +354,7 @@ impl SystemMediaControls for MacMediaControls {
                 );
 
                 // 时长
-                if let Some(duration_ms) = payload.duration_ms {
+                if let Some(duration_ms) = payload.duration_ms.filter(|_| !payload.live) {
                     let duration_s = duration_ms / 1000.0;
                     info.setObject_forKey(
                         &NSNumber::new_f64(duration_s),
@@ -405,10 +420,12 @@ impl SystemMediaControls for MacMediaControls {
                     &NSNumber::new_f64(playback_rate),
                     ProtocolObject::from_ref(MPNowPlayingInfoPropertyPlaybackRate),
                 );
-                info.setObject_forKey(
-                    &NSNumber::new_f64(total_s),
-                    ProtocolObject::from_ref(MPMediaItemPropertyPlaybackDuration),
-                );
+                if !self.live.load(std::sync::atomic::Ordering::Acquire) {
+                    info.setObject_forKey(
+                        &NSNumber::new_f64(total_s),
+                        ProtocolObject::from_ref(MPMediaItemPropertyPlaybackDuration),
+                    );
+                }
                 self.np_info_ctr.setNowPlayingInfo(Some(&*info));
             }
         });
@@ -545,6 +562,8 @@ mod tests {
                 album: "Album".into(),
                 cover_data: Some(bytes.clone()),
                 duration_ms: Some(120_000.),
+                live: false,
+                seekable: true,
             };
             controls.update_metadata(&payload);
             let original = controls

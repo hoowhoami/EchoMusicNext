@@ -92,6 +92,8 @@
 
 `lyrics.snapshot`、`player.lyricSnapshot()`与`lyrics.onSnapshot`在同一歌词文档内复用只读的`lines`及嵌套数据，换行只更新当前行等轻量信息；内容、过滤或偏移变化后使用新行数组。需要改写数据时先复制，避免每次读取/回调都深度遍历整首歌词。直接读取缓存归scope，订阅缓存归各自租约，停用/dispose分别释放宿主引用；调用者显式保留的旧快照保持原值。字段及作者TS调用方式不变，Qt返回原生JS值的元对象契约已通过真实宿主导出同步。
 
+HLS 音频源沿用同一音源解析器返回 HTTP(S) 清单 URL，由宿主负责刷新、分片、解码和播放控制。直播暂停后停止接收，恢复接入当前直播位置；无需插件自带播放器。普通 HLS 音频与加密/DRM 的兼容范围分别验收。
+
 音源解析/转换（playback.audioSource）与多队列（playback.queues）已接入正常播放、预加载及宿主队列目录。作者用法见[音源与队列](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/audio-sources-and-queues.md)。
 
 自定义曲目的 `sourceId` 由宿主添加插件所有者限定：例如本插件入队 `local:folder:song`，音源/歌词回调接收 `<插件ID>/local:folder:song`。匹配和解析须处理该限定身份；需要解析内部格式时只剥离自身插件前缀，不能把其它插件的来源当成本插件曲目。
@@ -135,6 +137,8 @@
 ### 自定义窗口、TCP 与本地服务
 
 `ctx.windows.list/get/show` 管理 manifest 中声明的 QML 窗口，窗口组件接收 `plugin: EchoPluginContext` 与 `window: EchoPluginWindow`。插件管理卡片提供窗口入口，隐藏或关闭销毁组件和展示作用域；支持几何、置顶声明、输入穿透、前置及系统/指针拖动缩放。Wayland 对绝对定位的限制通过错误与能力状态反馈。
+
+`ctx.net.webSocket.connect(url, options?)` 主动建立 `ws://` / `wss://` 长连接，声明独立的 `webSocket` capability 与 `net.webSocket.client` feature，经用户授权后使用；不需要本地监听权限。结果为 `EchoPluginWebSocketConnection`，提供 `sendText/sendBytes/ping/close`、`message/error/closed/pong`，以及 `readyState/closeCode/closeReason/protocol`。TLS 始终校验证书及主机名，远端连接沿用宿主代理路由（回环目标保留Qt socket原生直连例外）；握手失败、TLS失败与超时分别为 NetworkError/TlsError/Timeout。取消、撤权、换账号及scope退休同步撤销句柄、取消握手并排空后台连接，丢弃旧实例消息。每scope最多16连接、单消息1MiB，异步收发有界；发送成功仅表示交给传输缓冲。选项、额度和用法见作者仓库 `docs/windows-network.md`。现有 `net.webSocket` feature 和 `ctx.webServer.onConnection` 继续表示入站连接。
 
 `ctx.net.tcp.connect` 返回类型化连接，提供可取消的二进制 `read/write/end` 和 `close`；end 排空写入并发送 FIN，保留读取。TCP 直接连接，不套用 HTTP 代理或 TLS。
 

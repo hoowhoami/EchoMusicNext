@@ -308,6 +308,24 @@ echo_copy_rust_runtime(echo-playlist-mutation-test)
 # Private binding enumeration is an opt-in diagnostic, not a regular test dependency.
 option(ECHO_ENABLE_QML_BINDING_PROBE "Enable Qt-private QML binding diagnostics" OFF)
 qt_add_executable(echo-controls-ui-test ControlsUiTest.cpp)
+qt_add_executable(
+    echo-floating-surface-pixels-test FloatingSurfacePixelsTest.cpp FloatingSurfacePixelsTest.h
+)
+target_link_libraries(
+    echo-floating-surface-pixels-test
+    PRIVATE echo_controls
+            echo_controlsplugin
+            echo_theme
+            echo_themeplugin
+            Qt6::QuickControls2
+            Qt6::QuickPrivate
+            Qt6::GuiPrivate
+            Qt6::Test
+)
+add_test(NAME floating-surface-pixels COMMAND echo-floating-surface-pixels-test)
+set_tests_properties(
+    floating-surface-pixels PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60
+)
 if(ECHO_ENABLE_QML_BINDING_PROBE)
     find_package(Qt6 6.12.1 EXACT REQUIRED COMPONENTS QmlPrivate)
     target_link_libraries(echo-controls-ui-test PRIVATE Qt6::QmlPrivate)
@@ -1142,6 +1160,7 @@ target_sources(
             plugins/PluginRuntimeSessionUi.cpp
             plugins/PluginRuntimeProcessIntercept.cpp
             plugins/PluginRuntimeWindowNetwork.cpp
+            plugins/PluginRuntimeWebSocketClient.cpp
             plugins/PluginRuntimeBackups.cpp
             plugins/PluginRuntimeSqlite.cpp
             plugins/PluginRuntimeFiles.cpp
@@ -2368,6 +2387,45 @@ set_tests_properties(
 )
 
 find_package(Qt6 6.12.1 EXACT REQUIRED COMPONENTS QuickPrivate)
+qt_add_executable(
+    echo-plugin-render-lifecycle-test PluginRenderLifecycleTest.cpp PluginRenderLifecycleTest.h
+)
+target_include_directories(echo-plugin-render-lifecycle-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(
+    echo-plugin-render-lifecycle-test
+    PRIVATE echo_plugin_sdk
+            echo_plugin_sdkplugin
+            echo_plugins
+            echo_pluginsplugin
+            echo_settings
+            echo_logging
+            echo_themes
+            echo_themesplugin
+            Qt6::Test
+            Qt6::QuickPrivate
+            Qt6::GuiPrivate
+            Qt6::Widgets
+            Qt6::Sql
+            Qt6::Network
+)
+qt_add_shaders(
+    echo-plugin-render-lifecycle-test
+    plugin_render_lifecycle_shaders
+    PREFIX
+    /test-render
+    FILES
+    shaders/gpu/quick-float.frag
+    shaders/gpu/quick-color.frag
+    OUTPUTS
+    lifecycle/quick-float.frag.qsb
+    lifecycle/quick-color.frag.qsb
+)
+add_test(NAME plugin-render-lifecycle COMMAND echo-plugin-render-lifecycle-test)
+set_tests_properties(
+    plugin-render-lifecycle PROPERTIES TIMEOUT 60 ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+)
+echo_copy_rust_runtime(echo-plugin-render-lifecycle-test)
+
 qt_add_executable(echo-point-mesh-test PointMeshTest.cpp)
 target_link_libraries(echo-point-mesh-test PRIVATE echo_plugin_sdk Qt6::QuickPrivate Qt6::Test)
 add_test(NAME point-mesh COMMAND echo-point-mesh-test)
@@ -2636,3 +2694,17 @@ add_test(NAME song-dataset-store COMMAND echo-song-dataset-store-test)
 qt_add_executable(echo-json-record-store-test JsonRecordStoreTest.cpp)
 target_link_libraries(echo-json-record-store-test PRIVATE echo_session_cache Qt6::Test)
 add_test(NAME json-record-store COMMAND echo-json-record-store-test)
+
+add_test(
+    NAME plugin-runtime-websocket-client
+    COMMAND
+        echo-plugin-runtime-test outboundWebSocketDuplexAndClose
+        outboundWebSocketErrorsAuthorizationAndLimits outboundWebSocketTls
+        outboundWebSocketLifecycle outboundWebSocketHostProxy
+)
+set_tests_properties(
+    plugin-runtime-websocket-client
+    PROPERTIES ENVIRONMENT
+               "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software;QT_QUICK_CONTROLS_STYLE=Basic"
+               TIMEOUT 90
+)

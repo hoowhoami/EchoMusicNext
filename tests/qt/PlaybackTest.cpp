@@ -113,6 +113,10 @@ public:
     {
         return p.m_engine;
     }
+    static bool loaded(const PlaybackService &p)
+    {
+        return p.m_loaded;
+    }
     static bool pauseFadePending(const PlaybackService &p)
     {
         return p.m_pauseFadePending;
@@ -378,6 +382,66 @@ class PlaybackTest : public QObject
         return -1;
     }
 private slots:
+    void liveCapabilitiesGateSeekAndResumeWithoutReplacingQueueItem()
+    {
+        using A = PlaybackServiceTestAccess;
+        QTemporaryDir dir;
+        SettingsStore settings(dir.filePath("settings.ini"));
+        ApiClient api(DeviceIdentity::temporary());
+        api.addInterceptor(100, [](const QJsonObject &, ApiInterceptNext, ApiInterceptDone) {
+            return std::function<void()>([] {});
+        });
+        PlaybackService playback(api, settings, nullptr, dir.filePath("queue.sqlite"));
+        QTRY_VERIFY_WITH_TIMEOUT(A::ready(playback), 15000);
+        A::holdNativeEvents(playback);
+        playback.preferences()->setVolumeFade(false);
+        auto first = track(1);
+        first.localPath.clear();
+        first.hash = QString(32, 'a');
+        playback.playTracks({first}, 0, "Radio", "radio");
+        A::nativeSequence(playback, 7);
+        const auto loaded = [&](const char *kind, bool seekable, quint64 sequence) {
+            A::outputEvent(playback, {{"event", "file-loaded"},
+                                      {"seq", qint64(sequence)},
+                                      {"track_seq", qint64(sequence)},
+                                      {"capabilities", QJsonObject{{"timelineKind", kind},
+                                                                   {"seekable", seekable}}}});
+        };
+        loaded("live", false, 7);
+        A::acknowledge(playback, true);
+        QVERIFY(playback.live());
+        QVERIFY(!playback.seekable());
+        QCOMPARE(playback.durationMs(), 0);
+        const auto identity = playback.clock().value("trackSeq");
+        const auto trackId = playback.trackId();
+        playback.seek(5000);
+        QVERIFY(playback.clock().value("displayState") != "seeking");
+        loaded("finite", true, 6); // Late old source must not change capabilities.
+        QVERIFY(playback.live());
+        playback.pause();
+        A::acknowledge(playback, false);
+        QVERIFY(!A::loaded(static_cast<const PlaybackService &>(playback)));
+        playback.play();
+        QCOMPARE(playback.trackId(), trackId);
+        QCOMPARE(playback.clock().value("trackSeq"), identity);
+        QVERIFY(playback.loading());
+        // The next ordinary input restores seeking; no URL suffix classification in UI.
+        loaded("finite", true, A::audioSequence(playback));
+        QVERIFY(!playback.live());
+        QVERIFY(playback.seekable());
+        // EOF arrives after native Paused; it must reconnect the radio rather
+        // than selecting the next queue item or restoring an old seek point.
+        loaded("live", false, A::audioSequence(playback));
+        A::acknowledge(playback, true);
+        A::acknowledge(playback, false);
+        A::outputEvent(playback, {{"event", "playback-end"},
+                                  {"reason", "eof"},
+                                  {"track_seq", qint64(A::audioSequence(playback))}});
+        QCOMPARE(playback.trackId(), trackId);
+        QVERIFY(playback.loading());
+        playback.stop();
+    }
+
     void outputFailureKeepsLoadedReaderAndDoesNotSkip_data()
     {
         QTest::addColumn<QString>("code");

@@ -15,6 +15,7 @@ public:
     explicit PlaybackRecoveryController(PlaybackService &playback);
     void cancel();
     void resumeRequested();
+    void liveInputEnded();
     bool handleEvent(const QJsonObject &event);
     bool acceptsPosition(qint64 position);
 

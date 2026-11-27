@@ -1,6 +1,7 @@
 #pragma once
 #include "EchoPluginOperation.h"
 #include "EchoPluginTcp.h"
+#include "EchoPluginWebSocketClient.h"
 #include <QPointer>
 #include <QThread>
 #include <QHash>
@@ -16,6 +17,7 @@ class EchoPluginNetwork final : public QObject
     QML_ELEMENT
     QML_UNCREATABLE("Owned by EchoPluginContext")
     Q_PROPERTY(EchoMusic::EchoPluginTcp *tcp READ tcp CONSTANT)
+    Q_PROPERTY(EchoMusic::EchoPluginWebSocketClient *webSocket READ webSocket CONSTANT)
 public:
     explicit EchoPluginNetwork(EchoPluginContext &scope);
     ~EchoPluginNetwork() override;
@@ -24,10 +26,14 @@ public:
     {
         return m_tcp;
     }
+    EchoPluginWebSocketClient *webSocket() const
+    {
+        return m_webSocket;
+    }
     void shutdown();
     bool isDrained() const
     {
-        return m_drained && m_tcp->isDrained();
+        return m_drained && m_tcp->isDrained() && m_webSocket->isDrained();
     }
 signals:
     void drained();
@@ -36,6 +42,7 @@ private:
     friend class PluginNetworkWorker;
     EchoPluginContext &m_scope;
     EchoPluginTcp *m_tcp;
+    EchoPluginWebSocketClient *m_webSocket;
     QThread m_thread;
     PluginNetworkWorker *m_worker;
     QHash<QString, QPointer<EchoPluginOperation>> m_pending;
