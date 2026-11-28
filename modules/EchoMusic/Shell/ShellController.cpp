@@ -328,12 +328,10 @@ void ShellController::attachPlayback(PlaybackService &service)
         bindPlayerAction(*actions, Favorite, [actions] { actions->toggleFavorite(); });
         bindPlayerAction(*actions, AddToPlaylist, [actions] { actions->prepareCurrent(); });
         const auto updateLibrary = [this, &service, actions] {
-            m_playerbar.setState(m_playerHandles.value(Favorite),
-                                 service.hasTrack() && !actions->busy() &&
-                                     !actions->favoriteLoading(),
-                                 true, false, {}, actions->favorite());
-            m_playerbar.setPresentation(m_playerHandles.value(Favorite),
-                                        actions->favorite() ? tr("取消收藏") : tr("收藏"),
+            m_playerbar.setState(m_playerHandles.value(Favorite), actions->favoriteEnabled(), true,
+                                 actions->favoriteLoading() || actions->favoriteBusy(), {},
+                                 actions->favorite());
+            m_playerbar.setPresentation(m_playerHandles.value(Favorite), actions->favoriteText(),
                                         actions->favorite() ? "heart-filled" : "heart");
             // 只有已登录且存在当前曲目时才显示添加到歌单入口；收藏/添加
             // 请求期间 busy 只禁用按钮，不隐藏，避免动作栏跳动（上游

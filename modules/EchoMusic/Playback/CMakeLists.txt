@@ -67,6 +67,7 @@ qt_add_qml_module(
     SleepTimerPopup.qml
     PlaybackEffectPopup.qml
     PlaybackEffectPresetButton.qml
+    PlaybackEffectName.qml
     PlaybackSongEffectPane.qml
     PlaybackEqualizerPane.qml
     PlaybackImpulseEffectPane.qml

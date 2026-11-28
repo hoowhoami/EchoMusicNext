@@ -155,6 +155,7 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
       m_networkPreferences(network), m_membership(api, this),
       m_engine(nullptr, engineStartupOptions(m_enginePreferences, network)),
       m_spectrum(*this, m_engine), m_cloudSources(api, this), m_sourceExtensions(this),
+      m_favoriteExtensions(this),
       m_source(api, m_membership, this, &m_cloudSources, &m_sourceExtensions, &m_native),
       m_audioControls(m_engine, m_native, settings, this),
       m_effectCatalog(api, m_audioControls, this,
@@ -166,6 +167,12 @@ PlaybackService::PlaybackService(ApiClient &api, EchoMusic::SettingsStore &setti
       m_portraits(api, *m_lyricAppearance.portrait(), this),
       m_lyricText(m_lyrics, m_native, settings, this), m_lyricSource(api, settings, this)
 {
+    // Clear favorite projections before other session listeners publish a
+    // restored track. Main plugin activations survive account changes; only
+    // their in-flight operations and old account state are retired.
+    connect(&api, &ApiClient::sessionChanged, &m_favoriteExtensions,
+            &PlaybackFavoriteExtensions::reset);
+    connect(&api, &ApiClient::closed, &m_favoriteExtensions, &PlaybackFavoriteExtensions::reset);
     m_sessionController = std::make_unique<PlaybackSessionController>(*this);
     m_outputController = std::make_unique<PlaybackOutputController>(*this);
     m_queueController = std::make_unique<PlaybackQueueController>(*this);
@@ -1667,6 +1674,7 @@ void PlaybackService::clearHistory()
 }
 void PlaybackService::shutdown()
 {
+    m_favoriteExtensions.shutdown();
     if (m_localFileDialog) {
         m_localFileDialog->disconnect(this);
         delete m_localFileDialog;

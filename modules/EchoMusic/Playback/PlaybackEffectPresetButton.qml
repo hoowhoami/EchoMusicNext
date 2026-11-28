@@ -3,19 +3,28 @@ import QtQuick
 import EchoMusic.Controls
 import EchoMusic.Theme
 
-// Equalizer preset action with shared states and explicit compact typography.
+// Shared song/EQ/library action reserves the same two-line name slot.
 EchoSoftButton {
     id: button
     property real minimumHeight: 38
     colors: Theme.floating
-    font: Theme.font(13, Theme.semiboldWeight)
+    font: Theme.font(12, Theme.semiboldWeight)
     leftPadding: 10
     rightPadding: 10
-    implicitHeight: Math.max(minimumHeight, label.implicitHeight + 16)
+    topPadding: 8
+    bottomPadding: 8
+    implicitHeight: Math.max(minimumHeight, 2 * label.lineHeight + topPadding + bottomPadding)
+    EchoToolTip {
+        objectName: "effectPresetToolTip"
+        parent: button
+        text: button.text
+        requestedVisible: button.hovered && label.truncated
+    }
     contentItem: Item {
         implicitWidth: label.implicitWidth
         implicitHeight: label.implicitHeight
-        EchoTextTagRow {
+        clip: true
+        PlaybackEffectName {
             id: label
             objectName: "effectPresetLabel"
             anchors.centerIn: parent
@@ -25,7 +34,6 @@ EchoSoftButton {
             color: button.foreground
             horizontalAlignment: Text.AlignHCenter
             wrap: true
-            lineHeight: 20
         }
     }
 }

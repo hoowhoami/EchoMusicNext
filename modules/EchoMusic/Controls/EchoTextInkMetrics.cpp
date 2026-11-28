@@ -67,6 +67,15 @@ void EchoTextInkMetrics::setElide(bool elide)
     measure();
     emit elideChanged();
 }
+void EchoTextInkMetrics::setMaximumLineCount(int count)
+{
+    count = std::max(0, count);
+    if (maximumLineCount_ == count)
+        return;
+    maximumLineCount_ = count;
+    measure();
+    emit maximumLineCountChanged();
+}
 void EchoTextInkMetrics::measure()
 {
     const QFontMetricsF fm(font_);
@@ -81,6 +90,30 @@ void EchoTextInkMetrics::measure()
     QTextOption option;
     option.setUseDesignMetrics(true); // Qt Quick's default distance-field Text layout.
     option.setWrapMode(wrap_ ? QTextOption::WrapAtWordBoundaryOrAnywhere : QTextOption::NoWrap);
+    if (wrap_ && maximumLineCount_ > 0) {
+        // Qt owns line breaking and elision. Measure the same bounded text that
+        // will be painted, so hidden lines cannot shift the visible ink center.
+        QTextLayout bounded(QString(text_).replace(u'\n', QChar::LineSeparator), font_);
+        bounded.setTextOption(option);
+        QStringList lines;
+        bounded.beginLayout();
+        while (true) {
+            auto line = bounded.createLine();
+            if (!line.isValid())
+                break;
+            line.setLineWidth(std::max(qreal(1), width_));
+            if (lines.size() == maximumLineCount_) {
+                lines.last() = fm.elidedText(lines.last() + QChar(0x2026), Qt::ElideRight, width_);
+                displayText_ = lines.join(u'\n');
+                break;
+            }
+            auto text = bounded.text().mid(line.textStart(), line.textLength());
+            if (text.endsWith(QChar::LineSeparator))
+                text.chop(1);
+            lines.append(text);
+        }
+        bounded.endLayout();
+    }
     const auto lineBounds = [&](const QString &text) {
         auto bounds = fm.tightBoundingRect(text, option);
         // Native font metrics can include a descender pixel absent from the

@@ -526,14 +526,14 @@ void DesktopPagesTest::productionEffectPanelAlignmentAndCompactContentTabs()
                             auto *option =
                                 visual(session.window->contentItem(), "dspPresetOption-" + id);
                             QVERIFY(option);
-                            QCOMPARE(option->height(), 38.);
+                            QCOMPARE(option->height(), 46.);
                             options.append(bounds(option));
                             auto *button = visual(option, "dspPresetButton-" + id);
                             auto *label = visual(option, "dspPresetLabel");
                             auto *tag = visual(option, "dspPresetDeviceTag");
                             auto *settings = visual(option, "dspPresetSettings-" + id);
                             QVERIFY(button && label && tag && settings);
-                            QCOMPARE(label->property("font").value<QFont>().pixelSize(), 11);
+                            QCOMPARE(label->property("font").value<QFont>().pixelSize(), 12);
                             QVERIFY(qAbs(glyphCenterY(session.window, image, label) -
                                          centerY(option)) < 1.5 * scale);
                             const bool headphone =

@@ -334,13 +334,17 @@ ColumnLayout {
         }
         GridView {
             id: localEffects
+            objectName: "myEffectGrid"
+            readonly property font presetFont: Theme.font(12, Theme.semiboldWeight)
+            readonly property real presetLineHeight: presetFont.pixelSize * 1.25
+            readonly property real presetHeight: Math.max(42, 2 * presetLineHeight + 16)
             anchors.fill: parent
             topMargin: 8
             leftMargin: 8
             rightMargin: 8
             visible: pane.libraryTab === 1
             cellWidth: (width - 16) / 3
-            cellHeight: 50
+            cellHeight: presetHeight + 8
             model: pane.surface.visible && visible ? pane.files : null
             reuseItems: true
             EchoViewPoolGuard {
@@ -349,10 +353,13 @@ ColumnLayout {
             clip: true
             cacheBuffer: cellHeight * 3
             delegate: PlaybackEffectPresetButton {
+                required property int index
                 required property var modelData
+                objectName: "myEffectPreset-" + index
                 width: localEffects.cellWidth - 8
+                height: localEffects.presetHeight
                 minimumHeight: 42
-                font: Theme.font(12, Theme.semiboldWeight)
+                font: localEffects.presetFont
                 text: modelData.name
                 enabled: modelData.available
                 accent: pane.audio.impulseEnabled && pane.audio.impulseResponse === modelData.path

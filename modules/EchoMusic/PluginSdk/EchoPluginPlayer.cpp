@@ -6,6 +6,7 @@
 #include <cmath>
 #include <QTimer>
 #include <QMetaMethod>
+#include <utility>
 namespace EchoMusic
 {
 EchoPluginReadModel::EchoPluginReadModel(QAbstractItemModel &source, QObject *parent)
@@ -42,7 +43,7 @@ QHash<int, QByteArray> EchoPluginReadModel::roleNames() const
     return m_source.roleNames();
 }
 EchoPluginPlayer::EchoPluginPlayer(EchoPluginContext &scope, PlaybackService &host)
-    : QObject(&scope), m_scope(scope), m_host(host), m_audioSource(scope),
+    : QObject(&scope), m_scope(scope), m_host(host), m_audioSource(scope), m_favorites(scope),
       m_queue(*host.queue(), this), m_lyrics(*host.lyrics(), this)
 {
     connect(&host, &PlaybackService::clockChanged, this, [this] {
@@ -344,7 +345,14 @@ QVariantMap EchoPluginPlayer::snapshot() const
         {"sourceNotice", m_host.sourceNotice()},
         {"sourceNoticeCode", m_host.sourceNoticeCode()},
         {"favorite", m_host.libraryActions() && m_host.libraryActions()->favorite()},
-        {"favoriteBusy", m_host.libraryActions() && m_host.libraryActions()->favoriteLoading()},
+        {"favoriteBusy", m_host.libraryActions() && (m_host.libraryActions()->favoriteLoading() ||
+                                                     m_host.libraryActions()->favoriteBusy())},
+        {"favoriteLoading", m_host.libraryActions() && m_host.libraryActions()->favoriteLoading()},
+        {"favoriteAvailable",
+         m_host.libraryActions() && m_host.libraryActions()->favoriteAvailable()},
+        {"favoriteKnown", m_host.libraryActions() && m_host.libraryActions()->favoriteKnown()},
+        {"favoriteError",
+         m_host.libraryActions() ? m_host.libraryActions()->favoriteError() : QString()},
         {"personalFm", m_host.personalFm()->active()},
         {"fm", QVariantMap{{"signedIn", m_host.personalFm()->signedIn()},
                            {"busy", m_host.personalFm()->busy()},
@@ -364,21 +372,31 @@ void EchoPluginPlayer::publishStateEvents()
         disconnect(m_libraryConnection);
         m_library = m_host.libraryActions();
         if (m_library)
-            m_libraryConnection = connect(m_host.libraryActions(), &PlaybackLibraryActions::changed,
-                                          this, &EchoPluginPlayer::changed);
+            m_libraryConnection =
+                connect(m_host.libraryActions(), &PlaybackLibraryActions::changed, this, [this] {
+                    publishStateEvents();
+                    emit changed();
+                });
     }
-    if (state.value("revision") != m_previous.value("revision"))
+    // Publish the baseline before callbacks: an observer may invalidate the
+    // provider synchronously and cause another state notification.
+    const auto previous = std::exchange(m_previous, state);
+    bool favoriteChanged = false;
+    for (const auto &field : {"favorite", "favoriteAvailable", "favoriteKnown", "favoriteLoading",
+                              "favoriteBusy", "favoriteError"})
+        favoriteChanged |= state.value(field) != previous.value(field);
+    if (favoriteChanged)
+        emit eventOccurred("favoritechange", state);
+    if (state.value("revision") != previous.value("revision"))
         emit eventOccurred("trackchange", state);
-    if (state.value("playing") != m_previous.value("playing"))
+    if (state.value("playing") != previous.value("playing"))
         emit eventOccurred(playing() ? "play" : "pause", state);
-    if (state.value("loading") != m_previous.value("loading") ||
-        state.value("playing") != m_previous.value("playing") ||
-        state.value("displayState") != m_previous.value("displayState"))
+    if (state.value("loading") != previous.value("loading") ||
+        state.value("playing") != previous.value("playing") ||
+        state.value("displayState") != previous.value("displayState"))
         emit eventOccurred("statechange", state);
-    if (!errorMessage().isEmpty() &&
-        state.value("errorMessage") != m_previous.value("errorMessage"))
+    if (!errorMessage().isEmpty() && state.value("errorMessage") != previous.value("errorMessage"))
         emit eventOccurred("error", state);
-    m_previous = state;
 }
 EchoPluginOperation *EchoPluginPlayer::control(const QString &action, const QVariantMap &args)
 {
@@ -400,9 +418,10 @@ EchoPluginOperation *EchoPluginPlayer::control(const QString &action, const QVar
 EchoPluginRegistration *EchoPluginPlayer::on(const QString &id, const QString &event,
                                              const QJSValue &callback, bool immediate)
 {
-    if (!callback.isCallable() || !QStringList{"trackchange", "statechange", "play", "pause",
-                                               "ended", "seek", "error", "timeupdate", "clock"}
-                                       .contains(event))
+    if (!callback.isCallable() ||
+        !QStringList{"trackchange", "statechange", "play", "pause", "ended", "seek", "error",
+                     "timeupdate", "clock", "favoritechange"}
+             .contains(event))
         return nullptr;
     auto *lease = m_scope.registration("playbackEvent", id);
     if (!lease)

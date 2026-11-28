@@ -2222,6 +2222,33 @@ void DesktopPagesTest::settingsDefaultsAndSourceEffectFileManager()
     QTRY_VERIFY((fileRow = visual(files, "settingsEffectFileRow")));
     QCOMPARE(fileRow->height(), 52.);
     QTRY_COMPARE(files->height(), 52.);
+    const QString longEffectName =
+        QStringLiteral("中文音效名称不能超出两行也不能盖住操作按钮").repeated(4).left(80);
+    playback.audioControls()->renameImpulseResponse(path, longEffectName);
+    for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+        session.theme.setMode(mode);
+        for (int fontScale : {100, 125}) {
+            session.theme.setGlobalFontSizeScale(fontScale);
+            QTest::qWait(100);
+            QTRY_VERIFY((fileRow = visual(files, "settingsEffectFileRow")));
+            auto *name = visual(fileRow, "settingsEffectFileName");
+            QVERIFY(name);
+            auto *text = name->property("textItem").value<QQuickItem *>();
+            QVERIFY(text);
+            QCOMPARE(name->property("maximumLineCount").toInt(), 2);
+            QCOMPARE(text->property("lineCount").toInt(), 2);
+            QVERIFY(name->property("truncated").toBool());
+            QCOMPARE(name->property("text").toString(), longEffectName);
+            auto *textBox = name->property("textBox").value<QQuickItem *>();
+            QVERIFY(textBox && textBox->height() + 16 <= fileRow->height());
+            if (!capture.isEmpty())
+                QVERIFY(session.window->grabWindow().save(
+                    capture + QString("/files-long-%1-%2.png").arg(int(mode)).arg(fontScale)));
+        }
+    }
+    session.theme.setGlobalFontSizeScale(100);
+    playback.audioControls()->renameImpulseResponse(path, QStringLiteral("本地布局检查"));
+    QVERIFY(session.settleScene());
     const auto singleFileHeight = dialog->property("height").toReal();
     for (int cycle = 0; cycle < 4; ++cycle) {
         QVERIFY(QMetaObject::invokeMethod(dialog.data(), "close"));

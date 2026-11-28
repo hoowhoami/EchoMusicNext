@@ -15,6 +15,8 @@ Item {
     property real textTagSpacing: spacing
     property real lineHeight: font.pixelSize * 1.5
     property bool wrap: false
+    // Zero keeps the natural line count. Opt-in bounds use native Qt elision.
+    property int maximumLineCount: 0
     // Keep tab label and badge on one line even when layout rounding
     // reduces preferred width during asynchronous count changes.
     property bool wrapTags: true
@@ -26,7 +28,7 @@ Item {
     // Identity names align their letter body consistently; underscores and
     // descenders remain visible without moving the other letters upward.
     property bool alignFontBody: false
-    readonly property bool truncated: !wrap && ink.displayText !== text
+    readonly property bool truncated: ink.displayText !== text
     property int horizontalAlignment: Text.AlignLeft
     property alias textItem: label
     readonly property alias textBox: textSlot
@@ -43,6 +45,7 @@ Item {
             lineHeight: row.lineHeight
             wrap: row.wrap
             elide: !row.wrap
+            maximumLineCount: row.maximumLineCount
         },
         Flow {
             id: flow
@@ -58,8 +61,9 @@ Item {
 
                 // Use the available width for a tag-free wrapped label too;
                 // metric natural width can be narrower than rendered glyphs.
-                // Tagged flows keep their intrinsic text/tag wrapping behavior.
-                width: Math.max(0, Math.min(row.fillTextWidth && (!row.wrap || tagRow.implicitWidth === 0) ? row.width : ink.naturalWidth, row.wrap ? row.width : row.width - (tagRow.implicitWidth > 0 ? row.textTagSpacing + tagRow.implicitWidth : 0)))
+                // Inline tags reserve their width before wrapping the name;
+                // ordinary tagged flows keep their intrinsic wrapping behavior.
+                width: Math.max(0, Math.min(row.fillTextWidth && (!row.wrap || !row.wrapTags || tagRow.implicitWidth === 0) ? row.width : ink.naturalWidth, row.wrap && row.wrapTags ? row.width : row.width - (tagRow.implicitWidth > 0 ? row.textTagSpacing + tagRow.implicitWidth : 0)))
                 height: Math.max(row.lineHeight * Math.max(1, label.lineCount), tagRow.implicitHeight)
                 Text {
                     id: label
@@ -79,6 +83,8 @@ Item {
                     verticalAlignment: Text.AlignTop
                     horizontalAlignment: row.horizontalAlignment
                     wrapMode: row.wrap ? Text.Wrap : Text.NoWrap
+                    maximumLineCount: row.maximumLineCount > 0 ? row.maximumLineCount : 2147483647
+                    elide: row.wrap && row.maximumLineCount > 0 ? Text.ElideRight : Text.ElideNone
                 }
             }
             Item {

@@ -4,6 +4,7 @@
 #include <QTemporaryDir>
 #include "ApiClient.h"
 #include "PlaybackLibraryActions.h"
+#include "PlaybackFavoriteExtensions.h"
 #include "SongCommands.h"
 #include "AudioEngine.h"
 #include "PlayerSpectrum.h"
@@ -207,6 +208,10 @@ public:
     PlaybackQueueModel *queue()
     {
         return m_catalog.activeModel();
+    }
+    PlaybackFavoriteExtensions *favoriteExtensions()
+    {
+        return &m_favoriteExtensions;
     }
     PlaybackSourceExtensions *sourceExtensions()
     {
@@ -599,6 +604,7 @@ private:
     CloudAudioIndex m_cloudSources;
     QList<qint64> m_urlAudioTracks;
     PlaybackSourceExtensions m_sourceExtensions;
+    PlaybackFavoriteExtensions m_favoriteExtensions;
     PlaybackSourceRequest m_source;
     bool recoverSource(const QString &reason);
     bool tryMvFallback(const QString &reason);

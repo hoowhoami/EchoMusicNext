@@ -154,7 +154,7 @@ void MenuBarLyricController::sync()
     state.coverColor = m_playback ? m_playback->coverColor() : QColor();
     state.playMode = m_playback ? m_playback->playMode() : 0;
     state.favorite = m_library && m_library->favorite();
-    state.favoriteEnabled = m_library && state.hasTrack && !m_library->favoriteLoading();
+    state.favoriteEnabled = m_library && m_library->favoriteEnabled();
     const auto at = m_playback ? qint64(m_playback->clockPosition()) : 0;
     if (lyricsEnabled && state.hasTrack)
         state.content = contentAt(*m_playback->lyrics(), at, m_settings.displayMode(),
@@ -221,7 +221,7 @@ void MenuBarLyricController::invoke(MenuBarLyric::Action action)
             m_playback->next();
             break;
         case Action::Favorite:
-            if (m_library && !m_library->favoriteLoading())
+            if (m_library && m_library->favoriteEnabled())
                 m_library->toggleFavorite();
             break;
         default:

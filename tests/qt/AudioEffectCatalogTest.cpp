@@ -21,6 +21,8 @@
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
+#include <QFontDatabase>
+#include <QDataStream>
 #include <QInputMethodEvent>
 #include <QtTest>
 using namespace EchoMusic;
@@ -196,6 +198,303 @@ class AudioEffectCatalogTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void productionEffectNamesStayWithinRows_data()
+    {
+        QTest::addColumn<int>("mode");
+        QTest::addColumn<double>("scale");
+        for (auto mode : {ThemeStore::Light, ThemeStore::Dark})
+            for (double scale : {1., 1.25})
+                QTest::newRow(qPrintable(QString("%1-%2").arg(int(mode)).arg(scale)))
+                    << int(mode) << scale;
+    }
+    void productionEffectNamesStayWithinRows()
+    {
+        QFETCH(int, mode);
+        QFETCH(double, scale);
+        Session s;
+        s.playback.setVolume(0);
+        ThemeStore theme(s.settings);
+        theme.setMode(ThemeStore::Mode(mode));
+        theme.setMotionEnabled(false);
+        theme.setFloatingFrosted(false);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        const QStringList names{"Dolby_Atmos室内系 声场Pro【黑钻壁蛇】超长名称不能盖住下一排按钮",
+                                "Dolby ATMOS ((128K MP3)) [瑞昱高清音频] Default",
+                                "Kugou_viper_black_diamond_headset SRS音效_1_1",
+                                "Kugou_viper_black_diamond SRS音效_1_2",
+                                "Realtek HD Audio16DB DTS SRS音效_2_1",
+                                "SRS音效_2_2",
+                                "A_very_long_unbroken_effect_name_without_any_spaces_1234567890",
+                                "中文音效名称也必须保留两行省略并且不能上下交叠再长也不能覆盖旁边",
+                                "第一行\n第二行\n第三行不应绘制",
+                                "Ág, fallback 中英混排🙂组合 é",
+                                "短名",
+                                "最后一排的完整名称要能正常滚动定位与选用，不应被固定网格截掉"};
+        auto *audio = s.playback.audioControls();
+        for (int i = names.size() - 1; i >= 0; --i) {
+            const auto path = s.directory.filePath(QString("name-%1.wav").arg(i));
+            QFile file(path);
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            QDataStream wave(&file);
+            wave.setByteOrder(QDataStream::LittleEndian);
+            wave.writeRawData("RIFF", 4);
+            wave << quint32(36 + 128);
+            wave.writeRawData("WAVEfmt ", 8);
+            wave << quint32(16) << quint16(1) << quint16(1) << quint32(48000) << quint32(96000)
+                 << quint16(2) << quint16(16);
+            wave.writeRawData("data", 4);
+            wave << quint32(128);
+            for (int j = 0; j < 64; ++j)
+                wave << qint16(j == 0 ? 32767 : 0);
+            file.close();
+            audio->registerImpulseResponse(path, names[i]);
+        }
+        QCOMPARE(audio->impulseResponses().size(), names.size());
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Controls
+import EchoMusic.Playback
+import EchoMusic.Theme
+Window {
+    id: host
+    required property PlaybackService playback
+    property real zoom: 1
+    width: 1000; height: 800; visible: true; color: Theme.main
+    EchoButton { id: anchor; x: 600; y: 740; text: "Effects" }
+    PlaybackEffectPopup {
+        id: effect; objectName: "localEffectPopup"
+        playback: host.playback; anchorItem: anchor; uiScale: host.zoom
+        tab: 2; libraryTab: 1
+    }
+    Component.onCompleted: Qt.callLater(function() { effect.open(); })
+})",
+                          QUrl("qrc:/effect-name-regression.qml"));
+        QScopedPointer<QObject> root(component.createWithInitialProperties(
+            {{"playback", QVariant::fromValue(&s.playback)}, {"zoom", scale}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window && Test::prepareNativeInput(window));
+        auto *popup = root->findChild<QObject *>("localEffectPopup");
+        QVERIFY(popup);
+        QTRY_VERIFY(popup->property("opened").toBool());
+        QQuickItem *grid = nullptr;
+        QTRY_VERIFY(grid = visual(window->contentItem(), "myEffectGrid"));
+        QTRY_COMPARE(grid->property("count").toInt(), names.size());
+        const auto captures = qEnvironmentVariable("ECHO_EFFECT_NAMES_CAPTURES");
+        if (!captures.isEmpty())
+            QVERIFY(QDir().mkpath(captures));
+        const QStringList families{QString{},
+                                   QFontDatabase::systemFont(QFontDatabase::FixedFont).family()};
+        for (int family = 0; family < families.size(); ++family)
+            for (int fontScale : {100, 125}) {
+                theme.setGlobalFont(families[family]);
+                theme.setGlobalFontSizeScale(fontScale);
+                QVERIFY(QMetaObject::invokeMethod(grid, "positionViewAtIndex", Q_ARG(int, 0),
+                                                  Q_ARG(int, 0)));
+                QTest::qWait(80);
+                const auto image = window->grabWindow();
+                QVERIFY(!image.isNull());
+                const qreal density = qreal(image.width()) / window->width();
+                const auto viewport = grid->mapRectToScene(grid->boundingRect());
+                int checked = 0;
+                const auto entries = audio->impulseResponses();
+                for (int index = 0; index < entries.size(); ++index) {
+                    const auto entry = entries[index].toMap();
+                    auto *button = visual(grid, "myEffectPreset-" + QString::number(index));
+                    if (!button)
+                        continue;
+                    auto *row = visual(button, "effectPresetLabel");
+                    QVERIFY(row);
+                    auto *text = row->property("textItem").value<QQuickItem *>();
+                    QVERIFY(text);
+                    QVERIFY(text->property("lineCount").toInt() <= 2);
+                    QCOMPARE(row->property("text").toString(), entry.value("name").toString());
+                    QVERIFY(button->height() < grid->property("cellHeight").toReal());
+                    const auto bounds = button->mapRectToScene(button->boundingRect());
+                    if (!viewport.contains(bounds))
+                        continue;
+                    ++checked;
+                    const auto foreground = text->property("color").value<QColor>();
+                    const auto sample = button->mapToScene({button->width() / 2, 2});
+                    const auto background =
+                        image.pixelColor(int(sample.x() * density), int(sample.y() * density));
+                    const auto pixels = QRectF(bounds.topLeft() * density, bounds.size() * density)
+                                            .toAlignedRect()
+                                            .intersected(image.rect());
+                    int inkTop = image.height(), inkBottom = -1;
+                    for (int y = pixels.top(); y <= pixels.bottom(); ++y) {
+                        double mass = 0;
+                        for (int x = pixels.left() + 2; x < pixels.right() - 2; ++x) {
+                            const auto color = image.pixelColor(x, y);
+                            const double dr = foreground.red() - background.red();
+                            const double dg = foreground.green() - background.green();
+                            const double db = foreground.blue() - background.blue();
+                            const auto alpha = ((color.red() - background.red()) * dr +
+                                                (color.green() - background.green()) * dg +
+                                                (color.blue() - background.blue()) * db) /
+                                               (dr * dr + dg * dg + db * db);
+                            mass += qBound(0., alpha, 1.);
+                        }
+                        if (mass >= 1.) {
+                            inkTop = qMin(inkTop, y);
+                            inkBottom = qMax(inkBottom, y);
+                        }
+                    }
+                    QVERIFY(inkBottom >= inkTop);
+                    const qreal actual = (inkTop + inkBottom + 1) / 2.;
+                    const qreal expected = bounds.center().y() * density;
+                    QVERIFY2(qAbs(actual - expected) <= 1.,
+                             qPrintable(QString("%1: ink center %2, expected %3")
+                                            .arg(entry.value("name").toString())
+                                            .arg(actual)
+                                            .arg(expected)));
+                }
+                QVERIFY(checked >= 3);
+                if (!captures.isEmpty())
+                    QVERIFY(image.save(captures + QString("/names-%1-font%2-size%3.png")
+                                                      .arg(QTest::currentDataTag())
+                                                      .arg(family)
+                                                      .arg(fontScale)));
+            }
+        // Scroll through the real virtual grid and activate the final long name.
+        QVERIFY(QMetaObject::invokeMethod(grid, "positionViewAtIndex", Q_ARG(int, names.size() - 1),
+                                          Q_ARG(int, 3)));
+        const auto lastPath = s.directory.filePath(QString("name-%1.wav").arg(names.size() - 1));
+        QQuickItem *last = nullptr;
+        QTRY_VERIFY(last = visual(grid, "myEffectPreset-" + QString::number(names.size() - 1)));
+        auto *row = visual(last, "effectPresetLabel");
+        QVERIFY(row && row->property("truncated").toBool());
+        auto *tip = last->findChild<QObject *>("effectPresetToolTip");
+        QVERIFY(tip && !tip->property("popup").value<QObject *>());
+        QTest::mouseMove(window, last->mapToScene(last->boundingRect().center()).toPoint());
+        QTRY_VERIFY(tip->property("visible").toBool());
+        QCOMPARE(tip->property("text").toString(), names.last());
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          last->mapToScene(last->boundingRect().center()).toPoint());
+        QTRY_VERIFY_WITH_TIMEOUT(!audio->effectPending() && audio->impulseResponse() == lastPath,
+                                 15000);
+        QPointer<QObject> retiredTip(tip);
+        const QString stressName = names[0] + " " + names[6];
+        // Exercise the same production recipes at every entry. The song/EQ
+        // labels and provider delegate are stressed at the presentation boundary;
+        // this does not invent upstream responses or replace selection commands.
+        QTRY_VERIFY_WITH_TIMEOUT(s.playback.engineReady(), 15000);
+        QTRY_VERIFY_WITH_TIMEOUT(!audio->providers()->busy(), 5000);
+        audio->setImpulseEnabled(false);
+        QTRY_VERIFY_WITH_TIMEOUT(!audio->effectPending(), 15000);
+        audio->providers()->importFile(QUrl::fromLocalFile(DSP_TEST_LIBRARY));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            !audio->effectPending() && !audio->providerId().isEmpty(),
+            qPrintable(audio->errorMessage() + " / " + audio->providers()->errorMessage()), 15000);
+        auto &catalog = s.catalog();
+        AudioEffectCatalogTestAccess::blockAutomaticRequests(catalog);
+        QTRY_VERIFY(AudioEffectCatalogTestAccess::ready(catalog));
+        AudioEffectCatalogTestAccess::page(catalog, s.api, {effect(200, stressName)});
+        AudioEffectCatalogTestAccess::page(catalog, s.api, {});
+        catalog.selectCategory("headphone");
+        AudioEffectCatalogTestAccess::page(catalog, s.api,
+                                           {QJsonObject{{"id", 300}, {"name", stressName}}});
+        AudioEffectCatalogTestAccess::page(catalog, s.api, {});
+        catalog.selectCategory("artist");
+        const QStringList sources{"local", "artist", "headphone", "market"};
+        for (int source = 1; source < sources.size(); ++source) {
+            const auto path = s.directory.filePath(sources[source] + ".wav");
+            QVERIFY(QFile::copy(lastPath, path));
+            audio->registerImpulseResponse(path, stressName + " " + sources[source],
+                                           sources[source] + "-layout");
+        }
+        int captureIndex = 0;
+        const auto checkName = [&](QQuickItem *label, QQuickItem *container, const QString &name) {
+            QVERIFY(label && container);
+            auto *text = label->property("textItem").value<QQuickItem *>();
+            QVERIFY(text);
+            QCOMPARE(label->property("text").toString(), name);
+            QCOMPARE(label->property("maximumLineCount").toInt(), 2);
+            const auto font = label->property("font").value<QFont>();
+            QCOMPARE(font.pixelSize(), 12 * theme.globalFontSizeScale() / 100);
+            QCOMPARE(label->property("lineHeight").toReal(), font.pixelSize() * 1.25);
+            QCOMPARE(text->property("lineCount").toInt(), 2);
+            QVERIFY(label->property("truncated").toBool());
+            QVERIFY(label->height() <= container->height());
+            if (!captures.isEmpty())
+                QVERIFY(window->grabWindow().save(
+                    captures +
+                    QString("/all-%1-%2.png").arg(QTest::currentDataTag()).arg(++captureIndex)));
+        };
+        for (int fontScale : {100, 125}) {
+            theme.setGlobalFontSizeScale(fontScale);
+            QVERIFY(popup->setProperty("tab", 0));
+            auto *song = visual(window->contentItem(), "songEffect-none");
+            QVERIFY(song && song->setProperty("text", stressName));
+            QTest::qWait(80);
+            checkName(visual(song, "effectPresetLabel"), song, stressName);
+            QVERIFY(popup->setProperty("tab", 1));
+            auto *eq = visual(window->contentItem(), "equalizerPreset-0");
+            QVERIFY(eq && eq->setProperty("text", stressName));
+            QTest::qWait(80);
+            checkName(visual(eq, "effectPresetLabel"), eq, stressName);
+            QVERIFY(popup->setProperty("tab", 2));
+            QVERIFY(popup->setProperty("libraryTab", 0));
+            auto *providerGrid = visual(window->contentItem(), "dspPresetGrid");
+            QVERIFY(providerGrid);
+            QVERIFY(QMetaObject::invokeMethod(providerGrid, "positionViewAtIndex", Q_ARG(int, 0),
+                                              Q_ARG(int, 0)));
+            QQuickItem *option = nullptr;
+            QTRY_VERIFY(option = visual(providerGrid, "dspPresetOption-gain"));
+            auto *provider = visual(option, "dspPresetButton-gain");
+            QVERIFY(provider);
+            auto data = option->parentItem()->property("modelData").toMap();
+            data["recommendedDevice"] = "headphone";
+            data["label"] = stressName;
+            QVERIFY(option->parentItem()->setProperty("modelData", data));
+            QTest::qWait(80);
+            auto *label = visual(option, "dspPresetLabel");
+            checkName(label, option, stressName);
+            auto *tag = visual(option, "dspPresetDeviceTag");
+            auto *settings = visual(option, "dspPresetSettings-gain");
+            QVERIFY(tag && tag->isVisible() && settings && settings->isVisible());
+            const auto textBounds = label->property("textBox").value<QQuickItem *>();
+            QVERIFY(textBounds);
+            QVERIFY(textBounds->mapRectToScene(textBounds->boundingRect()).right() <=
+                    tag->mapRectToScene(tag->boundingRect()).left());
+            QVERIFY(option->height() < providerGrid->property("cellHeight").toReal());
+            QVERIFY(popup->setProperty("libraryTab", 1));
+            for (int source = 0; source < sources.size(); ++source) {
+                QVERIFY(popup->setProperty("librarySourceTab", source));
+                QQuickItem *sourceGrid = nullptr;
+                QTRY_VERIFY(sourceGrid = visual(window->contentItem(), "myEffectGrid"));
+                const int expectedCount = source == 0 ? names.size() : 1;
+                QTRY_COMPARE(sourceGrid->property("count").toInt(), expectedCount);
+                QTest::qWait(80); // Model replacement retires the previous delegate.
+                QQuickItem *item = nullptr;
+                QTRY_VERIFY(item = visual(sourceGrid, "myEffectPreset-0"));
+                checkName(visual(item, "effectPresetLabel"), item,
+                          source == 0 ? names[0] : stressName + " " + sources[source]);
+            }
+            QVERIFY(popup->setProperty("tab", 3));
+            catalog.selectCategory("artist");
+            QTest::qWait(100);
+            QQuickItem *card = nullptr;
+            QTRY_VERIFY(card = visual(window->contentItem(), "effectCardName"));
+            auto *cardItem = card->parentItem()->parentItem()->parentItem();
+            checkName(card, cardItem, stressName);
+            auto *cardTip = cardItem->findChild<QObject *>("effectCardToolTip");
+            QVERIFY(cardTip);
+            QCOMPARE(cardTip->property("text").toString(), stressName);
+            catalog.selectCategory("headphone");
+            QTest::qWait(100);
+            QQuickItem *brand = nullptr;
+            QTRY_VERIFY(brand = visual(window->contentItem(), "effectBrandName"));
+            checkName(brand, brand->parentItem()->parentItem()->parentItem(), stressName);
+        }
+        QVERIFY(QMetaObject::invokeMethod(popup, "close"));
+        QTRY_VERIFY(!popup->property("visible").toBool());
+        QTRY_VERIFY(retiredTip.isNull());
+        QVERIFY(warnings.isEmpty());
+    }
     void windowedReadsStayBoundedAndRestoreColdAnchors()
     {
         Session s;

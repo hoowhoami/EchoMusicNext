@@ -1156,6 +1156,7 @@ target_sources(
             plugins/PluginRuntimeEffects.cpp
             plugins/PluginRuntimeBusiness.cpp
             plugins/PluginRuntimeSources.cpp
+            plugins/PluginRuntimeFavorites.cpp
             plugins/PluginRuntimeHostAccess.cpp
             plugins/PluginRuntimeSessionUi.cpp
             plugins/PluginRuntimeProcessIntercept.cpp
@@ -1197,6 +1198,18 @@ set(ECHO_PLUGINS_TEST_GROUPS
     plugin-runtime-backups
     plugin-runtime-window-network
     plugin-runtime-ecosystem
+)
+add_test(
+    NAME plugin-runtime-favorites
+    COMMAND
+        echo-plugin-runtime-test favoriteProviderPageAndPlayerbarStaySynchronized
+        favoriteProviderErrorsCancellationAndNamespaces
+        favoriteProviderTimeoutAbortsLinkedOperation
+        favoriteProviderReplacementAndAccountRetireOldResults
+)
+set_tests_properties(
+    plugin-runtime-favorites
+    PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software" TIMEOUT 45
 )
 add_test(
     NAME plugin-runtime-process-intercept
@@ -2707,4 +2720,18 @@ set_tests_properties(
     PROPERTIES ENVIRONMENT
                "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software;QT_QUICK_CONTROLS_STYLE=Basic"
                TIMEOUT 90
+)
+
+add_dependencies(echo-effect-catalog-test echo-dsp-test-provider)
+target_compile_definitions(
+    echo-effect-catalog-test PRIVATE DSP_TEST_LIBRARY="$<TARGET_FILE:echo-dsp-test-provider>"
+)
+add_test(NAME effect-name-layout COMMAND echo-effect-catalog-test
+                                         productionEffectNamesStayWithinRows
+)
+set_tests_properties(
+    effect-name-layout
+    PROPERTIES ENVIRONMENT
+               "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software;QT_QUICK_CONTROLS_STYLE=Basic"
+               TIMEOUT 60
 )

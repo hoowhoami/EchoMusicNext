@@ -309,7 +309,7 @@ Item {
                 leftMargin: 12
                 rightMargin: 12
                 cellWidth: (width - 24) / 3
-                cellHeight: 64
+                cellHeight: Math.max(64, 2 * Theme.font(12, Theme.semiboldWeight).pixelSize * 1.25 + Theme.font(9, Theme.regularWeight).pixelSize * 1.5 + 26)
                 model: plaza.resourceActive && visible ? plaza.catalog : null
                 onContentYChanged: {
                     if (moving || dragging || EchoWheelScroll.running)
@@ -351,6 +351,11 @@ Item {
                     height: brands.cellHeight - 7
                     padding: 8
                     hoverEnabled: true
+                    EchoToolTip {
+                        parent: brand
+                        text: brand.effect.name || ""
+                        requestedVisible: brand.hovered && brandName.truncated
+                    }
                     contentItem: RowLayout {
                         spacing: 8
                         EchoIcon {
@@ -363,12 +368,13 @@ Item {
                             Layout.fillHeight: false
                             Layout.fillWidth: true
                             spacing: 3
-                            Label {
+                            PlaybackEffectName {
+                                id: brandName
+                                objectName: "effectBrandName"
                                 Layout.fillWidth: true
+                                Layout.minimumWidth: 0
                                 text: brand.effect.name || ""
-                                elide: Text.ElideRight
                                 color: Theme.floating.text
-                                font: Theme.font(11, Theme.boldWeight)
                             }
                             Label {
                                 text: brand.effect._loading ? "" : (brand.effect.model_count || 0) + qsTr(" 款")

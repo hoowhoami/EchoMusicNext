@@ -26,6 +26,7 @@ Rectangle {
         id: hovered
     }
     EchoToolTip {
+        objectName: "effectCardToolTip"
         parent: card
         text: card.effect.name || ""
         description: card.unavailable || (card.effect.support_text || "")
@@ -57,12 +58,11 @@ Rectangle {
             Layout.fillWidth: true
             Layout.minimumWidth: 0
             spacing: 3
-            EchoTextTagRow {
+            PlaybackEffectName {
                 id: effectName
+                objectName: "effectCardName"
                 Layout.fillWidth: true
                 text: card.effect.name || ""
-                font: Theme.font(12, 650)
-                lineHeight: 18
                 color: Theme.floating.text
             }
             EchoTextTagRow {

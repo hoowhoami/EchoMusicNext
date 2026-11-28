@@ -143,6 +143,7 @@ QStringList PluginPackage::supportedFeatures()
                          "lyrics.resolvers",
                          "lyrics.write",
                          "playback.audioSource",
+                         "playback.favorites",
                          "playback.queues",
                          "lifecycle",
                          "operations",

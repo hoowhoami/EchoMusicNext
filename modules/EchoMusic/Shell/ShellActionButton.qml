@@ -30,7 +30,8 @@ EchoIconButton {
     property int projection: ShellActionModel.All
     objectName: (player ? "playerbar-action-" : "titlebar-action-") + actionId
     glyph: actionBusy && builtinId.length === 0 ? "" : actionIcon
-    iconCovered: player && builtinId === "play-toggle" && playbackLoading
+    readonly property bool favoriteBusy: player && builtinId === "favorite" && actionBusy
+    iconCovered: player && builtinId === "play-toggle" && playbackLoading || favoriteBusy
     animatePlayPause: player && builtinId === "play-toggle"
     playbackTooltipEnabled: player && builtinId === "play-toggle"
     playIconOffset: 1
@@ -89,7 +90,7 @@ EchoIconButton {
         anchors.centerIn: parent
         width: 18
         height: 18
-        active: button.actionBusy && button.builtinId.length === 0 && button.visualContentActive && button.visible
+        active: button.actionBusy && (button.builtinId.length === 0 || button.favoriteBusy) && button.visualContentActive && button.visible
         sourceComponent: EchoSpinner {
             objectName: "actionBusyIndicator"
             anchors.fill: parent

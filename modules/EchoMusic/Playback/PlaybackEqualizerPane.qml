@@ -82,6 +82,7 @@ ColumnLayout {
                 delegate: PlaybackEffectPresetButton {
                     required property var modelData
                     required property int index
+                    objectName: "equalizerPreset-" + index
                     width: (presets.width - 16) / 3
                     text: modelData.name
                     enabled: !pane.locked

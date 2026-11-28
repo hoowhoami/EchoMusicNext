@@ -111,7 +111,8 @@ EchoDialog {
             objectName: "settingsEffectFileList"
             Layout.fillWidth: true
             Layout.fillHeight: true
-            implicitHeight: count > 0 ? count * 52 + Math.max(0, count - 1) * spacing : emptyState.implicitHeight
+            readonly property real rowHeight: Math.max(52, 2 * Theme.font(12, Theme.semiboldWeight).pixelSize * 1.25 + 16)
+            implicitHeight: count > 0 ? count * rowHeight + Math.max(0, count - 1) * spacing : emptyState.implicitHeight
             clip: true
             reuseItems: true
             EchoViewPoolGuard {

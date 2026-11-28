@@ -4,6 +4,8 @@ add_library(
     ImpulseResponseInstaller.cpp
     ImpulseResponseImporter.h
     ImpulseResponseImporter.cpp
+    PlaybackFavoriteExtensions.h
+    PlaybackFavoriteExtensions.cpp
     PlaybackLibraryActions.h
     PlaybackLibraryActions.cpp
     SongCommands.h

@@ -86,6 +86,7 @@ RowLayout {
     }
     TaskbarIconButton {
         objectName: "taskbarFavorite"
+        enabled: controls.playback.libraryActions.favoriteEnabled
         glyph: controls.playback.libraryActions.favorite ? "heart-filled" : "heart"
         glyphColor: controls.playback.libraryActions.favorite ? "#ef4444" : controls.fg
         onClicked: controls.playback.libraryActions.toggleFavorite()

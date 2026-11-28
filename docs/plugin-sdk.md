@@ -94,7 +94,7 @@
 
 HLS 音频源沿用同一音源解析器返回 HTTP(S) 清单 URL，由宿主负责刷新、分片、解码和播放控制。直播暂停后停止接收，恢复接入当前直播位置；无需插件自带播放器。普通 HLS 音频与加密/DRM 的兼容范围分别验收。
 
-音源解析/转换（playback.audioSource）与多队列（playback.queues）已接入正常播放、预加载及宿主队列目录。作者用法见[音源与队列](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/audio-sources-and-queues.md)。
+音源解析/转换（playback.audioSource）、自定义曲目收藏（playback.favorites）与多队列（playback.queues）已接入正常播放、预加载及宿主队列目录。作者用法见[音源与队列](https://github.com/hoowhoami/EchoMusicNextPlugins/blob/main/docs/audio-sources-and-queues.md)。
 
 自定义曲目的 `sourceId` 由宿主添加插件所有者限定：例如本插件入队 `local:folder:song`，音源/歌词回调接收 `<插件ID>/local:folder:song`。匹配和解析须处理该限定身份；需要解析内部格式时只剥离自身插件前缀，不能把其它插件的来源当成本插件曲目。
 

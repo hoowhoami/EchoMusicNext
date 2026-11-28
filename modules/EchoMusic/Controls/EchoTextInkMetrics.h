@@ -19,6 +19,8 @@ class EchoTextInkMetrics : public QObject
     Q_PROPERTY(qreal lineHeight READ lineHeight WRITE setLineHeight NOTIFY lineHeightChanged FINAL)
     Q_PROPERTY(bool wrap READ wrap WRITE setWrap NOTIFY wrapChanged FINAL)
     Q_PROPERTY(bool elide READ elide WRITE setElide NOTIFY elideChanged FINAL)
+    Q_PROPERTY(int maximumLineCount READ maximumLineCount WRITE setMaximumLineCount NOTIFY
+                   maximumLineCountChanged FINAL)
     Q_PROPERTY(QString displayText READ displayText NOTIFY metricsChanged FINAL)
     Q_PROPERTY(qreal naturalWidth READ naturalWidth NOTIFY naturalWidthChanged FINAL)
     Q_PROPERTY(qreal inkCenterFromBaseline READ inkCenterFromBaseline NOTIFY metricsChanged FINAL)
@@ -53,6 +55,10 @@ public:
     {
         return elide_;
     }
+    int maximumLineCount() const
+    {
+        return maximumLineCount_;
+    }
     QString displayText() const
     {
         return displayText_;
@@ -80,6 +86,7 @@ public:
     void setLineHeight(qreal height);
     void setWrap(bool wrap);
     void setElide(bool elide);
+    void setMaximumLineCount(int count);
 signals:
     void fontChanged();
     void textChanged();
@@ -87,6 +94,7 @@ signals:
     void lineHeightChanged();
     void wrapChanged();
     void elideChanged();
+    void maximumLineCountChanged();
     void naturalWidthChanged();
     void metricsChanged();
 
@@ -98,5 +106,6 @@ private:
     QRectF outlineBounds_;
     qreal width_ = 0, lineHeight_ = 0, naturalWidth_ = 0, inkCenter_ = 0, firstLineInkCenter_ = 0;
     bool wrap_ = false, elide_ = false, hasInk_ = false;
+    int maximumLineCount_ = 0;
 };
 } // namespace EchoMusic

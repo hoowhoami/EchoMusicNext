@@ -73,6 +73,13 @@ PlaybackLibraryActions::PlaybackLibraryActions(PlaybackService &playback, ApiCli
         if (state == PlaylistMutationService::State::Ready && !m_writer.errorMessage().isEmpty())
             writeFailed(m_writer.errorMessage());
     });
+    auto *extensions = m_playback.favoriteExtensions();
+    connect(extensions, &PlaybackFavoriteExtensions::changed, this,
+            &PlaybackLibraryActions::changed);
+    connect(extensions, &PlaybackFavoriteExtensions::notice, this, &PlaybackLibraryActions::notice);
+    connect(&playback, &PlaybackService::changed, this,
+            [this, extensions] { extensions->setCurrent(m_playback.currentTrack()); });
+    extensions->setCurrent(m_playback.currentTrack());
     reset();
 }
 PlaybackLibraryActions::~PlaybackLibraryActions() = default;
@@ -228,8 +235,61 @@ void PlaybackLibraryActions::resumeFavorite()
     toggleFavoriteTrack(song, m_favoriteIntentRequiresCurrent);
     emit changed();
 }
+bool PlaybackLibraryActions::favoriteEnabled() const
+{
+    return m_playback.hasTrack() && favoriteAvailable() && !favoriteLoading() && !favoriteBusy() &&
+           (PlaybackFavoriteExtensions::custom(m_playback.currentTrack()) || !m_busy);
+}
+QString PlaybackLibraryActions::favoriteText() const
+{
+    if (!favoriteAvailable())
+        return tr("此曲目不支持收藏");
+    if (favoriteLoading())
+        return tr("正在读取收藏状态");
+    if (favoriteBusy())
+        return tr("正在保存收藏状态");
+    if (PlaybackFavoriteExtensions::custom(m_playback.currentTrack()) && !favoriteError().isEmpty())
+        return favoriteError();
+    return favorite() ? tr("取消收藏") : tr("收藏");
+}
+bool PlaybackLibraryActions::favoriteAvailable() const
+{
+    const auto track = m_playback.currentTrack();
+    return PlaybackFavoriteExtensions::custom(track)
+               ? m_playback.favoriteExtensions()->state(track).available
+               : track.playable();
+}
+bool PlaybackLibraryActions::favoriteKnown() const
+{
+    const auto track = m_playback.currentTrack();
+    return !PlaybackFavoriteExtensions::custom(track) ||
+           m_playback.favoriteExtensions()->state(track).known;
+}
+bool PlaybackLibraryActions::favoriteLoading() const
+{
+    const auto track = m_playback.currentTrack();
+    return PlaybackFavoriteExtensions::custom(track)
+               ? m_playback.favoriteExtensions()->state(track).loading
+               : m_favoriteIntent.has_value();
+}
+bool PlaybackLibraryActions::favoriteBusy() const
+{
+    const auto track = m_playback.currentTrack();
+    return PlaybackFavoriteExtensions::custom(track)
+               ? m_playback.favoriteExtensions()->state(track).busy
+               : m_busy && m_favoriteWrite;
+}
+QString PlaybackLibraryActions::favoriteError() const
+{
+    const auto track = m_playback.currentTrack();
+    return PlaybackFavoriteExtensions::custom(track)
+               ? m_playback.favoriteExtensions()->state(track).error
+               : m_error;
+}
 bool PlaybackLibraryActions::favoriteTrack(const PlaybackTrack &track) const
 {
+    if (PlaybackFavoriteExtensions::custom(track))
+        return m_playback.favoriteExtensions()->state(track).favorite;
     return m_favorites.contains(favoriteIdentity(track));
 }
 void PlaybackLibraryActions::toggleFavorite()
@@ -239,6 +299,10 @@ void PlaybackLibraryActions::toggleFavorite()
 }
 void PlaybackLibraryActions::toggleFavoriteTrack(const PlaybackTrack &song, bool requireCurrent)
 {
+    if (PlaybackFavoriteExtensions::custom(song)) {
+        m_playback.favoriteExtensions()->toggle(song, requireCurrent);
+        return;
+    }
     if (!m_api.currentAccountUserId()) {
         emit loginRequested();
         return;
@@ -253,8 +317,10 @@ void PlaybackLibraryActions::toggleFavoriteTrack(const PlaybackTrack &song, bool
         emit changed();
         return;
     }
-    if (song.hash.isEmpty())
+    if (song.hash.isEmpty()) {
+        emit notice(tr("此曲目不支持收藏"), true);
         return;
+    }
     m_likedId = list->value;
     m_removing = favoriteTrack(song);
     if (m_removing && !m_favorites.fileId(favoriteIdentity(song))) {

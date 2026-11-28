@@ -3,6 +3,7 @@ import QtQuick
 import QtQuick.Layouts
 import EchoMusic.Controls
 import EchoMusic.Theme
+import EchoMusic.Playback
 
 Rectangle {
     id: row
@@ -15,7 +16,7 @@ Rectangle {
     signal removeRequested
     signal draftEdited(string text)
     objectName: "settingsEffectFileRow"
-    height: 52
+    height: Math.max(52, 2 * name.lineHeight + 16)
     radius: Theme.itemRadius
     color: "transparent"
     EchoDashedFrame {
@@ -24,18 +25,26 @@ Rectangle {
         strokeColor: Theme.withAlpha(Theme.floating.text, .10)
         radius: Theme.itemRadius
     }
+    HoverHandler {
+        id: hovered
+    }
+    EchoToolTip {
+        parent: row
+        text: row.file.name
+        requestedVisible: hovered.hovered && !row.editing && name.truncated
+    }
     RowLayout {
         anchors.fill: parent
         anchors.leftMargin: 11
         anchors.rightMargin: 11
         spacing: 8
-        EchoTextTagRow {
+        PlaybackEffectName {
+            id: name
             objectName: "settingsEffectFileName"
             visible: !row.editing
             Layout.fillWidth: true
             Layout.minimumWidth: 0
             text: row.file.name
-            font: Theme.bodyFont
             color: Theme.floating.text
         }
         EchoTextField {

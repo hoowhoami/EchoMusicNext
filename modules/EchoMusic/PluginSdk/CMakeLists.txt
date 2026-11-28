@@ -83,6 +83,8 @@ qt_add_qml_module(
     EchoPluginPromise.h
     EchoPluginRegistration.h
     EchoPluginRegistration.cpp
+    EchoPluginFavorites.h
+    EchoPluginFavorites.cpp
     EchoPluginAudioSource.h
     EchoPluginAudioSource.cpp
     EchoPluginPlaylist.h

@@ -16,6 +16,12 @@ class PlaybackLibraryActions final : public QAbstractListModel
 {
     Q_OBJECT
     Q_PROPERTY(bool favorite READ favorite NOTIFY changed)
+    Q_PROPERTY(bool favoriteEnabled READ favoriteEnabled NOTIFY changed)
+    Q_PROPERTY(QString favoriteText READ favoriteText NOTIFY changed)
+    Q_PROPERTY(bool favoriteAvailable READ favoriteAvailable NOTIFY changed)
+    Q_PROPERTY(bool favoriteKnown READ favoriteKnown NOTIFY changed)
+    Q_PROPERTY(bool favoriteBusy READ favoriteBusy NOTIFY changed)
+    Q_PROPERTY(QString favoriteError READ favoriteError NOTIFY changed)
     Q_PROPERTY(bool signedIn READ signedIn NOTIFY changed)
     Q_PROPERTY(bool favoriteLoading READ favoriteLoading NOTIFY changed)
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
@@ -35,16 +41,17 @@ public:
     QVariant data(const QModelIndex &, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
     bool favorite() const;
+    bool favoriteEnabled() const;
+    QString favoriteText() const;
+    bool favoriteAvailable() const;
+    bool favoriteKnown() const;
+    bool favoriteBusy() const;
+    QString favoriteError() const;
     bool signedIn() const
     {
         return m_api.currentAccountUserId() != 0;
     }
-    bool favoriteLoading() const
-    {
-        // Background enumeration does not block a source-style optimistic like.
-        // Only resolving this explicit command's list/file identity is blocking.
-        return m_favoriteIntent.has_value();
-    }
+    bool favoriteLoading() const;
     bool busy() const
     {
         return m_busy;

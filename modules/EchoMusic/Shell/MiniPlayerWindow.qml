@@ -560,8 +560,8 @@ Window {
                                 colors: window.miniColors
                                 foreground: window.playback.libraryActions && window.playback.libraryActions.favorite ? "#ef4444" : hoverHighlighted ? Theme.floating.accentText : Theme.floating.iconMain
                                 glyph: window.playback.libraryActions && window.playback.libraryActions.favorite ? "heart-filled" : "heart"
-                                text: qsTr("收藏当前歌曲")
-                                enabled: window.playback.hasTrack && window.playback.libraryActions !== null
+                                text: window.playback.libraryActions ? window.playback.libraryActions.favoriteText : qsTr("收藏当前歌曲")
+                                enabled: window.playback.libraryActions !== null && window.playback.libraryActions.favoriteEnabled
                                 onClicked: window.playback.libraryActions.toggleFavorite()
                             }
                             EchoIconButton {

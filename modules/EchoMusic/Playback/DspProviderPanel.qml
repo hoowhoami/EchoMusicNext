@@ -12,6 +12,8 @@ GridView {
     required property PlaybackAudioControls audio
     property real uiScale: 1
     property Item editorHost: panel
+    readonly property font presetFont: Theme.font(12, Theme.semiboldWeight)
+    readonly property real presetHeight: Math.max(38, 2 * presetFont.pixelSize * 1.25 + 16)
     readonly property real presetGap: 7
     clip: true
     objectName: "dspPresetGrid"
@@ -20,7 +22,7 @@ GridView {
     // The final cell already includes a trailing row gap; retain the outer padding.
     bottomMargin: audio.providerPresets.length > 0 ? 12 - presetGap : 12
     cellWidth: (width - 20) / 2
-    cellHeight: 38 + presetGap
+    cellHeight: presetHeight + presetGap
     model: visible ? audio.providerPresets : null
     reuseItems: true
     EchoViewPoolGuard {
@@ -192,7 +194,7 @@ GridView {
         required property int index
         required property var modelData
         width: panel.cellWidth
-        height: 38
+        height: panel.presetHeight
         // GridView owns cell coordinates. Split the sole 7px column gap inside
         // the cells so both outside edges stay flush with the engine card.
         Item {
@@ -221,15 +223,16 @@ GridView {
                 anchors.right: presetSettings.visible ? presetSettings.left : parent.right
                 leftPadding: 9
                 rightPadding: 9
-                topPadding: 7
-                bottomPadding: 7
+                topPadding: 8
+                bottomPadding: 8
                 text: preset.modelData.label
-                font: Theme.font(11, Theme.boldWeight)
+                font: panel.presetFont
                 enabled: !panel.audio.effectPending
                 opacity: enabled ? 1 : 0.45
                 onClicked: panel.audio.selectProviderPreset(preset.modelData.id)
                 Accessible.description: preset.modelData.description || ""
                 EchoToolTip {
+                    objectName: "dspPresetToolTip"
                     parent: preset
                     text: preset.modelData.label
                     description: preset.modelData.description !== preset.modelData.label ? preset.modelData.description || "" : ""
@@ -237,7 +240,7 @@ GridView {
                 }
                 contentItem: Item {
                     implicitHeight: presetText.implicitHeight
-                    EchoTextTagRow {
+                    PlaybackEffectName {
                         id: presetText
                         objectName: "dspPresetLabel"
                         anchors.verticalCenter: parent.verticalCenter
@@ -245,7 +248,7 @@ GridView {
                         text: presetButton.text
                         font: presetButton.font
                         color: panel.audio.providerPresetId === preset.modelData.id ? Theme.floating.accentText : Theme.floating.text
-                        lineHeight: 16
+                        wrapTags: false
                         fillTextWidth: true
                         textTagSpacing: 6
                         EchoTag {

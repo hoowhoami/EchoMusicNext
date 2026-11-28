@@ -175,6 +175,10 @@ private slots:
     void lyricWritesLayersCancellationAndRetirement();
     void lyricResolverCancellationAbortsLinkedTransport();
     void lyricResolverErrorsContinueAndLateResultsAreDiscarded();
+    void favoriteProviderPageAndPlayerbarStaySynchronized();
+    void favoriteProviderErrorsCancellationAndNamespaces();
+    void favoriteProviderTimeoutAbortsLinkedOperation();
+    void favoriteProviderReplacementAndAccountRetireOldResults();
     void audioSourceStagesTransformsAndRetirement();
     void audioSourceTransformReturnSemantics();
     void audioSourceErrorsCancellationAndValidation();
