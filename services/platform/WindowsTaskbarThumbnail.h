@@ -10,7 +10,11 @@ namespace EchoMusic
 ///
 /// DWM asks for the bitmap with a window message, so the window is subclassed
 /// and the request answered synchronously with a DIB section fitted to the
-/// bounds DWM names (EchoMusic native taskbar/thumbnail.rs).
+/// bounds DWM names (EchoMusic native taskbar/thumbnail.rs). An artwork change
+/// invalidates DWM's cache and immediately re-supplies the current bitmaps:
+/// with an empty cache, a surface opened before the next request is answered
+/// (Task View, Alt+Tab) composes its card from the window's live geometry and
+/// the late reply never re-lays it out.
 class WindowsTaskbarThumbnail final : public QObject
 {
     Q_OBJECT
@@ -20,9 +24,11 @@ public:
     /// False when the DWM interface is unavailable (composition disabled).
     bool available() const;
     /// Shows the cover as the preview. Re-applying to the same window keeps the
-    /// subclass and the iconic opt-in installed and only invalidates the cached
-    /// bitmaps, because torn-down attributes hand the hover preview back to
-    /// Explorer's live snapshot mid-transition.
+    /// subclass and the iconic opt-in installed, invalidates DWM's cached
+    /// bitmaps and immediately re-supplies them: a preview displayed while the
+    /// cache is empty is composed from the window's live geometry, and the late
+    /// reply swaps pixels without re-laying the card out — a square cover would
+    /// read letterboxed by blank bands until the following display.
     ///
     /// A null cover is a no-op that keeps whatever preview is already showing:
     /// callers substitute their own placeholder, and tearing the opt-in down
@@ -48,9 +54,18 @@ private:
         QSize size;
         quint64 generation = 0;
     };
+    /// Rebuilds the slot's DIB from the composite when needed and hands it to
+    /// DWM as the window's iconic thumbnail or live preview. Used both to
+    /// answer a request and to refill the cache after an invalidation.
+    bool supply(quintptr handle, Bitmap &cache, QSize tile, bool preview);
     bool canReuse(const Bitmap &cache, QSize tile) const;
     quintptr m_hwnd = 0;
     QImage m_cover;
+    /// The current cover composited into a square no larger than the cover's
+    /// own long side (capped at the live-preview tile), rendered in apply() so
+    /// a DWM request only resamples and copies these pixels into a DIB instead
+    /// of running the painter on the synchronous request path.
+    QImage m_composite;
     quint64 m_generation = 0;
     /// DWM calls sendBitmap synchronously, so the environment is read once here
     /// rather than on every request.

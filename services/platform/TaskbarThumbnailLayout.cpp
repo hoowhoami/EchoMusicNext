@@ -75,4 +75,11 @@ QImage renderTaskbarThumbnail(const QImage &cover, QSize tile)
     painter.drawImage(taskbarThumbnailCoverRect(tile, cover.size()), cover);
     return image;
 }
+QSize taskbarCompositeTile(QSize coverSize)
+{
+    if (coverSize.isEmpty())
+        return {1, 1};
+    const int side = qMin(qMax(coverSize.width(), coverSize.height()), MaximumTaskbarTileSide);
+    return {side, side};
+}
 } // namespace EchoMusic

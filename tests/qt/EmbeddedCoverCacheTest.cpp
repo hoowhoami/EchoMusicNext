@@ -35,6 +35,10 @@ public:
     {
         player.m_track = track;
     }
+    static void startTrack(PlaybackService &player, const PlaybackTrack &track)
+    {
+        player.startTrack(track, -1, false);
+    }
 };
 class SongMetadataServiceTestAccess
 {
@@ -473,6 +477,49 @@ Window {
         QSignalSpy picturesClosed(&metadata, &SongMetadataService::closed);
         metadata.shutdown();
         QTRY_COMPARE(picturesClosed.size(), 1);
+        QSignalSpy playerClosed(&player, &PlaybackService::closed);
+        player.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(playerClosed.size(), 1, 15000);
+        api.shutdown();
+    }
+    void trackSwitchKeepsThePreviousCoverUntilTheNextSampleArrives()
+    {
+        QTemporaryDir dir;
+        EchoMusic::SettingsStore settings(dir.filePath("prefs.ini"));
+        settings.setValue(SettingsKeys::Playback::Volume, 0.0);
+        ApiClient api(DeviceIdentity::temporary());
+        QVERIFY(api.setNetworkTransport(1));
+        PlaybackService player(api, settings);
+        const auto coverA =
+            QUrl::fromLocalFile(image(dir.path(), "switch-a", qRgb(40, 120, 220))).toString();
+        const auto coverB =
+            QUrl::fromLocalFile(image(dir.path(), "switch-b", qRgb(220, 120, 40))).toString();
+
+        auto first = PlaybackTrack::fromDomain(song("switch:a"));
+        first.cover = coverA;
+        PlaybackServiceTestAccess::startTrack(player, first);
+        QTRY_VERIFY(!player.coverPng().isEmpty());
+        const QByteArray firstPng = player.coverPng();
+
+        auto second = PlaybackTrack::fromDomain(song("switch:b"));
+        second.cover = coverB;
+        PlaybackServiceTestAccess::startTrack(player, second);
+        // The switch publishes no pixels of its own: the previous cover keeps
+        // showing until the next sample decodes. Clearing at the switch would
+        // flash a placeholder through the native surfaces and make the taskbar
+        // preview invalidate DWM's cached bitmap twice per track, which is the
+        // window where an Alt+Tab opened mid-switch falls back to a snapshot of
+        // the window (or black) instead of the square cover.
+        QCOMPARE(player.coverPng(), firstPng);
+        QTRY_VERIFY(!player.coverPng().isEmpty() && player.coverPng() != firstPng);
+
+        // A track without artwork retires the pixels through its (empty) sample,
+        // so the placeholder replaces the stale cover instead of a clear.
+        auto third = PlaybackTrack::fromDomain(song("switch:c"));
+        third.cover.clear();
+        PlaybackServiceTestAccess::startTrack(player, third);
+        QTRY_VERIFY(player.coverPng().isEmpty());
+
         QSignalSpy playerClosed(&player, &PlaybackService::closed);
         player.shutdown();
         QTRY_COMPARE_WITH_TIMEOUT(playerClosed.size(), 1, 15000);
