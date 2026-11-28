@@ -108,8 +108,22 @@ bool WindowsTaskbarThumbnail::apply(quintptr hwnd, const QImage &cover)
     // window that is still animating the new track into place.
     m_cover = cover;
     ++m_generation;
+    // Render the composite once per artwork change, off DWM's request path: a
+    // request that lands right after a switch then only resamples these pixels
+    // into a DIB, which keeps the synchronous answer as short as the message
+    // queue allows.
+    m_composite = renderTaskbarThumbnail(cover, taskbarCompositeTile(cover.size()));
     // DWM caches the last preview until it is told the source changed.
     DwmInvalidateIconicBitmaps(handle);
+    // The invalidation empties DWM's cache, and a surface opened before the
+    // next request is answered (Task View, Alt+Tab) composes its card from the
+    // window's live geometry: the late reply swaps pixels but never re-lays the
+    // card out, so a square cover reads letterboxed by blank bands until the
+    // following display. Refill the cache right away with the shapes DWM has
+    // already accepted, so every later display starts from a cached bitmap.
+    if (!m_thumbnail.size.isEmpty())
+        supply(reinterpret_cast<quintptr>(handle), m_thumbnail, m_thumbnail.size, false);
+    supply(reinterpret_cast<quintptr>(handle), m_preview, taskbarLivePreviewTile(), true);
     return true;
 }
 void WindowsTaskbarThumbnail::clear()
@@ -125,6 +139,7 @@ void WindowsTaskbarThumbnail::clear()
     m_subclassed = false;
     m_hwnd = 0;
     m_cover = {};
+    m_composite = {};
 }
 void WindowsTaskbarThumbnail::sendBitmap(quint32 message, qintptr packedSize)
 {
@@ -138,22 +153,7 @@ void WindowsTaskbarThumbnail::sendBitmap(quint32 message, qintptr packedSize)
     // is square and the complete cover fits inside it.
     const QSize tile = preview ? taskbarLivePreviewTile()
                                : taskbarThumbnailTile(taskbarThumbnailRequest(packedSize));
-    Bitmap &cache = preview ? m_preview : m_thumbnail;
-    if (!canReuse(cache, tile)) {
-        if (cache.handle)
-            DeleteObject(reinterpret_cast<HGDIOBJ>(cache.handle));
-        const QImage image = renderTaskbarThumbnail(m_cover, tile);
-        cache.handle = quintptr(createTaskbarDib(image));
-        cache.size = tile;
-        cache.generation = m_generation;
-    }
-    if (!cache.handle)
-        return;
-    const HBITMAP bitmap = reinterpret_cast<HBITMAP>(cache.handle);
-    if (preview)
-        DwmSetIconicLivePreviewBitmap(handle, bitmap, nullptr, 0);
-    else
-        DwmSetIconicThumbnail(handle, bitmap, 0);
+    supply(reinterpret_cast<quintptr>(handle), preview ? m_preview : m_thumbnail, tile, preview);
     if (m_diagnostics) {
         if (preview)
             qCInfo(taskbarLog) << "live-preview" << "tile" << tile << "generation" << m_generation;
@@ -162,6 +162,37 @@ void WindowsTaskbarThumbnail::sendBitmap(quint32 message, qintptr packedSize)
                                << taskbarThumbnailRequest(packedSize) << "generation"
                                << m_generation;
     }
+}
+bool WindowsTaskbarThumbnail::supply(quintptr handle, Bitmap &cache, QSize tile, bool preview)
+{
+    if (!tile.isEmpty() && !canReuse(cache, tile)) {
+        if (cache.handle)
+            DeleteObject(reinterpret_cast<HGDIOBJ>(cache.handle));
+        // Resample the composite rendered in apply(): both tiles are square, so
+        // one smooth scale — down or up, whichever the tile needs — reproduces
+        // the direct render without running the painter here.
+        const QImage image = tile == m_composite.size()
+                                 ? m_composite
+                                 : m_composite.scaled(tile, Qt::IgnoreAspectRatio);
+        cache.handle = quintptr(createTaskbarDib(image));
+        cache.size = tile;
+        cache.generation = m_generation;
+    }
+    if (!cache.handle)
+        return false;
+    const HBITMAP bitmap = reinterpret_cast<HBITMAP>(cache.handle);
+    // DWM documents the calls as answers to its requests, but they set the
+    // window's cached representation wherever they run, and supplying them
+    // right after an invalidation is what keeps Task View from composing a
+    // card around the stale geometry.
+    const HRESULT result =
+        preview ? DwmSetIconicLivePreviewBitmap(reinterpret_cast<HWND>(handle), bitmap, nullptr, 0)
+                : DwmSetIconicThumbnail(reinterpret_cast<HWND>(handle), bitmap, 0);
+    if (m_diagnostics)
+        qCInfo(taskbarLog) << (preview ? "supply-preview" : "supply-thumbnail") << "tile" << tile
+                           << "generation" << m_generation << "result"
+                           << QString("0x%1").arg(uint(result), 8, 16, QLatin1Char('0'));
+    return SUCCEEDED(result);
 }
 #else
 WindowsTaskbarThumbnail::WindowsTaskbarThumbnail(QObject *parent) : QObject(parent) {}

@@ -94,8 +94,10 @@ private:
     bool m_coverEnabled = false;
     bool m_dark = false;
     bool m_progressCleared = true;
-    /// Track the preview was built from; identical tracks must not rebuild the
-    /// bitmap on every playback notification.
+    /// Identity of the pixels the preview was built from (size and hash of the
+    /// published cover PNG). A new track keeps the previous artwork until its
+    /// own sample lands, so the key follows the pixels: re-applying identical
+    /// bytes would invalidate DWM's cached bitmap for nothing.
     QString m_coverKey;
     bool m_previewApplied = false;
     bool m_thumbarHasTrack = false, m_thumbarPlaying = false, m_thumbarFavorite = false,

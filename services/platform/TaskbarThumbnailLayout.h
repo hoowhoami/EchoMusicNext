@@ -38,4 +38,10 @@ QRect taskbarBackdropSourceRect(QSize tile, QSize coverSize);
 /// bands beside a non-square cover read as part of the picture rather than as
 /// black bars.
 QImage renderTaskbarThumbnail(const QImage &cover, QSize tile);
+/// The square tile the preview composite is rendered at ahead of DWM's
+/// requests: never larger than the cover's own long side, capped at the
+/// live-preview tile. A square cover's render is then the identity, and every
+/// request resamples the artwork once, exactly like the direct render it
+/// replaces.
+QSize taskbarCompositeTile(QSize coverSize);
 } // namespace EchoMusic

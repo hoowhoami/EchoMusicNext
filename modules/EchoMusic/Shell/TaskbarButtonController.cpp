@@ -284,8 +284,12 @@ void TaskbarButtonController::refreshCover()
     if (!m_playback)
         return;
     const QByteArray png = m_playback->coverPng();
-    const QString key = m_playback->trackId() + QLatin1Char('|') + m_playback->cover() +
-                        QLatin1Char('|') + QString::number(png.size());
+    // The preview follows the published pixels, not the track identity: a new
+    // track keeps the previous artwork until its own sample lands, and a
+    // re-apply on identical pixels would invalidate DWM's cached bitmap and
+    // expose the fallback-snapshot window to the next Alt+Tab for nothing.
+    const QString key =
+        QString::number(png.size()) + QLatin1Char(':') + QString::number(qHash(png));
     if (m_previewApplied && key == m_coverKey)
         return;
     // A cover that cannot be decoded falls back to the placeholder cover, so

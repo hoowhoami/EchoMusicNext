@@ -22,6 +22,7 @@ private slots:
     void renderedTileFillsTheBandsWithArtwork();
     void renderedTileKeepsTheWholeCover();
     void renderedTileHandlesExtremeCoverShapes();
+    void compositeTileNeverExceedsTheCoverOrTheCap();
 };
 
 void TaskbarThumbnailLayoutTest::requestSplitsHighWordIntoWidth()
@@ -223,6 +224,23 @@ void TaskbarThumbnailLayoutTest::renderedTileHandlesExtremeCoverShapes()
     const QRect source = taskbarThumbnailCoverRect(QSize(150, 150), sliver.size());
     QCOMPARE(source.width(), 150);
     QCOMPARE(source.height(), 1);
+}
+
+void TaskbarThumbnailLayoutTest::compositeTileNeverExceedsTheCoverOrTheCap()
+{
+    // The composite is rendered ahead of DWM's requests and then resampled per
+    // tile: keeping it at the cover's own long side means a square cover's
+    // render is the identity and no tile resamples the artwork twice.
+    QCOMPARE(taskbarCompositeTile(QSize(256, 256)), QSize(256, 256));
+    QCOMPARE(taskbarCompositeTile(QSize(300, 200)), QSize(300, 300));
+    QCOMPARE(taskbarCompositeTile(QSize(200, 300)), QSize(300, 300));
+    QCOMPARE(taskbarCompositeTile(QSize(64, 64)), QSize(64, 64));
+    // A cover larger than the cap still yields a bounded square.
+    QCOMPARE(taskbarCompositeTile(QSize(1200, 900)), QSize(600, 600));
+    QCOMPARE(taskbarCompositeTile(QSize(4000, 4000)), QSize(600, 600));
+    // Degenerate sizes stay valid so a null-ish cover cannot crash apply().
+    QCOMPARE(taskbarCompositeTile(QSize()), QSize(1, 1));
+    QCOMPARE(taskbarCompositeTile(QSize(0, 48)), QSize(1, 1));
 }
 
 QTEST_MAIN(TaskbarThumbnailLayoutTest)

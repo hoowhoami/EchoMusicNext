@@ -995,8 +995,11 @@ void PlaybackService::startTrack(const PlaybackTrack &snapshot, int index,
     m_pendingLoudness = {};
     m_audioControls.setTrackLoudness({});
     // A track change invalidates pixels, not the last usable accent. Publish
-    // the next accent only when its asynchronous artwork sample is ready.
-    m_coverPng.clear();
+    // the next accent only when its asynchronous artwork sample is ready. The
+    // previous cover's pixels keep publishing until then: native surfaces
+    // (taskbar preview, SMTC) stay on a coherent image instead of flashing a
+    // placeholder, and the taskbar preview invalidates DWM's cached bitmap
+    // once per track instead of twice.
     m_artwork.load(m_track.cover, m_sequence);
     m_loaded = false;
     m_privileges = {};
